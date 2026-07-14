@@ -1,0 +1,280 @@
+# MCP skill router demo: an MCP server that suggests + serves skills, a LangGraph deep agent
+# that loads skills from it, a GEPA optimizer that A/B-tests skill improvements, an approval UI,
+# and a self-hosted Langfuse (v3) stack for traces / experiments.
+#
+# NOTE on "secrets" below: every credential in this file (postgres/redis/minio/clickhouse
+# passwords, the LANGFUSE_INIT_* API keys) is a LOCAL-DEMO LITERAL for the self-hosted stack on
+# your machine — not a real secret. Real keys (OPENROUTER_API_KEY) live only in .env (gitignored).
+services:
+  mcp:
+    build: .
+    command: python -m mcp_server.server
+    ports:
+      - "127.0.0.1:8000:8000"          # MCP streamable-HTTP
+    volumes:
+      - ./skills:/app/skills # promoted skills must reach the running server (hot reload)
+
+  agent:
+    build: .
+    # entrypoint (not command) so `docker compose run --rm agent "your task"` appends the task
+    entrypoint: ["python", "-m", "agent.run"]
+    env_file:
+      - .env                 # OPENROUTER_API_KEY (see .env.example)
+    environment:
+      MCP_URL: http://mcp:8000/mcp
+      LANGFUSE_BASE_URL: http://langfuse-web:3000
+      LANGFUSE_PUBLIC_KEY: ${LANGFUSE_PUBLIC_KEY:-pk-lf-local-demo}
+      LANGFUSE_SECRET_KEY: ${LANGFUSE_SECRET_KEY:-sk-lf-local-demo}
+    depends_on:
+      mcp:
+        condition: service_started
+      langfuse-web:
+        condition: service_healthy
+
+  # GEPA skill optimizer + A/B eval: `docker compose run --rm optimize pdf`
+  optimize:
+    build: .
+    entrypoint: ["python", "-m", "optimize.ab"]
+    env_file:
+      - .env
+    environment:
+      MCP_URL: http://mcp:8000/mcp
+      LANGFUSE_BASE_URL: http://langfuse-web:3000
+      LANGFUSE_PUBLIC_KEY: ${LANGFUSE_PUBLIC_KEY:-pk-lf-local-demo}
+      LANGFUSE_SECRET_KEY: ${LANGFUSE_SECRET_KEY:-sk-lf-local-demo}
+    volumes:
+      - ./skills:/app/skills
+      - ./runs:/app/runs
+    depends_on:
+      mcp:
+        condition: service_started
+      langfuse-web:
+        condition: service_healthy
+    profiles: ["optimize"]   # only runs on demand, not with `docker compose up`
+
+  # Success/failure mining over real Langfuse traces: `docker compose run --rm optimize-mine pdf`
+  optimize-mine:
+    build: .
+    entrypoint: ["python", "-m", "optimize.mine"]
+    env_file:
+      - .env
+    environment:
+      LANGFUSE_BASE_URL: http://langfuse-web:3000
+      LANGFUSE_PUBLIC_KEY: ${LANGFUSE_PUBLIC_KEY:-pk-lf-local-demo}
+      LANGFUSE_SECRET_KEY: ${LANGFUSE_SECRET_KEY:-sk-lf-local-demo}
+    volumes:
+      - ./skills:/app/skills
+    depends_on:
+      langfuse-web:
+        condition: service_healthy
+    profiles: ["optimize"]
+
+  # Continuous loop — mine health, optimize the failing skills: `docker compose run --rm optimize-loop`
+  optimize-loop:
+    build: .
+    entrypoint: ["python", "-m", "optimize.loop"]
+    env_file:
+      - .env
+    environment:
+      MCP_URL: http://mcp:8000/mcp
+      LANGFUSE_BASE_URL: http://langfuse-web:3000
+      LANGFUSE_PUBLIC_KEY: ${LANGFUSE_PUBLIC_KEY:-pk-lf-local-demo}
+      LANGFUSE_SECRET_KEY: ${LANGFUSE_SECRET_KEY:-sk-lf-local-demo}
+    volumes:
+      - ./skills:/app/skills
+      - ./runs:/app/runs
+    depends_on:
+      mcp:
+        condition: service_started
+      langfuse-web:
+        condition: service_healthy
+    profiles: ["optimize"]
+
+  # Live canary promotion (ε-split + Thompson gate): `docker compose run --rm optimize-canary pdf`
+  optimize-canary:
+    build: .
+    entrypoint: ["python", "-m", "optimize.canary"]
+    env_file:
+      - .env
+    environment:
+      MCP_URL: http://mcp:8000/mcp
+      LANGFUSE_BASE_URL: http://langfuse-web:3000
+      LANGFUSE_PUBLIC_KEY: ${LANGFUSE_PUBLIC_KEY:-pk-lf-local-demo}
+      LANGFUSE_SECRET_KEY: ${LANGFUSE_SECRET_KEY:-sk-lf-local-demo}
+    volumes:
+      - ./skills:/app/skills
+      - ./runs:/app/runs
+    depends_on:
+      mcp:
+        condition: service_started
+      langfuse-web:
+        condition: service_healthy
+    profiles: ["optimize"]
+
+  # Approval UI (review A/B results, promote skills): http://localhost:8080
+  ui:
+    build: .
+    command: python -m uvicorn ui.app:app --host 0.0.0.0 --port 8080
+    ports:
+      - "127.0.0.1:8080:8080"
+    env_file:
+      - .env
+    environment:
+      MCP_URL: http://mcp:8000/mcp
+      LANGFUSE_BASE_URL: http://langfuse-web:3000
+      LANGFUSE_PUBLIC_KEY: ${LANGFUSE_PUBLIC_KEY:-pk-lf-local-demo}
+      LANGFUSE_SECRET_KEY: ${LANGFUSE_SECRET_KEY:-sk-lf-local-demo}
+      LANGFUSE_PUBLIC_URL: http://localhost:3100   # where the browser reaches Langfuse
+    volumes:
+      - ./skills:/app/skills
+      - ./runs:/app/runs
+    depends_on:
+      mcp:
+        condition: service_started
+
+  # ---------------------------------------------------------------------------
+  # Self-hosted Langfuse v3 (adapted from the official docker-compose.yml).
+  # UI: http://localhost:3100 — login demo@local.dev / localdemo123
+  # ---------------------------------------------------------------------------
+  langfuse-worker:
+    image: docker.io/langfuse/langfuse-worker:3
+    restart: always
+    depends_on: &langfuse-depends-on
+      postgres:
+        condition: service_healthy
+      minio:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      clickhouse:
+        condition: service_healthy
+    environment: &langfuse-env
+      DATABASE_URL: postgresql://postgres:postgres@postgres:5432/postgres
+      SALT: local-demo-salt
+      ENCRYPTION_KEY: "0000000000000000000000000000000000000000000000000000000000000000" # local demo
+      TELEMETRY_ENABLED: "false"
+      CLICKHOUSE_MIGRATION_URL: clickhouse://clickhouse:9000
+      CLICKHOUSE_URL: http://clickhouse:8123
+      CLICKHOUSE_USER: clickhouse
+      CLICKHOUSE_PASSWORD: clickhouse
+      CLICKHOUSE_CLUSTER_ENABLED: "false"
+      LANGFUSE_S3_EVENT_UPLOAD_BUCKET: langfuse
+      LANGFUSE_S3_EVENT_UPLOAD_REGION: auto
+      LANGFUSE_S3_EVENT_UPLOAD_ACCESS_KEY_ID: minio
+      LANGFUSE_S3_EVENT_UPLOAD_SECRET_ACCESS_KEY: miniosecret
+      LANGFUSE_S3_EVENT_UPLOAD_ENDPOINT: http://minio:9000
+      LANGFUSE_S3_EVENT_UPLOAD_FORCE_PATH_STYLE: "true"
+      LANGFUSE_S3_EVENT_UPLOAD_PREFIX: events/
+      LANGFUSE_S3_MEDIA_UPLOAD_BUCKET: langfuse
+      LANGFUSE_S3_MEDIA_UPLOAD_REGION: auto
+      LANGFUSE_S3_MEDIA_UPLOAD_ACCESS_KEY_ID: minio
+      LANGFUSE_S3_MEDIA_UPLOAD_SECRET_ACCESS_KEY: miniosecret
+      LANGFUSE_S3_MEDIA_UPLOAD_ENDPOINT: http://minio:9000
+      LANGFUSE_S3_MEDIA_UPLOAD_FORCE_PATH_STYLE: "true"
+      LANGFUSE_S3_MEDIA_UPLOAD_PREFIX: media/
+      REDIS_HOST: redis
+      REDIS_PORT: "6379"
+      REDIS_AUTH: localredissecret
+
+  langfuse-web:
+    image: docker.io/langfuse/langfuse:3
+    restart: always
+    depends_on: *langfuse-depends-on
+    ports:
+      - "127.0.0.1:3100:3000"          # host :3100 (host :3000 is often taken)
+    environment:
+      <<: *langfuse-env
+      NEXTAUTH_URL: http://localhost:3100
+      NEXTAUTH_SECRET: local-demo-nextauth-secret
+      # Headless init: creates org/project/user + API keys on first boot (no UI clicks).
+      # These are local-demo literals, not secrets.
+      LANGFUSE_INIT_ORG_ID: local
+      LANGFUSE_INIT_ORG_NAME: Local
+      LANGFUSE_INIT_PROJECT_ID: skill-router
+      LANGFUSE_INIT_PROJECT_NAME: skill-router
+      LANGFUSE_INIT_PROJECT_PUBLIC_KEY: pk-lf-local-demo
+      LANGFUSE_INIT_PROJECT_SECRET_KEY: sk-lf-local-demo
+      LANGFUSE_INIT_USER_EMAIL: demo@local.dev
+      LANGFUSE_INIT_USER_NAME: Demo
+      LANGFUSE_INIT_USER_PASSWORD: localdemo123
+    healthcheck:
+      # the server binds the external interface, not loopback — probe the container's own IP
+      test: ["CMD-SHELL", "wget -qO- http://$$(hostname -i):3000/api/public/health || exit 1"]
+      interval: 5s
+      timeout: 5s
+      retries: 60
+      start_period: 30s
+
+  clickhouse:
+    image: docker.io/clickhouse/clickhouse-server
+    restart: always
+    user: "101:101"
+    environment:
+      CLICKHOUSE_DB: default
+      CLICKHOUSE_USER: clickhouse
+      CLICKHOUSE_PASSWORD: clickhouse
+    volumes:
+      - langfuse_clickhouse_data:/var/lib/clickhouse
+      - langfuse_clickhouse_logs:/var/log/clickhouse-server
+    healthcheck:
+      test: wget --no-verbose --tries=1 --spider http://localhost:8123/ping || exit 1
+      interval: 5s
+      timeout: 5s
+      retries: 10
+      start_period: 1s
+
+  minio:
+    image: cgr.dev/chainguard/minio
+    restart: always
+    entrypoint: sh
+    # create the 'langfuse' bucket before starting the service
+    command: -c 'mkdir -p /data/langfuse && minio server --address ":9000" --console-address ":9001" /data'
+    environment:
+      MINIO_ROOT_USER: minio
+      MINIO_ROOT_PASSWORD: miniosecret
+    volumes:
+      - langfuse_minio_data:/data
+    healthcheck:
+      test: ["CMD", "mc", "ready", "local"]
+      interval: 1s
+      timeout: 5s
+      retries: 5
+      start_period: 1s
+
+  redis:
+    image: docker.io/redis:7
+    restart: always
+    command: >
+      --requirepass localredissecret
+      --maxmemory-policy noeviction
+    volumes:
+      - langfuse_redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 3s
+      timeout: 10s
+      retries: 10
+
+  postgres:
+    image: docker.io/postgres:17
+    restart: always
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      interval: 3s
+      timeout: 3s
+      retries: 10
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+      POSTGRES_DB: postgres
+      TZ: UTC
+      PGTZ: UTC
+    volumes:
+      - langfuse_postgres_data:/var/lib/postgresql/data
+
+volumes:
+  langfuse_postgres_data:
+  langfuse_clickhouse_data:
+  langfuse_clickhouse_logs:
+  langfuse_minio_data:
+  langfuse_redis_data:

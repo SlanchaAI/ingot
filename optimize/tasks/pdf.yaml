@@ -1,0 +1,26 @@
+# Eval task set for the `pdf` skill, split train / holdout so the optimizer can't just memorize:
+# GEPA evolves the skill on `train`; champion vs challenger are A/B-judged (and promotion is decided)
+# on `holdout` — different PDF operations the optimizer never saw, so a win means the skill generalized.
+# Tasks ask for CODE explicitly — the A/B agent has (empty) filesystem tools, and "merge these files"
+# would make it go look for files instead of demonstrating the skill.
+skill: pdf
+
+train:
+  - task: "Write a complete Python script that merges three PDFs (a.pdf, b.pdf, c.pdf) into one file and adds page numbers at the bottom of every page."
+    rubric: "Working Python code that merges with pypdf (PdfWriter/PdfReader) and stamps page numbers (e.g. reportlab overlay + merge_page). Code must be complete and runnable, not pseudocode."
+  - task: "Write Python code to extract all text from report.pdf — it might be a scanned document, so handle that case too."
+    rubric: "Uses pypdf page.extract_text() for the digital case AND falls back to OCR (e.g. pytesseract/ocrmypdf or pdf2image+tesseract) when extraction returns empty. Mentions how to detect the scanned case."
+  - task: "Write a Python script that splits big.pdf into separate files, one per page, named page_001.pdf, page_002.pdf, ..."
+    rubric: "Correct pypdf loop creating one PdfWriter per page, zero-padded filenames as requested, complete runnable code."
+  - task: "Write a Python script that adds a diagonal 'CONFIDENTIAL' watermark to every page of contract.pdf."
+    rubric: "Creates a watermark layer (e.g. reportlab canvas with rotation + transparency) and merges it onto each page with pypdf merge_page. Complete runnable code."
+
+holdout:
+  - task: "Write Python code to fill out the form fields in application.pdf: set name to 'Jane Doe' and check the 'agree' checkbox, then save it."
+    rubric: "Uses a proper form-filling approach (pypdf update_page_form_field_values or pdftk/fillpdf), handles the checkbox value correctly (e.g. /Yes), sets NeedAppearances or equivalent so values render, saves a new file."
+  - task: "Write Python code that rotates only the landscape pages of mixed.pdf to portrait and saves the result."
+    rubric: "Detects orientation per page (mediabox width vs height), rotates only those pages (page.rotate(90) or similar), writes all pages out in order. Complete runnable code."
+  - task: "Write a Python script that password-protects report.pdf with owner and user passwords and saves an encrypted copy."
+    rubric: "Uses pypdf PdfWriter.encrypt with user and owner passwords (AES if available), writes a new encrypted file. Complete runnable code, not pseudocode."
+  - task: "Write Python code that extracts all embedded raster images from slides.pdf and saves each as a PNG."
+    rubric: "Iterates pages and their images (pypdf page.images or PyMuPDF get_images), writes each out as PNG with a sensible filename. Complete runnable code."

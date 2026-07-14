@@ -1,0 +1,7 @@
+archive/
+.env
+.git/
+__pycache__/
+*.pyc
+.hf_cache/
+.pytest_cache/

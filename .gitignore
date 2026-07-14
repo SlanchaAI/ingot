@@ -1,0 +1,23 @@
+# secrets & local config — never commit
+.env
+*.env
+!.env.example
+
+# archived / non-demo code (kept locally, out of the repo)
+archive/
+
+# logs & scratch
+*.log
+logs/
+memory/
+runs/
+
+# python
+__pycache__/
+*.pyc
+.hf_cache/
+.venv/
+
+# fetched skills are optional & not redistributed here (scripts/fetch_skills.sh)
+skills/*
+!skills/.gitkeep

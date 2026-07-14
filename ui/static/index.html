@@ -1,0 +1,122 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>skill-router — optimize &amp; promote</title>
+<style>
+  :root { color-scheme: light dark; font-family: ui-sans-serif, system-ui, sans-serif; }
+  body { max-width: 960px; margin: 2rem auto; padding: 0 1rem; line-height: 1.45; }
+  h1 { font-size: 1.3rem; } h2 { font-size: 1.05rem; margin-top: 2rem; }
+  table { border-collapse: collapse; width: 100%; }
+  td, th { text-align: left; padding: .35rem .6rem; border-bottom: 1px solid #8884; vertical-align: top; }
+  button { cursor: pointer; padding: .25rem .7rem; border-radius: 6px; border: 1px solid #8886; background: transparent; color: inherit; }
+  button.primary { background: #2563eb; border-color: #2563eb; color: #fff; }
+  button:disabled { opacity: .4; cursor: default; }
+  pre { background: #8881; padding: .8rem; border-radius: 8px; overflow-x: auto; font-size: .8rem; max-height: 24rem; }
+  .muted { opacity: .65; font-size: .85rem; }
+  .score { font-variant-numeric: tabular-nums; }
+  .win { color: #16a34a; font-weight: 600; } .lose { opacity: .7; }
+  #log { max-height: 12rem; }
+  a { color: #2563eb; }
+</style>
+</head>
+<body>
+<h1>skill-router — optimize &amp; promote</h1>
+<p class="muted">GEPA evolves a skill's SKILL.md, champion vs challenger are A/B-evaluated through the
+full agent, and approving here promotes the winner + hot-reloads the MCP server.
+Deep traces: <a id="lf" href="#" target="_blank">Langfuse</a>.</p>
+
+<h2>Skills with eval task sets</h2>
+<table id="skills"><thead><tr><th>skill</th><th>description</th><th></th></tr></thead><tbody></tbody></table>
+
+<div id="run-section" hidden><h2>Optimizer log</h2><pre id="log"></pre></div>
+
+<div id="pending-section" hidden>
+  <h2>Pending challenger: <span id="pending-skill"></span></h2>
+  <p id="pending-scores" class="score"></p>
+  <p><button class="primary" id="approve">Approve &amp; promote (hot reload)</button>
+     <button id="reject">Reject</button>
+     <span id="pending-msg" class="muted"></span></p>
+  <pre id="diff"></pre>
+</div>
+
+<script>
+const $ = s => document.querySelector(s);
+let langfuseUrl = "#", currentPending = null;
+// skill descriptions come from third-party skill packs / the agent's create_skill — escape before innerHTML
+const esc = t => { const d = document.createElement("div"); d.textContent = t; return d.innerHTML; };
+
+async function j(url, opts) { const r = await fetch(url, opts); if (!r.ok) throw new Error(await r.text()); return r.json(); }
+
+async function refresh() {
+  const [skills, runs] = await Promise.all([j("/api/skills"), j("/api/runs")]);
+  const withTasks = skills.filter(s => s.has_tasks);
+  $("#skills tbody").innerHTML = withTasks.map(s => `
+    <tr><td><b>${esc(s.name)}</b>${s.pending ? " ⏳" : ""}</td>
+        <td class="muted">${esc(s.description.slice(0, 110))}…</td>
+        <td>
+          <button onclick="optimize('${esc(s.name)}')" ${s.status === "running" ? "disabled" : ""}>
+            ${s.status === "running" ? "optimizing…" : "Optimize"}</button>
+          ${s.pending ? `<button class="primary" onclick="showPending('${esc(s.name)}')">Review</button>` : ""}
+        </td></tr>`).join("");
+
+  const active = Object.entries(runs).filter(([, r]) => r.log.length);
+  if (active.length) {
+    $("#run-section").hidden = false;
+    $("#log").textContent = active.map(([s, r]) => r.log.map(l => `[${s}] ${l}`).join("\n")).join("\n");
+    $("#log").scrollTop = $("#log").scrollHeight;
+  }
+  const pending = withTasks.find(s => s.pending);
+  if (pending && !currentPending) showPending(pending.name);
+  if (!skills.some(s => s.pending)) { $("#pending-section").hidden = true; currentPending = null; }
+}
+
+async function optimize(skill) { await j(`/api/optimize/${skill}`, {method: "POST"}); refresh(); }
+
+async function showPending(skill) {
+  const p = await j(`/api/pending/${skill}`);
+  currentPending = skill;
+  $("#pending-section").hidden = false;
+  $("#pending-skill").textContent = skill;
+  const c = p.ab.champion, ch = p.ab.challenger, win = ch.mean > c.mean;
+  let tok = "";
+  if (c.tokens && ch.tokens) {
+    const dOut = ch.tokens.mean_output - c.tokens.mean_output;
+    const dIn = ch.tokens.mean_input - c.tokens.mean_input;
+    const regress = dOut > 0.1 * c.tokens.mean_output;  // output tokens are the cost that matters
+    tok = `<br>output tokens/task: <b${regress ? ' style="color:#dc2626"' : ""}>` +
+      `${c.tokens.mean_output.toFixed(0)} → ${ch.tokens.mean_output.toFixed(0)} ` +
+      `(${dOut >= 0 ? "+" : ""}${dOut.toFixed(0)})${regress ? " ⚠" : ""}</b> · ` +
+      `input ${c.tokens.mean_input.toFixed(0)} → ${ch.tokens.mean_input.toFixed(0)} ` +
+      `(${dIn >= 0 ? "+" : ""}${dIn.toFixed(0)})`;
+  }
+  $("#pending-scores").innerHTML =
+    `champion <b class="${win ? "lose" : "win"}">${c.mean.toFixed(3)}</b> vs ` +
+    `challenger <b class="${win ? "win" : "lose"}">${ch.mean.toFixed(3)}</b> ` +
+    `<span class="muted">(judge score, ${c.scores.length} tasks · GEPA inner loop ` +
+    `${p.gepa.seed_score.toFixed(2)}→${p.gepa.best_score.toFixed(2)} · ` +
+    `<a href="${langfuseUrl}" target="_blank">runs in Langfuse: ${p.dataset}</a>)${tok}` +
+    (p.changed && p.changed.length ? `<br>components changed: <b>${esc(p.changed.join(", "))}</b>` : "") +
+    (p.gate && !p.gate.promotable
+      ? `<br><b style="color:#dc2626">⛔ promotion gate: ${esc(p.gate.blocked.join("; "))}</b> — review carefully before overriding.`
+      : (p.gate ? `<br><span style="color:#16a34a">✓ passes promotion gate</span>` : "")) +
+    `</span>`;
+  $("#diff").textContent = p.diff || "(no textual diff)";
+  $("#pending-msg").textContent = "";
+}
+
+$("#approve").onclick = async () => {
+  const r = await j(`/api/promote/${currentPending}`, {method: "POST"});
+  $("#pending-msg").textContent = r.result; refresh();
+};
+$("#reject").onclick = async () => {
+  const r = await j(`/api/reject/${currentPending}`, {method: "POST"});
+  $("#pending-msg").textContent = r.result; refresh();
+};
+
+j("/api/config").then(c => { langfuseUrl = c.langfuse_url; $("#lf").href = c.langfuse_url; });
+refresh(); setInterval(refresh, 3000);
+</script>
+</body>
+</html>
