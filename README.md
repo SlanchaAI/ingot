@@ -1,5 +1,7 @@
 # Ingot
 
+**Mine your traffic. Refine your skills.**
+
 <p align="center">
   <img src="docs/ingot.jpg" alt="Ingot, the mascot, handing skills out to AI agents" width="720">
 </p>
