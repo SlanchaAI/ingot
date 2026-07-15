@@ -451,22 +451,25 @@ Write paths, and what guards each:
 ### Optional: ML prompt-injection classifier
 
 Beyond the regex heuristic, `create_skill` can run the **[vLLM Semantic Router](https://github.com/vllm-project/semantic-router)
-jailbreak detector** (`llm-semantic-router/mmbert32k-jailbreak-detector-merged`, an mmBERT CPU
-classifier). It's **opt-in** — its `transformers`+`torch` deps are kept out of the base image so
-`docker compose up` stays light. Enable it:
+jailbreak detector** ([`llm-semantic-router/mmbert32k-jailbreak-detector-merged`](https://huggingface.co/llm-semantic-router/mmbert32k-jailbreak-detector-merged),
+an mmBERT CPU classifier, Apache-2.0). Inference runs on **ONNX Runtime** via the model repo's
+bundled ONNX export — no `torch`/`transformers`; the deps already ship with the base image via
+fastembed. It's **opt-in**, and like the skills, the model is **not redistributed here** — it
+downloads (~1.2GB, one-time) from Hugging Face into the HF cache on first use, under its own
+upstream license. Just point the guard at the model:
 
 ```bash
-# 1. install the extra deps (into the mcp image, or a derived one)
-pip install -r requirements-guard.txt
-# 2. point the guard at the model (empty = disabled)
+# point the guard at the model (empty = disabled)
 export SKILL_GUARD_MODEL=llm-semantic-router/mmbert32k-jailbreak-detector-merged
 # optional: export SKILL_GUARD_THRESHOLD=0.7   (the classifier's default)
+# optional: export SKILL_GUARD_ONNX_FILE=onnx/model.onnx   (which export to load)
 ```
 
 With it set, every `create_skill` call is scored and a jailbreak/injection classification above the
-threshold is rejected alongside the regex check. When the deps or model are missing it **degrades
-silently** to the regex heuristic — no crash. To run it in Docker, add the two lines to `requirements.txt`
-(or build a derived image) and set `SKILL_GUARD_MODEL` on the `mcp` service in `docker-compose.yml`.
+threshold is rejected alongside the regex check (~20ms per call on CPU). When the model is missing
+or the download fails it **degrades silently** to the regex heuristic — no crash. To run it in
+Docker, set `SKILL_GUARD_MODEL` on the `mcp` service in `docker-compose.yml` (mount a persistent
+`HF_HOME` to keep the one-time download).
 
 What is deliberately **not** done (and why): we do **not** denylist shell commands, `.env`/credential
 mentions, or `curl … | sh` in skill bodies — legitimate skills routinely contain code, install steps,
@@ -493,15 +496,12 @@ docker run --rm -v $(pwd):/app -w /app skill-router-mcp python -m pytest tests -
 ```
 
 One **opt-in integration test** exercises the real jailbreak classifier and auto-skips unless the
-model is present — to run it, build an image with the guard deps and set the model:
+model is configured — no extra image needed (inference is ONNX, and the deps are already in the
+base image); just set the model and let it download to the cache:
 
 ```bash
-docker build -t skill-router-guard - <<'DOCKER'
-FROM skill-router-mcp
-RUN pip install --no-cache-dir "transformers>=4.44" torch --extra-index-url https://download.pytorch.org/whl/cpu
-DOCKER
 docker run --rm -e SKILL_GUARD_MODEL=llm-semantic-router/mmbert32k-jailbreak-detector-merged \
-  -e HF_HOME=/app/.hf_cache -v $(pwd):/app -w /app skill-router-guard python -m pytest tests -q
+  -e HF_HOME=/app/.hf_cache -v $(pwd):/app -w /app skill-router-mcp python -m pytest tests -q
 ```
 
 ## What's next

@@ -115,7 +115,7 @@ def test_guard_disabled_is_noop(monkeypatch):
 
 
 @pytest.mark.skipif(not os.environ.get("SKILL_GUARD_MODEL"),
-                    reason="jailbreak model not configured (set SKILL_GUARD_MODEL + install requirements-guard.txt)")
+                    reason="jailbreak model not configured (set SKILL_GUARD_MODEL to enable the ONNX classifier)")
 def test_real_jailbreak_model_flags_attack_and_passes_benign():
     # integration test: runs only in the guard image where the real mmBERT classifier is present.
     guard_model._pipeline.cache_clear()
