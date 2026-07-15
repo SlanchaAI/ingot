@@ -483,7 +483,10 @@ as untrusted until reviewed. Further reading:
 name/traversal validation, YAML-injection round-trip, collision, the ML classifier's decision logic),
 the optimizer (promotion gate, judge parsing/clamping + ensemble aggregation, canary Thompson decision,
 length penalty, execution-based code check + sandbox, task drafting, continuous-loop health-gating,
-token-ledger thread-safety), and the router (retrieval, thresholds, `nearest`):
+token-ledger thread-safety), the router (retrieval, thresholds, `nearest`, routing-eval metrics),
+the registry (multi-root precedence, revisions, harness variants), and promotion (behavioral
+evidence, snapshot/staged swap + rollback, server-side revision refresh). The suite is hermetic —
+it passes with or without fetched skills in `skills/`:
 
 ```bash
 docker run --rm -v $(pwd):/app -w /app skill-router-mcp python -m pytest tests -q
