@@ -91,8 +91,8 @@
   .reg.tl { top: 1.4rem; left: -.2rem; } .reg.tr { top: 1.4rem; right: -.2rem; }
 
   /* ---- section scaffold (deck: hairline + mono eyebrow) ---- */
-  .band { padding-top: 2.6rem; }
-  .band + .band { margin-top: 1.4rem; }
+  .band { padding-top: 3.8rem; }
+  .band + .band { margin-top: 2.2rem; }
   .eyebrow { display: flex; align-items: baseline; justify-content: space-between; gap: 1rem;
     border-top: 1px solid var(--ink); padding-top: .55rem;
     font-family: var(--mono); font-size: .72rem; letter-spacing: .12em; text-transform: uppercase; }
@@ -100,8 +100,8 @@
   .eyebrow .lead .n { color: var(--rust); }
   .eyebrow .side { color: var(--ink-3); }
   h2.head { font-family: var(--serif); font-weight: 600; letter-spacing: -.015em; line-height: 1.02;
-    font-size: clamp(2rem, 5vw, 3.4rem); margin: 1.1rem 0 0; text-wrap: balance; }
-  .lede { font-size: 1.02rem; color: var(--ink-2); max-width: 44rem; margin: .9rem 0 0; text-wrap: pretty; }
+    font-size: clamp(2rem, 5vw, 3.4rem); margin: 1.3rem 0 0; text-wrap: balance; }
+  .lede { font-size: 1.02rem; color: var(--ink-2); max-width: 44rem; margin: 1.1rem 0 0; text-wrap: pretty; }
 
   /* ---- crop-mark frame (deck signature) ---- */
   .frame { position: relative; padding: 1.75rem 1.9rem; margin-top: 1.6rem; }
@@ -164,16 +164,33 @@
     letter-spacing: .02em; font-weight: 600; }
   .delta .x { color: var(--ink-2); font-weight: 400; }
 
-  /* ============ two-column mechanism ============ */
-  .cols2 { display: grid; grid-template-columns: 1fr 1fr; gap: 1.1rem; margin-top: 1.6rem; }
-  @media (max-width: 860px) { .cols2 { grid-template-columns: 1fr; } }
-  .panel { background: var(--paper-2); border: 1px solid var(--line); border-radius: 7px;
-    padding: 1.15rem 1.25rem; display: flex; flex-direction: column; }
-  .panel > h3 { font-family: var(--serif); font-size: 1.25rem; font-weight: 600; margin: 0 0 .15rem;
-    letter-spacing: -.01em; }
-  .panel .kicker { font-family: var(--mono); font-size: .68rem; letter-spacing: .1em;
-    text-transform: uppercase; color: var(--rust); margin: 0 0 .5rem; }
-  .panel .task { font-family: var(--mono); font-size: .7rem; color: var(--ink-3); margin: 0 0 .8rem; }
+  /* ============ mechanism — de-boxed, deck-style open composition ============ */
+  .submech { margin-top: 2.2rem; }
+  .submech + .submech { margin-top: 2.6rem; padding-top: 2.6rem; border-top: 1px solid var(--line); }
+  .kicker { font-family: var(--mono); font-size: .68rem; letter-spacing: .1em;
+    text-transform: uppercase; color: var(--rust); margin: 0 0 .4rem; }
+  .subhead { font-family: var(--serif); font-weight: 600; letter-spacing: -.01em;
+    font-size: clamp(1.4rem, 3vw, 1.85rem); margin: 0 0 .3rem; }
+  .task { font-family: var(--mono); font-size: .7rem; color: var(--ink-3); margin: 0 0 1rem; line-height: 1.65; }
+
+  /* compact DAG shape (detail lives behind a disclosure) */
+  .pipeline { display: flex; flex-wrap: wrap; align-items: center; gap: .45rem .15rem; margin: 0; }
+  .pnode { font-family: var(--mono); font-size: .8rem; font-weight: 600; color: var(--ink);
+    padding: .22rem .6rem; border: 1px solid var(--line-2); border-radius: 5px; background: var(--paper-2); }
+  .parrow { color: var(--rust); font-family: var(--mono); padding: 0 .1rem; }
+
+  /* disclosure (native details; +/− marker echoes the registration marks) */
+  details.disc { margin-top: 1.4rem; }
+  details.disc > summary { list-style: none; cursor: pointer; padding: .7rem 0;
+    border-top: 1px solid var(--line); font-family: var(--mono); font-size: .72rem;
+    letter-spacing: .08em; text-transform: uppercase; color: var(--rust);
+    display: flex; align-items: center; gap: .55rem; user-select: none; transition: color .15s; }
+  details.disc > summary::-webkit-details-marker { display: none; }
+  details.disc > summary::before { content: "+"; font-size: 1rem; line-height: 1; width: .8rem;
+    display: inline-block; text-align: center; }
+  details.disc[open] > summary::before { content: "−"; }
+  details.disc > summary:hover, details.disc[open] > summary { color: var(--ink); }
+  details.disc > .discbody { padding-top: .5rem; }
 
   /* rescue ladder */
   .rung { display: grid; grid-template-columns: auto auto 1fr; gap: .55rem .7rem; align-items: baseline;
@@ -185,9 +202,8 @@
   @media (min-width: 480px) { .rung .why { grid-column: 3; } }
   .totline { display: flex; align-items: baseline; gap: .6rem; flex-wrap: wrap; margin-top: .7rem;
     font-family: var(--mono); font-size: .74rem; color: var(--ink-2); }
-  .claim { margin-top: auto; padding-top: .8rem; border-top: 1px dashed var(--line-2);
-    font-size: .8rem; color: var(--ink-2); text-wrap: pretty; }
-  .claim.tight { margin-top: .85rem; }
+  .claim { margin-top: 1.1rem; padding-top: .8rem; border-top: 1px dashed var(--line-2);
+    font-size: .82rem; color: var(--ink-2); text-wrap: pretty; }
   .claim b { color: var(--ink); }
 
   /* compiled graph nodes */
@@ -382,14 +398,8 @@
     <p class="lede">When a cairn exists, the next instance is the <b>hot path</b>: replay the compiled
       DAG, no model call. When it doesn't, carn rescues the run <b>cold</b> — a stronger model, then a
       verified action — and banks the resolution as the next cairn.</p>
-    <div class="cols2">
-      <div class="panel" id="rescue"><p class="unavailable">Loading rescue ladder…</p></div>
-      <div class="panel">
-        <p class="kicker">Hot path · compiled DAG</p>
-        <h3>The replay graph</h3>
-        <div id="graphs"><p class="unavailable">Loading graphs…</p></div>
-      </div>
-    </div>
+    <div class="submech" id="rescue"><p class="unavailable">Loading rescue ladder…</p></div>
+    <div class="submech" id="graphs"><p class="unavailable">Loading hot path…</p></div>
     <div class="fig">FIG. 2 · <span class="k">crack-7z-hash.hard</span> · the cold ladder banks a node; the hot path replays it. same model, same task, no harness edits.</div>
   </section>
 
@@ -414,10 +424,15 @@
     <div class="eyebrow"><span class="lead"><span class="n">/</span> 04 · THE FULL TRAIL</span>
       <span class="side">PREFIX TRIE · RUNS</span></div>
     <h2 class="head">The whole map, deduped.</h2>
-    <p class="lede">Every distinct node. Counts are runs through the node; rails inherit the subtree's
-      outcome. Hover or click a run to trace its path through the trie.</p>
-    <div class="treescroll"><ul class="tree" id="tree"></ul></div>
-    <div class="fig">FIG. 4 · one node per distinct action-prefix · <span class="k">FORK</span> marks a node whose children split pass from fail.</div>
+    <p class="lede">The runs below are the interactive proof: hover or click one to trace its path
+      through the deduped trie. Expand the full map when you want every node.</p>
+    <details class="disc" id="tree-disc">
+      <summary>Expand the full prefix trie</summary>
+      <div class="discbody">
+        <div class="treescroll"><ul class="tree" id="tree"></ul></div>
+        <div class="fig">FIG. 4 · one node per distinct action-prefix · <span class="k">FORK</span> marks a node whose children split pass from fail.</div>
+      </div>
+    </details>
 
     <div class="picker" id="picker" hidden>
       <p class="sub">Runs on disk. Pick which feed the trie; unlabeled runs (no test output) can't
@@ -440,7 +455,11 @@
     <div class="eyebrow"><span class="lead"><span class="n">/</span> 05 · READ IT HONESTLY</span>
       <span class="side">METHOD</span></div>
     <h2 class="head">What the marks mean.</h2>
-    <div class="method">
+    <p class="lede">Every mark on this page is defined. The rules that turn raw commands into tokens,
+      pass/fail labels, and forks are below.</p>
+    <details class="disc">
+      <summary>How to read this honestly · method</summary>
+      <div class="discbody method">
       <h3>How trie tokens are made · <code>scripts/trie_forks.py</code></h3>
       <ul>
         <li>Pure inspection commands (<code>ls</code>, <code>cat</code>, <code>grep</code>, …) are <b>dropped</b>: they don't change state, so they never appear here.</li>
@@ -459,8 +478,9 @@
       <ul>
         <li>Read-only. It never launches runs, walks graphs, or edits artifacts — it renders what carn already wrote to disk.</li>
       </ul>
-      <div class="provenance" id="provenance">loading provenance…</div>
-    </div>
+      </div>
+    </details>
+    <div class="provenance" id="provenance">loading provenance…</div>
   </section>
 
   <div class="footer">
@@ -518,7 +538,7 @@ function renderRescue(o) {
   if (!r) { $("#rescue").innerHTML = `<p class="kicker">Cold path</p><p class="unavailable">No rescue_result.json found.</p>`; return; }
   $("#rescue").innerHTML =
     `<p class="kicker">Cold path · mid-run rescue</p>
-     <h3>The rescue ladder</h3>
+     <h3 class="subhead">The rescue ladder</h3>
      <p class="task">${esc(r.task)} · ${esc(r.cheap_model)} → ${esc(r.escalate_model)} → executable node</p>
      ${r.ladder.map(l => `<div class="rung">
         <span class="who">${esc(l.rung)}</span>
@@ -529,17 +549,24 @@ function renderRescue(o) {
      <div class="claim"><b>Honest claim.</b> ${esc(r.honest_claim)}</div>`;
 }
 
-/* ---------------- mechanism: compiled graphs ---------------- */
+/* ---------------- mechanism: compiled graphs (compact pipeline + on-demand detail) ---------------- */
 function renderGraphs(gs) {
-  $("#graphs").innerHTML = (gs || []).map(g => `
-    <p class="task">${esc(g.family)} · ${esc(g.file)} · ${g.nodes.length} nodes<br>${esc(g.desc)}</p>
-    <div class="gwrap">${g.nodes.map(n => `<div class="gnode"><span class="id">${esc(n.id)}</span>
+  const head = `<p class="kicker">Hot path · compiled DAG</p><h3 class="subhead">The replay graph</h3>`;
+  if (!gs || !gs.length) { $("#graphs").innerHTML = head + `<p class="unavailable">No *_graph.json in demo_replay/ yet.</p>`; return; }
+  const blocks = gs.map(g => {
+    const pipe = g.nodes.map(n => `<span class="pnode">${esc(n.id)}</span>`).join(`<span class="parrow">→</span>`);
+    const detail = g.nodes.map(n => `<div class="gnode"><span class="id">${esc(n.id)}</span>
       <div class="gcols">
         <div><span class="glab">action</span><code>${esc(n.action)}</code></div>
         <div><span class="glab">checkpoint</span><code>${esc(n.checkpoint)}</code></div>
-      </div></div>`).join("")}</div>
-    <div class="gsem">walk: checkpoint <b class="p">passes → 0 tokens</b> · <b class="f">fails → cheapest-tier model fixes this node only</b> (the fix is a candidate new node).</div>
-  `).join("") || `<p class="unavailable">No *_graph.json in demo_replay/ yet.</p>`;
+      </div></div>`).join("");
+    return `<p class="task">${esc(g.family)} · ${esc(g.file)} · ${g.nodes.length} nodes · ${esc(g.desc)}</p>
+      <div class="pipeline">${pipe}</div>
+      <details class="disc"><summary>show the verified action + checkpoint for each step</summary>
+        <div class="discbody gwrap">${detail}</div></details>`;
+  }).join(`<div style="height:1.6rem"></div>`);
+  $("#graphs").innerHTML = head + blocks +
+    `<div class="gsem">walk: checkpoint <b class="p">passes → 0 tokens</b> · <b class="f">fails → cheapest-tier model fixes this node only</b> (the fix is a candidate new node).</div>`;
 }
 
 /* ---------------- trie helpers ---------------- */
@@ -636,6 +663,7 @@ function runPathIds(run) {
 }
 function setLit(run, on) {
   if (!run) return;
+  if (on) { const d = document.getElementById("tree-disc"); if (d) d.open = true; }
   for (const id of runPathIds(run)) {
     const li = document.querySelector(`[data-node="${CSS.escape(id)}"]`);
     if (li) li.classList.toggle("lit", on);
