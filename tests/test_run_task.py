@@ -1,7 +1,7 @@
 """Unit tests for agent.run.run_task message parsing (the agent LLM is faked)."""
 import asyncio
 
-from agent.run import run_task
+from agent.run import behavior_events, run_task
 
 
 class _Msg:
@@ -51,3 +51,24 @@ def test_run_task_handles_no_skills_and_no_usage():
 def test_run_task_empty_messages_returns_blank():
     final, loaded, usage = _run([])
     assert final == "" and loaded == [] and usage == {"input_tokens": 0, "output_tokens": 0}
+
+
+def test_run_task_extracts_loaded_skill_from_route_and_load_result():
+    msgs = [
+        _Msg(tool_calls=[{"name": "route_and_load", "args": {"task": "merge PDFs"}}]),
+        _Msg(content='{"match":"pdf","revision":"abc","skill_body":"body"}'),
+        _Msg(content="done"),
+    ]
+    final, loaded, _ = _run(msgs)
+    assert final == "done" and loaded == ["pdf@abc"]
+
+
+def test_behavior_events_capture_tool_order_and_hash_final_output():
+    events = behavior_events([
+        _Msg(tool_calls=[{"name": "route_and_load", "args": {"task": "merge PDFs"}},
+                         {"name": "bash", "args": {"command": "python merge.py"}}]),
+        _Msg(content="sensitive final answer"),
+    ])
+    assert [event["name"] for event in events[:-1]] == ["route_and_load", "bash"]
+    assert events[-1]["type"] == "final" and len(events[-1]["sha256"]) == 64
+    assert "sensitive final answer" not in str(events)
