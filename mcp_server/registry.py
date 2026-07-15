@@ -1,9 +1,12 @@
 """Discover skills from skills/<name>/SKILL.md. The YAML frontmatter `description` is the routing
 key; the markdown body is what an agent loads. No compilation, no DB — a skill is just its SKILL.md."""
 from __future__ import annotations
+import hashlib
+import os
 import re
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
+from typing import Iterable
 
 import yaml
 
@@ -34,12 +37,33 @@ def name_problem(slug: str) -> str | None:
     return None
 
 
-@dataclass
+_ROUTER_DEFAULTS = {
+    "harnesses": ["claude", "codex"],
+    "scopes": ["global"],
+    "path_patterns": [],
+    "required_tools": [],
+    "required_mcps": [],
+    "trust": "unknown",
+    "activation": "automatic",
+    "platforms": ["macos", "linux", "windows"],
+    "priority": 50,
+    "conflicts": [],
+}
+
+
+@dataclass(frozen=True)
 class Skill:
     name: str
     description: str
     body: str
     path: str
+    revision: str = ""
+    root: str = ""
+    metadata: dict = field(default_factory=dict)
+    variants: dict[str, str] = field(default_factory=dict)
+
+    def body_for(self, harness: str) -> str:
+        return self.variants.get(harness, self.body)
 
 
 def parse_skill(md: str, fallback_name: str) -> tuple[dict, str]:
@@ -59,12 +83,95 @@ def parse_skill(md: str, fallback_name: str) -> tuple[dict, str]:
     return meta, m.group(2).strip()
 
 
-def load_skills(skills_dir: Path = SKILLS_DIR) -> list[Skill]:
+def configured_roots(explicit: Iterable[str | Path] | None = None) -> list[Path]:
+    """Canonical skill-library roots. Explicit CLI roots replace the environment configuration."""
+    values = list(explicit) if explicit is not None else [
+        p for p in os.environ.get("SKILL_ROUTER_PATHS", "").split(os.pathsep) if p
+    ]
+    if not values:
+        values = [SKILLS_DIR]
+    roots: list[Path] = []
+    seen: set[Path] = set()
+    for value in values:
+        root = Path(value).expanduser().resolve()
+        if root not in seen:
+            roots.append(root)
+            seen.add(root)
+    return roots
+
+
+def _router_metadata(meta: dict) -> dict:
+    raw = meta.get("metadata") or {}
+    extension = raw.get("skill-router") if isinstance(raw, dict) else {}
+    extension = extension if isinstance(extension, dict) else {}
+    result = {key: list(value) if isinstance(value, list) else value
+              for key, value in _ROUTER_DEFAULTS.items()}
+    for key in result:
+        if key in extension:
+            result[key] = extension[key]
+    try:
+        result["priority"] = int(result["priority"])
+    except (TypeError, ValueError):
+        result["priority"] = 50
+    return result
+
+
+def _contained_file(skill_root: Path, path: Path) -> Path:
+    resolved = path.resolve()
+    try:
+        resolved.relative_to(skill_root)
+    except ValueError as exc:
+        raise ValueError(f"skill file escapes root: {path}") from exc
+    return resolved
+
+
+def _revision(files: list[Path]) -> str:
+    digest = hashlib.sha256()
+    for path in sorted(files, key=lambda p: p.as_posix()):
+        digest.update(path.name.encode())
+        digest.update(b"\0")
+        digest.update(path.read_bytes())
+        digest.update(b"\0")
+    return digest.hexdigest()
+
+
+def load_skills(skills_dir: Path | None = None, *, roots: Iterable[str | Path] | None = None) -> list[Skill]:
+    """Load Agent Skills from one or more roots, rejecting ambiguous duplicate identities."""
+    selected_roots = configured_roots(roots if roots is not None else ([skills_dir] if skills_dir else None))
     skills: list[Skill] = []
-    for sk in sorted(skills_dir.glob("*/SKILL.md")):
-        meta, body = parse_skill(sk.read_text(encoding="utf-8", errors="ignore"), sk.parent.name)
-        if meta["description"]:  # a skill without a routing description can't be suggested
-            skills.append(Skill(name=meta["name"], description=meta["description"], body=body, path=str(sk)))
+    by_name: dict[str, Path] = {}
+    for library_root in selected_roots:
+        if not library_root.exists():
+            continue
+        for source_path in sorted(library_root.glob("*/SKILL.md")):
+            skill_root = source_path.parent.resolve()
+            sk = _contained_file(skill_root, source_path)
+            meta, body = parse_skill(sk.read_text(encoding="utf-8", errors="ignore"), skill_root.name)
+            if not meta["description"]:
+                continue
+            name = meta["name"]
+            if name in by_name:
+                raise ValueError(f"duplicate skill '{name}' in {by_name[name]} and {sk}")
+            variants: dict[str, str] = {}
+            revision_files = [sk]
+            variants_dir = skill_root / "variants"
+            for harness in ("claude", "codex"):
+                variant = variants_dir / f"{harness}.md"
+                if variant.exists():
+                    safe_variant = _contained_file(skill_root, variant)
+                    variants[harness] = safe_variant.read_text(encoding="utf-8", errors="ignore").strip()
+                    revision_files.append(safe_variant)
+            by_name[name] = sk
+            skills.append(Skill(
+                name=name,
+                description=meta["description"],
+                body=body,
+                path=str(sk),
+                revision=_revision(revision_files),
+                root=str(skill_root),
+                metadata=_router_metadata(meta),
+                variants=variants,
+            ))
     return skills
 
 
