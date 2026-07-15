@@ -498,7 +498,7 @@ model is present — to run it, build an image with the guard deps and set the m
 ```bash
 docker build -t skill-router-guard - <<'DOCKER'
 FROM skill-router-mcp
-RUN pip install --no-cache-dir "transformers>=4.44" torch --index-url https://download.pytorch.org/whl/cpu
+RUN pip install --no-cache-dir "transformers>=4.44" torch --extra-index-url https://download.pytorch.org/whl/cpu
 DOCKER
 docker run --rm -e SKILL_GUARD_MODEL=llm-semantic-router/mmbert32k-jailbreak-detector-merged \
   -e HF_HOME=/app/.hf_cache -v $(pwd):/app -w /app skill-router-guard python -m pytest tests -q
