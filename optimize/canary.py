@@ -26,7 +26,7 @@ from pathlib import Path
 
 import numpy as np
 
-from agent.run import _connect, build_agent, langfuse_config, run_task
+from agent.run import build_agent, langfuse_config, run_task
 from mcp_server.registry import SKILLS_DIR, optimizable_components
 
 from . import usage as usage_ledger
@@ -52,7 +52,7 @@ def run_canary(skill: str, challenger_file: str | None = None, epsilon: float = 
     skill_dir = SKILLS_DIR / skill
     if not (skill_dir / "SKILL.md").exists():
         raise SystemExit(f"No skill named '{skill}' in skills/.")
-    champion = read_components(skill_dir)
+    champion = optimizable_components(skill_dir)
     if challenger_file:
         challenger = json.loads(Path(challenger_file).read_text())["components"]
     else:
@@ -61,10 +61,9 @@ def run_canary(skill: str, challenger_file: str | None = None, epsilon: float = 
             raise SystemExit(f"No challenger for '{skill}': run `optimize {skill}` first or pass --challenger-file.")
         challenger = pending["challenger_components"]
 
-    train, holdout = load_tasks(skill)
+    train, holdout, _split = load_tasks(skill)
     stream = train + holdout  # stand-in for live traffic
-    tools = asyncio.run(_connect())
-    agents = {v: build_agent(_variant_tools(tools, skill, c["body"], c["description"]),
+    agents = {v: build_agent(_variant_tools(skill, c["body"], c["description"]),
                              instructions=EVAL_INSTRUCTIONS)
               for v, c in (("champion", champion), ("challenger", challenger))}
 

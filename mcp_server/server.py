@@ -1,87 +1,99 @@
-"""Minimal MCP skill-router server ([FastMCP](https://github.com/jlowin/fastmcp) v3, HTTP transport).
-Exposes five tools so an agent can discover, get suggestions for, load, create, and refresh skills:
-  - list_skills()             -> every skill's name + description
-  - suggest_skills(task, k)   -> top-k skills above MIN_SCORE (empty list = no good match)
-  - get_skill(name)           -> the full SKILL.md body to load into the agent's context
-  - create_skill(...)         -> persist a new skill the agent authored (never overwrites)
-  - reload_skills()           -> re-read skills/ from disk (called after a skill is promoted)
-"""
+"""MCP server for discovering, loading, creating, and improving Agent Skills."""
+from __future__ import annotations
+
 import os
+import threading
 
 from fastmcp import FastMCP
 
 from . import guard_model, safety
-from .registry import SKILLS_DIR, load_skills, name_problem, slugify, write_skill_md
+from .registry import (SKILLS_DIR, configured_roots, load_skills, name_problem, slugify,
+                       write_skill_md)
 from .router import Router
 
-# at/above this similarity a skill is a routable match; suggest_skills loads it
 MIN_SCORE = float(os.environ.get("MIN_SCORE", "0.65"))
-# no routable match, but at/above this a skill is *related* — surfaced so the agent can compose /
-# extend it instead of authoring a near-duplicate (compose-awareness). Below this = truly novel.
 RELATED_SCORE = float(os.environ.get("RELATED_SCORE", "0.45"))
-# above this, a new skill's description near-duplicates an existing one → reject (route-shadowing)
 COLLISION_SCORE = float(os.environ.get("COLLISION_SCORE", "0.93"))
 PORT = int(os.environ.get("PORT", "8000"))
 
 
 class _State:
-    """Mutable holder so reload_skills() can swap the registry + router in place."""
-    def reload(self) -> int:
-        self.skills = load_skills()
-        self.router = Router(self.skills)
-        self.by_name = {s.name: s for s in self.skills}
-        return len(self.skills)
+    def __init__(self):
+        self._lock = threading.RLock()
+
+    @staticmethod
+    def _signature(roots) -> tuple:
+        files = []
+        for root in roots:
+            for skill_root in root.iterdir() if root.exists() else ():
+                if skill_root.is_dir():
+                    files.extend(path for path in skill_root.rglob("*") if path.is_file())
+        return tuple((str(path.resolve()), path.stat().st_mtime_ns, path.stat().st_size)
+                     for path in sorted(files))
+
+    def reload(self, roots=None) -> int:
+        selected_roots = configured_roots(roots)
+        skills = load_skills(roots=selected_roots)
+        router = Router(skills)
+        signature = self._signature(selected_roots)
+        with self._lock:
+            self.roots, self.skills, self.router = selected_roots, skills, router
+            self.by_name = {skill.name: skill for skill in skills}
+            self.signature = signature
+            return len(self.skills)
+
+    def refresh_if_changed(self) -> None:
+        with self._lock:
+            roots, prior = list(self.roots), self.signature
+        if self._signature(roots) != prior:
+            self.reload(roots)
 
 
 STATE = _State()
 STATE.reload()
-
 mcp = FastMCP("skill-router")
 
 
 @mcp.tool()
 def list_skills() -> list[dict]:
-    """List all available skills (name + one-line description)."""
-    return [{"name": s.name, "description": s.description} for s in STATE.skills]
+    """List all available skills by name and routing description."""
+    STATE.refresh_if_changed()
+    return [{"name": skill.name, "description": skill.description} for skill in STATE.skills]
 
 
 @mcp.tool()
 def suggest_skills(task: str, k: int = 5) -> list[dict]:
-    """Suggest skills for a task, ranked by similarity. Returns routable matches (load the top one).
-    If none are routable but some are *related*, returns those flagged `related: true` — load the
-    closest and compose/extend it rather than authoring a duplicate. Empty means truly novel: solve
-    it yourself and consider create_skill."""
+    """Suggest routable or related skills for a task, ranked by similarity."""
+    STATE.refresh_if_changed()
     matched = STATE.router.suggest(task, k, min_score=MIN_SCORE)
     if matched:
         return matched
     related = STATE.router.suggest(task, k=2, min_score=RELATED_SCORE)
-    for r in related:
-        r["related"] = True
+    for candidate in related:
+        candidate["related"] = True
     return related
 
 
 @mcp.tool()
 def get_skill(name: str) -> str:
-    """Load a skill by name: returns its full SKILL.md instructions to follow."""
-    s = STATE.by_name.get(name)
-    if not s:
+    """Load one skill's instructions by exact name."""
+    STATE.refresh_if_changed()
+    skill = STATE.by_name.get(name)
+    if not skill:
         return f"No skill named '{name}'. Use suggest_skills or list_skills first."
-    return f"# Skill: {s.name}\n{s.description}\n\n{s.body}"
+    return f"# Skill: {skill.name}\n{skill.description}\n\n{skill.body}"
 
 
 @mcp.tool()
 def create_skill(name: str, description: str, body: str) -> str:
-    """Persist a NEW skill (only when no existing skill covered the task). `description` is the
-    routing key: one paragraph starting 'Use this skill when...'. `body` is the SKILL.md content:
-    the reusable instructions/steps/code patterns that solve this kind of task."""
+    """Create a new skill in the local writable library and reload the router."""
+    STATE.refresh_if_changed()
     slug = slugify(name)
     problem = name_problem(slug)
     if problem:
         return f"Invalid skill name '{name}': {problem}."
     if slug in STATE.by_name or (SKILLS_DIR / slug).exists():
         return f"Skill '{slug}' already exists — improve it via the optimizer instead."
-    # content guardrails (this path writes a live, routable skill with no human approval):
-    # fast regex/heuristic scan, then the optional ML prompt-injection classifier if enabled
     problems = safety.scan(description, body)
     ml_flag = guard_model.check(f"{description}\n{body}")
     if ml_flag:
@@ -93,26 +105,33 @@ def create_skill(name: str, description: str, body: str) -> str:
         return (f"Skill '{slug}' rejected: description too similar to existing skill "
                 f"'{shadowed}' (cosine {score:.2f}) — would shadow its routing. Refine it or "
                 f"improve '{shadowed}' via the optimizer instead.")
-    d = SKILLS_DIR / slug
-    d.mkdir(parents=True)
-    # tag provenance so agent-authored skills are distinguishable from curated / third-party ones
-    write_skill_md(d / "SKILL.md", {"name": slug, "description": description, "source": "agent"}, body)
-    n = STATE.reload()
-    print(f"[skill-router] created skill '{slug}' ({n} skills total)", flush=True)
-    return f"Created skill '{slug}' and reloaded the router ({n} skills)."
+    destination = SKILLS_DIR / slug
+    destination.mkdir(parents=True)
+    write_skill_md(destination / "SKILL.md",
+                   {"name": slug, "description": description, "source": "agent"}, body)
+    count = STATE.reload()
+    print(f"[skill-router] created skill '{slug}' ({count} skills total)", flush=True)
+    return f"Created skill '{slug}' and reloaded the router ({count} skills)."
 
 
 @mcp.tool()
 def reload_skills() -> str:
-    """Re-read all skills from disk and rebuild the router (hot reload after a promotion)."""
-    n = STATE.reload()
-    print(f"[skill-router] reloaded: {n} skills", flush=True)
-    return f"Reloaded {n} skills."
+    """Re-read skill roots and rebuild the router after a promotion."""
+    count = STATE.reload()
+    print(f"[skill-router] reloaded: {count} skills", flush=True)
+    return f"Reloaded {count} skills."
+
+
+@mcp.tool()
+def route_and_load(task: str, harness: str, cwd: str, available_tools: list[str] | None = None,
+                   available_mcps: list[str] | None = None) -> dict:
+    """Select one compatible skill for a task and return its instructions, or return no match."""
+    STATE.refresh_if_changed()
+    return STATE.router.route(task, harness, cwd, available_tools or [], available_mcps or [],
+                              min_score=MIN_SCORE)
 
 
 if __name__ == "__main__":
     print(f"[skill-router] {len(STATE.skills)} skills loaded; serving MCP on :{PORT}/mcp", flush=True)
-    # FastMCP v3's DNS-rebinding protection blocks the container's Host header (mcp:8000) by
-    # default — allow the compose service host. This runs on a private docker network / localhost.
     mcp.run(transport="http", host="0.0.0.0", port=PORT, path="/mcp",
             allowed_hosts=["*"], allowed_origins=["*"])

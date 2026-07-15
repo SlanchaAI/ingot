@@ -1,0 +1,62 @@
+cases:
+  - task: Merge several PDF files and add page numbers.
+    expected: pdf
+    harness: codex
+    parity: true
+  - task: Analyze this workbook and build a pivot table.
+    expected: xlsx
+    harness: claude
+    parity: true
+  - task: Debug Python code in this project.
+    expected: python-project
+    harness: codex
+    cwd: evals/fixtures/project
+  - task: Deploy a service on a Linux host.
+    expected: linux-deploy
+    harness: codex
+    platform: linux
+  - task: Deploy a service on a Linux host.
+    expected: null
+    harness: codex
+    platform: macos
+    min_score: 0.99
+  - task: Research this page in a browser.
+    expected: browser-research
+    harness: codex
+    available_tools: [browser]
+  - task: Research this page in a browser.
+    expected: null
+    harness: codex
+    available_tools: []
+    min_score: 0.99
+  - task: Review a pull request through GitHub.
+    expected: github-review
+    harness: codex
+    available_mcps: [github]
+  - task: Review a pull request through GitHub.
+    expected: null
+    harness: codex
+    available_mcps: []
+    min_score: 0.99
+  - task: Run the manual secret operation.
+    expected: null
+    harness: codex
+    min_score: 0.99
+  - task: Audit the blocked environment.
+    expected: null
+    harness: codex
+    min_score: 0.99
+  - task: Resolve the identical priority task.
+    expected: high-priority
+    harness: codex
+  - task: Use the Codex-only operation.
+    expected: codex-only
+    harness: codex
+  - task: Use the Codex-only operation.
+    expected: null
+    harness: claude
+    min_score: 0.99
+  - task: Thanks, that answers my question.
+    expected: null
+    harness: codex
+    min_score: 0.99

@@ -248,9 +248,10 @@ Click **Review** to see judge scores, the token shift, and the SKILL.md diff:
 
 ![approval UI — pending challenger review](docs/ui-review.png)
 
-**Approve & promote** overwrites `skills/pdf/SKILL.md` (frontmatter kept — the routing description
-stays stable) and calls the MCP server's `reload_skills` tool. The new version is served
-**immediately, with no restart** — git is the version history. Reject discards the challenger.
+**Approve & promote** requires passing evidence for the current champion and exact challenger,
+snapshots the prior revision, then swaps the staged skill into `skills/pdf/`. The MCP server notices
+the revision change on its next request, so the new version is served with no restart. Reject
+discards the challenger.
 
 To optimize another skill, just run `optimize <skill>` — if it has no task set, the teacher
 auto-drafts a train/holdout one first.
@@ -366,15 +367,41 @@ the router's **suggestions** (the embedding router needs no LLM).
 
 ## How it works
 
-- **`mcp_server/`** — [FastMCP](https://github.com/jlowin/fastmcp) v3 server (HTTP transport), five tools:
+- **`mcp_server/`** — [FastMCP](https://github.com/jlowin/fastmcp) v3 server (HTTP transport), six tools:
   - `suggest_skills(task, k)` — routable matches by embedding similarity (CPU [fastembed](https://github.com/qdrant/fastembed), no GPU); if none, returns near-misses flagged `related` (compose-awareness); empty = truly novel. (`list_skills()` exists for debug/UI but is kept out of the agent's toolset — the agent routes, it doesn't scan.)
   - `get_skill(name)` — the full SKILL.md to load
   - `create_skill(name, description, body)` — persist a new agent-authored skill (never overwrites)
   - `reload_skills()` — hot reload after promotion/creation (or `docker compose restart mcp`)
+  - `route_and_load(task, harness, cwd, available_tools, available_mcps)` — optional one-round-trip
+    selection for external clients; returns one compatible skill body or no match
 - **`agent/run.py`** — [deepagents](https://github.com/langchain-ai/deepagents) LangGraph agent wired to those tools via `langchain-mcp-adapters`, traced to Langfuse.
 - **`skills/<name>/SKILL.md`** — YAML `description` is the routing key; the body is what the agent loads.
-- **`optimize/`** — success/failure mining over real traces (`mine.py`), multi-dimensional LLM judge (`judge.py`), GEPA loop over the full skill's components with diagnose→minimal-edit reflection (`gepa_loop.py`), A/B + pending results (`ab.py`), live **canary** promotion (`canary.py`), promotion writing all components + hot reload (`promote.py`), per-role token ledger (`usage.py`). A/B agents get mutation tools stripped, so evals can't alter the library. The mining + categorized-failure ideas are borrowed from [SkillForge (Liu et al., arXiv:2604.08618)](https://arxiv.org/abs/2604.08618).
+- **`optimize/`** — success/failure mining over real traces (`mine.py`), multi-dimensional LLM judge (`judge.py`), GEPA loop over the skill description/body with diagnose→minimal-edit reflection (`gepa_loop.py`), A/B + revisioned evidence (`ab.py`), live **canary** promotion (`canary.py`), snapshot/staged promotion (`promote.py`), per-role token ledger (`usage.py`). A/B agents get mutation tools stripped, so evals can't alter the library. The mining + categorized-failure ideas are borrowed from [SkillForge (Liu et al., arXiv:2604.08618)](https://arxiv.org/abs/2604.08618).
 - **`ui/`** — FastAPI approval UI (one HTML page, no build step).
+
+### Optional shared skill roots
+
+The Docker demo still reads and writes `skills/`. To route across additional libraries, set
+`SKILL_ROUTER_PATHS` to a platform-separated list of directories:
+
+```bash
+export SKILL_ROUTER_PATHS="$HOME/Source/team-skills:$HOME/.agents/skills"
+docker compose up --build
+```
+
+The local `skills/` authoring root is searched first, followed by configured roots. The first
+duplicate name wins with a warning. This keeps `create_skill` and optimization compatible while letting another
+MCP client call `route_and_load` against shared skills. Optional `metadata.skill-router` frontmatter
+can restrict automatic matches by harness, project path, platform, required tools/MCPs, trust,
+activation mode, priority, and conflicts.
+
+### Behavioral promotion evidence
+
+The optimizer still performs the existing champion/challenger A/B workflow. Its promotion gate now
+also requires a real holdout split, checks routing regressions when descriptions change, records the
+exact complete skill revisions, and emits `evidence.json` plus `EVIDENCE.md`. Promotion refuses stale
+or mismatched revisions, snapshots the live skill, stages the challenger, and rolls back a failed
+swap. Behavioral checks strengthen the improvement loop; they do not replace it.
 
 ## Skill sources
 
@@ -452,7 +479,7 @@ as untrusted until reviewed. Further reading:
 
 ## Tests
 
-**109 fast unit tests** (no network/LLM — mocked) in `tests/` cover the security guards (content scan,
+**155 fast unit tests** (no network/LLM — mocked) in `tests/` cover the security guards (content scan,
 name/traversal validation, YAML-injection round-trip, collision, the ML classifier's decision logic),
 the optimizer (promotion gate, judge parsing/clamping + ensemble aggregation, canary Thompson decision,
 length penalty, execution-based code check + sandbox, task drafting, continuous-loop health-gating,

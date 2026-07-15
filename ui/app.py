@@ -1,5 +1,4 @@
-"""Thin approval UI: kick off optimize runs, review champion-vs-challenger scores + diff, and
-approve promotion (writes SKILL.md + hot-reloads the MCP server). Deep traces live in Langfuse."""
+"""Approval UI for champion/challenger evidence and explicit, revisioned promotion."""
 import difflib
 import os
 import threading
@@ -117,7 +116,9 @@ def approve(skill: str):
     p = load_pending(_check(skill))
     if not p:
         raise HTTPException(404, f"no pending challenger for '{skill}'")
-    return {"result": promote(skill, p["challenger_components"])}
+    if p.get("gate", {}).get("promotable") is not True:
+        raise HTTPException(409, "Behavioral CI gate blocked this challenger")
+    return {"result": promote(skill)}
 
 
 @app.post("/api/reject/{skill}", dependencies=[Depends(same_origin)])

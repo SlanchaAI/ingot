@@ -8,6 +8,8 @@ LANGFUSE_PUBLIC_KEY / LANGFUSE_SECRET_KEY / LANGFUSE_BASE_URL (optional tracing)
 import os
 import sys
 import asyncio
+import json
+import hashlib
 
 from langchain_mcp_adapters.client import MultiServerMCPClient
 
@@ -49,8 +51,24 @@ def langfuse_config(tags: list[str] | None = None) -> dict:
     return {"callbacks": [CallbackHandler()], "metadata": {"langfuse_tags": tags or []}}
 
 
-async def run_task(agent, task: str, config: dict | None = None) -> tuple[str, list[str], dict]:
-    """Run one task; returns (final answer, skills loaded via get_skill, token usage).
+def behavior_events(messages) -> list[dict]:
+    """Scrubbed trajectory shape: tool order/argument names plus a digest of the final response."""
+    events = []
+    for message in messages:
+        for call in getattr(message, "tool_calls", None) or []:
+            events.append({"type": "tool", "name": call.get("name", "unknown"),
+                           "arg_keys": sorted((call.get("args") or {}).keys())})
+    final = messages[-1].content if messages else ""
+    if isinstance(final, list):
+        final = "\n".join(block.get("text", "") if isinstance(block, dict) else str(block)
+                          for block in final)
+    events.append({"type": "final", "sha256": hashlib.sha256(str(final).encode()).hexdigest(),
+                   "characters": len(str(final))})
+    return events
+
+
+async def run_task(agent, task: str, config: dict | None = None, include_behavior: bool = False):
+    """Run one task; returns final answer, routed skill revisions, and token usage.
     Usage sums usage_metadata over every LLM call in the run — the full cost of solving the task."""
     result = await agent.ainvoke({"messages": [{"role": "user", "content": task}]}, config=config or {})
     messages = result["messages"]
@@ -60,6 +78,18 @@ async def run_task(agent, task: str, config: dict | None = None) -> tuple[str, l
         for tc in getattr(m, "tool_calls", None) or []:
             if tc.get("name") == "get_skill":
                 loaded.append(tc.get("args", {}).get("name", "?"))
+        content = getattr(m, "content", None)
+        if isinstance(content, str) and content.lstrip().startswith("{"):
+            try:
+                routed = json.loads(content)
+            except json.JSONDecodeError:
+                routed = None
+            if isinstance(routed, dict) and routed.get("match"):
+                identity = routed["match"]
+                if routed.get("revision"):
+                    identity += f"@{routed['revision']}"
+                if identity not in loaded:
+                    loaded.append(identity)
         u = getattr(m, "usage_metadata", None)
         if u:
             usage["input_tokens"] += u.get("input_tokens", 0)
@@ -67,13 +97,11 @@ async def run_task(agent, task: str, config: dict | None = None) -> tuple[str, l
     final = messages[-1].content if messages else ""
     if isinstance(final, list):  # some models return content blocks, not a plain string
         final = "\n".join(b.get("text", "") if isinstance(b, dict) else str(b) for b in final)
-    return final, loaded, usage
+    result = (final, loaded, usage)
+    return result + (behavior_events(messages),) if include_behavior else result
 
 
-# The agent routes via suggest_skills, not by reading a flat dump of every skill — list_skills is
-# left registered on the server for debug/UI but kept out of the agent's toolset (context + it
-# tempts the model to scan-and-pick instead of retrieve).
-_AGENT_TOOL_DENYLIST = {"list_skills"}
+_AGENT_TOOL_DENYLIST = {"list_skills", "route_and_load"}
 
 
 async def _connect(retries: int = 20, delay: float = 1.5):
@@ -82,7 +110,7 @@ async def _connect(retries: int = 20, delay: float = 1.5):
     client = MultiServerMCPClient({"skills": {"url": MCP_URL, "transport": "streamable_http"}})
     for i in range(retries):
         try:
-            return [t for t in await client.get_tools() if t.name not in _AGENT_TOOL_DENYLIST]
+            return [tool for tool in await client.get_tools() if tool.name not in _AGENT_TOOL_DENYLIST]
         except Exception as e:  # MCP server may still be starting
             if i == retries - 1:
                 raise
@@ -100,16 +128,17 @@ async def main(task: str):
     async with Client(MCP_URL) as client:
         proposals = (await client.call_tool("suggest_skills", {"task": task, "k": 5})).data
     print("\nPROPOSED SKILLS (MCP suggest_skills):")
-    for p in proposals:
-        tag = " (related — compose/extend)" if p.get("related") else ""
-        print(f"  {p.get('score', 0):>6}  {p.get('name')}{tag} — {str(p.get('description'))[:72]}")
+    for proposal in proposals:
+        tag = " (related — compose/extend)" if proposal.get("related") else ""
+        print(f"  {proposal.get('score', 0):>6}  {proposal.get('name')}{tag} — "
+              f"{str(proposal.get('description'))[:72]}")
 
     if not API_KEY:
         print("\n[agent] OPENROUTER_API_KEY not set — showing router proposals only.")
         print("        Set OPENROUTER_API_KEY in .env to run the deep agent.")
         return
 
-    # 2) Deep agent autonomously loads a skill via get_skill and solves. Traced to Langfuse if configured.
+    # 2) Deep agent autonomously loads a skill via get_skill and solves.
     agent = build_agent(await _connect())
     final, loaded, usage = await run_task(agent, task, config=langfuse_config(tags=["demo"]))
 

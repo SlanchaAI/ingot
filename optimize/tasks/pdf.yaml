@@ -5,6 +5,24 @@
 # would make it go look for files instead of demonstrating the skill.
 skill: pdf
 
+routing:
+  - task: "Merge several PDF files and add page numbers."
+    expected: pdf
+    harness: codex
+    parity: true
+  - task: "Fill the fields in this PDF application form."
+    expected: pdf
+    harness: claude
+    parity: true
+  - task: "Thanks, that answers my question."
+    expected: null
+    harness: codex
+    parity: true
+  - task: "Hello!"
+    expected: null
+    harness: claude
+    parity: true
+
 train:
   - task: "Write a complete Python script that merges three PDFs (a.pdf, b.pdf, c.pdf) into one file and adds page numbers at the bottom of every page."
     rubric: "Working Python code that merges with pypdf (PdfWriter/PdfReader) and stamps page numbers (e.g. reportlab overlay + merge_page). Code must be complete and runnable, not pseudocode."

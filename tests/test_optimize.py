@@ -72,24 +72,58 @@ def test_gate_blocks_a_route_shadowing_description(monkeypatch):
 
 def test_gate_allows_a_distinct_description_change(monkeypatch):
     monkeypatch.setattr(ab_mod, "_description_shadows", lambda skill, desc: ("docx", 0.40))
+    routing = {"champion": {"top1": 1.0, "recall_at_3": 1.0, "no_route_precision": 1.0},
+               "challenger": {"top1": 1.0, "recall_at_3": 1.0, "no_route_precision": 1.0},
+               "parity": {"rate": 1.0, "total": 2}}
     ok, reasons = promotion_gate("pdf", [0.2, 0.2, 0.2], [0.9, 0.9, 0.9],
-                                 changed=["description"], challenger={"description": "…"})
+                                 changed=["description"], challenger={"description": "…"},
+                                 routing_metrics=routing)
     assert ok and reasons == []
+
+
+def test_gate_blocks_description_that_regresses_routing():
+    ok, reasons = promotion_gate("pdf", [0.2, 0.2, 0.2], [0.9, 0.9, 0.9],
+                                 changed=["description"], challenger={"description": "…"},
+                                 routing_failures=["merge two PDFs"])
+    assert not ok and any("routing regression" in reason for reason in reasons)
+
+
+def test_gate_blocks_training_holdout_leakage():
+    ok, reasons = promotion_gate("pdf", [0.2, 0.2, 0.2], [0.9, 0.9, 0.9],
+                                 changed=[], challenger={}, leakage=True)
+    assert not ok and any("holdout" in reason and "training" in reason for reason in reasons)
+
+
+def test_gate_blocks_missing_or_weak_routing_suite_for_description_change():
+    base = dict(skill="pdf", champ_scores=[0.2] * 3, chall_scores=[0.9] * 3,
+                changed=["description"], challenger={"description": "new"})
+    ok, reasons = promotion_gate(**base, routing_metrics=None)
+    assert not ok and any("routing suite" in reason for reason in reasons)
+    weak = {"challenger": {"recall_at_3": 0.8, "no_route_precision": 0.9, "top1": 0.7},
+            "champion": {"recall_at_3": 1.0, "no_route_precision": 1.0, "top1": 1.0},
+            "parity": {"rate": 0.5, "total": 2}}
+    ok, reasons = promotion_gate(**base, routing_metrics=weak)
+    assert not ok
+    assert any("recall@3" in reason for reason in reasons)
+    assert any("no-route" in reason for reason in reasons)
+    assert any("parity" in reason for reason in reasons)
 
 
 def test_load_tasks_flat_list_falls_back_to_no_split(tmp_path, monkeypatch):
     (tmp_path / "pdf.yaml").write_text("skill: pdf\ntasks:\n  - task: t1\n    rubric: r1\n  - task: t2\n    rubric: r2\n")
     monkeypatch.setattr(ab_mod, "TASKS_DIR", tmp_path)
-    train, holdout = ab_mod.load_tasks("pdf")
-    assert train == holdout and len(train) == 2   # a flat `tasks:` list -> train == holdout (no split)
+    train, holdout, split = ab_mod.load_tasks("pdf")
+    assert train == holdout and len(train) == 2
+    assert split == {"kind": "none", "leakage": True}
 
 
 def test_load_tasks_reads_explicit_train_holdout(tmp_path, monkeypatch):
     (tmp_path / "pdf.yaml").write_text(
         "skill: pdf\ntrain:\n  - task: a\n    rubric: r\nholdout:\n  - task: b\n    rubric: r\n  - task: c\n    rubric: r\n")
     monkeypatch.setattr(ab_mod, "TASKS_DIR", tmp_path)
-    train, holdout = ab_mod.load_tasks("pdf")
+    train, holdout, split = ab_mod.load_tasks("pdf")
     assert [t["task"] for t in train] == ["a"] and [t["task"] for t in holdout] == ["b", "c"]
+    assert split == {"kind": "holdout", "leakage": False}
 
 
 def test_canary_probability_is_deterministic_under_seed():

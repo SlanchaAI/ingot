@@ -1,20 +1,19 @@
-"""Promote a challenger: write the full skill (description + body + bundled files) back to
-skills/<name>/, then hot-reload the running MCP server via its reload_skills tool — live, no restart."""
-import asyncio
+"""Gate-enforced, revisioned, atomic promotion for quarantined skill challengers."""
+from __future__ import annotations
+
 import json
-import os
+import shutil
+import uuid
 from pathlib import Path
 
-from fastmcp import Client
+from mcp_server.registry import SLUG_RE, load_skills, skill_revision, write_components
 
-from mcp_server.registry import SKILLS_DIR, SLUG_RE, write_components
-
-MCP_URL = os.environ.get("MCP_URL", "http://mcp:8000/mcp")
-PENDING_DIR = Path(__file__).resolve().parent.parent / "runs" / "pending"
+RUNS_DIR = Path(__file__).resolve().parent.parent / "runs"
+PENDING_DIR = RUNS_DIR / "pending"
+REVISIONS_DIR = RUNS_DIR / "revisions"
 
 
 def check_slug(skill: str) -> str:
-    # skill names are slugs — anything else is a path-traversal attempt
     if not SLUG_RE.fullmatch(skill):
         raise ValueError(f"invalid skill name: {skill!r}")
     return skill
@@ -26,26 +25,80 @@ def pending_path(skill: str) -> Path:
 
 def save_pending(skill: str, data: dict) -> Path:
     PENDING_DIR.mkdir(parents=True, exist_ok=True)
-    p = pending_path(skill)
-    p.write_text(json.dumps(data, indent=2))
-    return p
+    path = pending_path(skill)
+    temporary = path.with_suffix(f".{uuid.uuid4().hex}.tmp")
+    temporary.write_text(json.dumps(data, indent=2) + "\n")
+    temporary.replace(path)
+    return path
 
 
 def load_pending(skill: str) -> dict | None:
-    p = pending_path(skill)
-    return json.loads(p.read_text()) if p.exists() else None
+    path = pending_path(skill)
+    return json.loads(path.read_text()) if path.exists() else None
 
 
-async def _reload_mcp() -> str:
-    async with Client(MCP_URL) as client:
-        return str((await client.call_tool("reload_skills", {})).data)
+def _current_skill(skill: str):
+    matches = [item for item in load_skills() if item.name == skill]
+    if not matches:
+        raise ValueError(f"no indexed skill named '{skill}'")
+    return matches[0]
 
 
-def promote(skill: str, components: dict[str, str]) -> str:
-    """Write the challenger's full skill (description + body + bundled files) into skills/<skill>/,
-    hot-reload the MCP server, clear the pending file."""
-    skill_dir = SKILLS_DIR / check_slug(skill)
-    write_components(skill_dir, components)
-    reload_msg = asyncio.run(_reload_mcp())
+def _validate_evidence(current, components: dict[str, str], evidence: dict) -> None:
+    gate = evidence.get("gate", {})
+    if gate.get("promotable") is not True:
+        reasons = "; ".join(gate.get("blocked", [])) or "unspecified failure"
+        raise ValueError(f"Behavioral CI gate blocked promotion: {reasons}")
+    if evidence.get("champion", {}).get("revision") != current.revision:
+        raise ValueError("champion revision changed since Behavioral CI; rerun improve")
+    expected = evidence.get("challenger", {}).get("revision")
+    if expected != skill_revision(Path(current.root), components):
+        raise ValueError("challenger revision does not match Behavioral CI evidence")
+
+
+def _snapshot(skill_dir: Path, skill: str, revision: str) -> Path:
+    destination = REVISIONS_DIR / skill / revision
+    if not destination.exists():
+        destination.parent.mkdir(parents=True, exist_ok=True)
+        temporary = destination.with_name(f".{revision}.{uuid.uuid4().hex}.tmp")
+        shutil.copytree(skill_dir, temporary, symlinks=True)
+        temporary.rename(destination)
+    return destination
+
+
+def promote(skill: str, components: dict[str, str] | None = None,
+            evidence: dict | None = None) -> str:
+    """Promote only a tested challenger; snapshot, stage, swap, and roll back on failure."""
+    skill = check_slug(skill)
+    pending = load_pending(skill)
+    if components is None:
+        if not pending:
+            raise ValueError(f"no pending challenger for '{skill}'")
+        components = pending["challenger_components"]
+    evidence = evidence or (pending or {}).get("evidence")
+    if not evidence:
+        raise ValueError("Behavioral CI evidence is required for promotion")
+
+    current = _current_skill(skill)
+    _validate_evidence(current, components, evidence)
+    skill_dir = Path(current.root)
+    _snapshot(skill_dir, skill, current.revision)
+
+    stage = skill_dir.with_name(f".{skill_dir.name}.{uuid.uuid4().hex}.stage")
+    previous = skill_dir.with_name(f".{skill_dir.name}.{uuid.uuid4().hex}.previous")
+    shutil.copytree(skill_dir, stage, symlinks=True)
+    try:
+        write_components(stage, components)
+        skill_dir.rename(previous)
+        try:
+            stage.rename(skill_dir)
+        except BaseException:
+            previous.rename(skill_dir)
+            raise
+        shutil.rmtree(previous, ignore_errors=True)
+    except BaseException:
+        shutil.rmtree(stage, ignore_errors=True)
+        raise
+
     pending_path(skill).unlink(missing_ok=True)
-    return f"Promoted '{skill}' ({skill_dir}/SKILL.md). MCP: {reload_msg}"
+    return f"Promoted '{skill}' from revision {current.revision}; previous revision snapshotted."
