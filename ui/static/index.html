@@ -26,6 +26,7 @@
 <p class="muted">GEPA evolves a skill's SKILL.md, champion vs challenger are A/B-evaluated through the
 full agent, and approving here promotes the winner + hot-reloads the MCP server.
 Deep traces: <a id="lf" href="#" target="_blank">Langfuse</a>.</p>
+<p id="carn-link" class="muted" hidden><a href="/carn">carn: replay graphs &amp; trajectory forks →</a></p>
 
 <h2>Skills with eval task sets</h2>
 <table id="skills"><thead><tr><th>skill</th><th>description</th><th></th></tr></thead><tbody></tbody></table>
@@ -115,7 +116,8 @@ $("#reject").onclick = async () => {
   $("#pending-msg").textContent = r.result; refresh();
 };
 
-j("/api/config").then(c => { langfuseUrl = c.langfuse_url; $("#lf").href = c.langfuse_url; });
+j("/api/config").then(c => { langfuseUrl = c.langfuse_url; $("#lf").href = c.langfuse_url;
+  $("#carn-link").hidden = !c.carn_enabled; });
 refresh(); setInterval(refresh, 3000);
 </script>
 </body>

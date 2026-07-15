@@ -12,6 +12,7 @@ from fastapi.responses import FileResponse
 from mcp_server.registry import SLUG_RE, load_skills
 from optimize.ab import TASKS_DIR, run_ab
 from optimize.promote import load_pending, pending_path, promote
+from ui.carn import carn_enabled, router as carn_router
 
 
 def _check(skill: str) -> str:
@@ -31,6 +32,7 @@ def same_origin(request: Request):
         raise HTTPException(403, "cross-origin request refused")
 
 app = FastAPI(title="skill-router approval UI")
+app.include_router(carn_router)  # read-only carn panels; inert unless CARN_DIR is set
 
 RUNS: dict[str, dict] = {}  # skill -> {"status": running|done|error, "log": [lines]}
 
@@ -42,7 +44,8 @@ def index():
 
 @app.get("/api/config")
 def config():
-    return {"langfuse_url": os.environ.get("LANGFUSE_PUBLIC_URL", "http://localhost:3100")}
+    return {"langfuse_url": os.environ.get("LANGFUSE_PUBLIC_URL", "http://localhost:3100"),
+            "carn_enabled": carn_enabled()}
 
 
 @app.get("/api/skills")

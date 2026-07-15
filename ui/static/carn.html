@@ -1,0 +1,445 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>carn · mine · compile · replay</title>
+<style>
+  :root {
+    color-scheme: light dark;
+    --bg: #F1F3EC; --panel: #FAFBF7; --panel2: #EDEFE7;
+    --ink: #1A211B; --muted: #47544A; --line: #D6DCD0;
+    --pass: #276B49; --pass-bg: #E2EFE7;
+    --fail: #A63E37; --fail-bg: #F5E4E2;
+    --fork: #7E5A0F; --fork-bg: #F3EAD5;
+    --mono: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+    --sans: ui-sans-serif, system-ui, sans-serif;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #121713; --panel: #1A211B; --panel2: #222B23;
+      --ink: #E6EAE2; --muted: #8FA092; --line: #2A332B;
+      --pass: #4FB07E; --pass-bg: #1B2E24;
+      --fail: #D9695F; --fail-bg: #33201D;
+      --fork: #D9A441; --fork-bg: #322913;
+    }
+  }
+  * { box-sizing: border-box; }
+  body {
+    background: var(--bg); color: var(--ink); font-family: var(--sans);
+    line-height: 1.5; font-size: 15px; margin: 0; padding: 2.25rem 1.25rem 4rem;
+  }
+  .wrap { max-width: 64rem; margin: 0 auto; display: flex; flex-direction: column; gap: 2rem; }
+  a { color: inherit; }
+  header .crumb { font-size: .8rem; color: var(--muted); margin-bottom: .5rem; }
+  header h1 { font-size: 1.45rem; margin: 0 0 .35rem; letter-spacing: -.01em; text-wrap: balance; }
+  header .method { color: var(--muted); margin: 0; max-width: 48rem; text-wrap: pretty; }
+  header .provenance { font-family: var(--mono); font-size: .72rem; color: var(--muted); margin-top: .6rem; }
+  header .provenance code { color: var(--ink); }
+
+  section > h2 { font-size: .95rem; font-weight: 600; margin: 0 0 .2rem; }
+  section > .sub { font-size: .8rem; color: var(--muted); margin: 0 0 .7rem; max-width: 48rem; text-wrap: pretty; }
+  .card { background: var(--panel); border: 1px solid var(--line); border-radius: 8px; padding: 1rem 1.1rem; }
+  .unavailable { color: var(--muted); font-size: .85rem; }
+
+  /* story strip */
+  .story { display: grid; grid-template-columns: repeat(auto-fit, minmax(320px, 1fr)); gap: .8rem; }
+  .story h3 { font-size: .85rem; margin: 0 0 .15rem; }
+  .story .task { font-family: var(--mono); font-size: .72rem; color: var(--muted); margin: 0 0 .6rem; }
+  table.cmp { border-collapse: collapse; width: 100%; font-size: .8rem; }
+  table.cmp td, table.cmp th { text-align: left; padding: .3rem .5rem; border-bottom: 1px solid var(--line); vertical-align: top; }
+  table.cmp th { font-weight: 600; }
+  table.cmp td.num { font-family: var(--mono); font-variant-numeric: tabular-nums; white-space: nowrap; }
+  .chip { font-family: var(--mono); font-size: .68rem; letter-spacing: .04em; padding: .1rem .45rem; border-radius: 4px; white-space: nowrap; }
+  .chip.pass { color: var(--pass); background: var(--pass-bg); }
+  .chip.fail { color: var(--fail); background: var(--fail-bg); }
+  .chip.fork { color: var(--fork); background: var(--fork-bg); font-weight: 700; }
+  .rung { display: flex; gap: .6rem; align-items: baseline; padding: .35rem 0; border-bottom: 1px solid var(--line); font-size: .8rem; }
+  .rung:last-child { border-bottom: 0; }
+  .rung .who { font-family: var(--mono); font-size: .72rem; flex: 0 0 11rem; }
+  .rung .why { color: var(--muted); }
+  .claim { margin-top: .7rem; font-size: .76rem; color: var(--muted); border-top: 1px dashed var(--line); padding-top: .55rem; }
+  .claim b { color: var(--ink); }
+
+  /* replay graph */
+  .gnode { display: flex; gap: .8rem; padding: .5rem 0; border-bottom: 1px solid var(--line); align-items: baseline; flex-wrap: wrap; }
+  .gnode:last-child { border-bottom: 0; }
+  .gnode .id { font-family: var(--mono); font-size: .8rem; font-weight: 700; flex: 0 0 5.5rem; }
+  .gnode .cols { flex: 1 1 24rem; display: flex; flex-direction: column; gap: .25rem; min-width: 0; }
+  .gnode code { font-family: var(--mono); font-size: .72rem; display: block; overflow-x: auto; white-space: pre; padding: .3rem .5rem; background: var(--panel2); border-radius: 4px; }
+  .gnode .lbl { font-size: .66rem; letter-spacing: .04em; color: var(--muted); font-family: var(--mono); }
+  .glegend { font-size: .76rem; color: var(--muted); margin-top: .6rem; }
+  .glegend b.p { color: var(--pass); } .glegend b.f { color: var(--fail); }
+
+  /* summary line */
+  .summary { font-family: var(--mono); font-size: .82rem; background: var(--panel); border: 1px solid var(--line);
+    border-radius: 6px; padding: .55rem .85rem; overflow-x: auto; white-space: nowrap; font-variant-numeric: tabular-nums; }
+  .summary b.p { color: var(--pass); } .summary b.f { color: var(--fail); } .summary b.k { color: var(--fork); }
+  .summary .dim { color: var(--muted); }
+
+  /* fork rail */
+  .railbox { background: var(--panel); border: 1px solid var(--line); border-radius: 8px; padding: 1.1rem 1.2rem; overflow-x: auto; }
+  .railbox + .railbox { margin-top: .8rem; }
+  .rail { display: flex; align-items: center; min-width: max-content; }
+  .stops { display: flex; align-items: flex-start; }
+  .stop { display: flex; flex-direction: column; align-items: flex-start; gap: .2rem; }
+  .stop .tok { font-family: var(--mono); font-size: .8rem; font-weight: 600; padding: .14rem .5rem; border-radius: 4px;
+    background: var(--panel2); border: 1px solid var(--line); white-space: nowrap; }
+  .stop .raw { font-family: var(--mono); font-size: .66rem; color: var(--muted); max-width: 15rem;
+    overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .link { flex: 0 0 1.4rem; height: 2px; background: var(--line); margin: 0 .1rem; align-self: flex-start; margin-top: .72rem; }
+  .route.p { color: var(--pass); } .route.f { color: var(--fail); }
+  .route.p .stop .tok { background: var(--pass-bg); color: var(--pass); border-color: currentColor; }
+  .route.f .stop .tok { background: var(--fail-bg); color: var(--fail); border-color: currentColor; }
+  .route .link { background: currentColor; opacity: .55; }
+  .routes { display: flex; flex-direction: column; gap: 1.1rem; }
+  .route { display: flex; align-items: flex-start; }
+  .flag { font-family: var(--mono); font-size: .72rem; font-weight: 700; white-space: nowrap; margin-top: .5rem; margin-left: .55rem; }
+  .split { flex: 0 0 2rem; align-self: stretch; }
+  .split svg { width: 100%; height: 100%; display: block; }
+  .cairn-note { margin-top: .9rem; font-size: .8rem; color: var(--fork); font-family: var(--mono); }
+
+  /* trie tree */
+  .treescroll { overflow-x: auto; }
+  .tree, .tree ul { list-style: none; margin: 0; padding: 0; }
+  .tree ul { padding-left: 1.4rem; }
+  .tree li { position: relative; padding-left: 1.1rem; }
+  .tree li::before { content: ""; position: absolute; left: 0; top: 0; bottom: 0; border-left: 2px solid var(--line); }
+  .tree li::after { content: ""; position: absolute; left: 0; top: .82rem; width: .85rem; border-top: 2px solid var(--line); }
+  .tree li.p::before, .tree li.p::after { border-color: var(--pass); opacity: .45; }
+  .tree li.f::before, .tree li.f::after { border-color: var(--fail); opacity: .45; }
+  .tree li:last-child::before { height: .82rem; bottom: auto; }
+  .tree > li::before, .tree > li::after { display: none; }
+  .tree > li { padding-left: 0; }
+  .node { display: flex; flex-wrap: wrap; align-items: baseline; gap: .45rem .6rem; padding: .22rem .35rem;
+    border-radius: 4px; transition: background .15s ease-out; }
+  .lit > .node { background: var(--fork-bg); }
+  .tok { font-family: var(--mono); font-size: .82rem; font-weight: 600; padding: .06rem .4rem; border-radius: 4px;
+    background: var(--panel2); border: 1px solid var(--line); }
+  .tok.p { color: var(--pass); border-color: var(--pass); background: var(--pass-bg); }
+  .tok.f { color: var(--fail); border-color: var(--fail); background: var(--fail-bg); }
+  .counts { font-family: var(--mono); font-size: .7rem; color: var(--muted); font-variant-numeric: tabular-nums; }
+  .node .ex { font-family: var(--mono); font-size: .7rem; color: var(--muted); overflow: hidden;
+    text-overflow: ellipsis; white-space: nowrap; max-width: 26rem; }
+  .endchip { font-family: var(--mono); font-size: .66rem; color: var(--muted); border: 1px dashed var(--line);
+    border-radius: 4px; padding: .05rem .4rem; }
+
+  /* runs */
+  .runhead { display: flex; align-items: baseline; justify-content: space-between; gap: 1rem; }
+  .rawtoggle { font-size: .78rem; color: var(--muted); display: flex; gap: .4rem; align-items: center; cursor: pointer; user-select: none; }
+  .run { display: flex; flex-wrap: wrap; align-items: baseline; gap: .5rem .8rem; padding: .5rem .45rem;
+    border-radius: 6px; cursor: pointer; transition: background .15s ease-out; }
+  .run:hover, .run.pinned { background: var(--panel2); }
+  .run.pinned { outline: 1px solid var(--line); }
+  .run + .run { margin-top: .15rem; }
+  .run .name { font-family: var(--mono); font-size: .85rem; font-weight: 600; }
+  .run .hint { font-size: .68rem; color: var(--muted); margin-left: auto; }
+  .chain { font-family: var(--mono); font-size: .74rem; color: var(--muted); overflow-x: auto; flex: 1 1 100%; white-space: nowrap; }
+  .chain b { color: var(--ink); font-weight: 600; }
+  .rawlist { font-family: var(--mono); font-size: .74rem; flex: 1 1 100%; margin: 0; padding: 0; list-style: none; }
+  .rawlist li { display: flex; gap: .7rem; padding: .12rem 0; align-items: baseline; }
+  .rawlist .t { color: var(--muted); flex: 0 0 14rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .rawlist .c { color: var(--ink); overflow-x: auto; white-space: nowrap; }
+
+  /* method */
+  .fine { font-size: .8rem; }
+  .fine h3 { font-size: .85rem; margin: 1rem 0 .3rem; }
+  .fine h3:first-child { margin-top: 0; }
+  .fine ul { margin: .2rem 0 .6rem; padding-left: 1.2rem; }
+  .fine li { margin: .15rem 0; }
+  .fine code { font-family: var(--mono); font-size: .92em; background: var(--panel2); padding: .05rem .3rem; border-radius: 3px; }
+
+  button:focus-visible, .run:focus-visible, input:focus-visible { outline: 2px solid var(--fork); outline-offset: 2px; }
+  @media (prefers-reduced-motion: reduce) { * { transition: none !important; } }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <div class="crumb"><a href="/">← skill-router</a></div>
+    <h1>carn: mine, compile, replay</h1>
+    <p class="method">Amortize <b>actions</b>, not advice: mine trajectories for the fork where pass
+      and fail diverge, compile the verified pass-branch into a checkpointed action-DAG, then replay
+      it on unseen instances at zero model inference.</p>
+    <div class="provenance" id="provenance">loading…</div>
+  </header>
+
+  <section>
+    <h2>The measured story</h2>
+    <p class="sub">Both records verbatim from <code>demo_replay/</code>, including each one's
+      honest-claim field: it states what is and is not proven.</p>
+    <div class="story" id="story"></div>
+  </section>
+
+  <section>
+    <h2>Compiled replay graphs</h2>
+    <p class="sub">Each node = a verified action + a machine-checkable checkpoint.
+      Walk: checkpoint <b>passes → 0 tokens</b>; fails → cheapest-tier model fixes only that node,
+      and the fix is a candidate new node to mine in.</p>
+    <div id="graphs"></div>
+  </section>
+
+  <section>
+    <h2>Trajectory trie: outcome forks</h2>
+    <p class="sub">Shared trunk on the left: every run took these steps. Routes on the right:
+      where they split. Under each token: the raw command it was distilled from. The fork is where
+      a cairn (or a new graph checkpoint) belongs.</p>
+    <div class="summary" id="summary" hidden></div>
+    <div style="height:.8rem"></div>
+    <div id="forks"></div>
+  </section>
+
+  <section>
+    <h2>Full prefix trie</h2>
+    <p class="sub">Every deduped node. Counts are runs through the node; rails inherit the subtree's
+      outcome. Hover or click a run below to trace its path.</p>
+    <div class="card treescroll"><ul class="tree" id="tree"></ul></div>
+  </section>
+
+  <section>
+    <h2>Runs</h2>
+    <div class="runhead">
+      <p class="sub" id="runsub"></p>
+      <label class="rawtoggle"><input type="checkbox" id="rawtoggle"> raw commands</label>
+    </div>
+    <div class="card" id="runs"></div>
+  </section>
+
+  <section>
+    <h2>How to read this honestly</h2>
+    <div class="card fine">
+      <h3>How trie tokens are made (<code>scripts/trie_forks.py</code>)</h3>
+      <ul>
+        <li>Pure inspection commands (<code>ls</code>, <code>cat</code>, <code>grep</code>, …) are <b>dropped</b>: they don't change state, so they don't appear here at all.</li>
+        <li>Consecutive duplicate tokens are <b>collapsed</b>; digits in filenames are stripped to <code>N</code>.</li>
+        <li>Compound commands are keyed on the <b>first</b> word: <code>git add -A &amp;&amp; git commit</code> counts only as <code>git-add</code>. Check the raw command when it matters.</li>
+      </ul>
+      <h3>Where PASS / FAIL comes from</h3>
+      <ul>
+        <li>A run is PASS when its <code>test_output.txt</code> pytest summary shows <code>N passed</code> and no <code>N failed</code>. Runs without test output show as unlabeled.</li>
+      </ul>
+      <h3>What counts as a fork</h3>
+      <ul>
+        <li>A node with ≥ 2 children where one child's subtree is purely PASS and another purely FAIL. With few runs a fork is a hypothesis, not proof.</li>
+      </ul>
+      <h3>What this page will not do</h3>
+      <ul>
+        <li>Read-only. It never launches runs, walks graphs, or edits artifacts. It renders what carn already wrote to disk.</li>
+      </ul>
+    </div>
+  </section>
+</div>
+
+<script>
+const $ = s => document.querySelector(s);
+const esc = s => String(s ?? "").replace(/[&<>"']/g,
+  c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
+async function j(url) { const r = await fetch(url); if (!r.ok) throw new Error(await r.text()); return r.json(); }
+const fmt = n => n == null ? "—" : Number(n).toLocaleString("en-US");
+
+let DATA = null, pinnedRun = null, showRaw = false;
+
+/* ---------------- story ---------------- */
+function sideCmp(rows) {
+  return `<table class="cmp"><thead><tr><th></th><th>result</th><th>episodes</th><th>tokens in</th><th>tokens out</th><th>wall</th></tr></thead><tbody>` +
+    rows.map(r => `<tr><td>${esc(r.label)}</td>
+      <td><span class="chip ${r.result === "PASS" ? "pass" : "fail"}">${r.result === "PASS" ? "✓ PASS" : "✕ FAIL"}</span></td>
+      <td class="num">${fmt(r.episodes)}</td><td class="num">${fmt(r.input_tokens)}</td>
+      <td class="num">${fmt(r.output_tokens)}</td><td class="num">${fmt(r.wall_sec)}s</td></tr>`).join("") +
+    `</tbody></table>`;
+}
+function renderStory(o) {
+  const cards = [];
+  if (o.replay) {
+    const r = o.replay;
+    cards.push(`<div class="card"><h3>Hot path: compiled replay vs the agent alone</h3>
+      <p class="task">${esc(r.task)} · agent: ${esc(r.cheap_model)}</p>
+      ${sideCmp([r.baseline, r.replay])}
+      <div class="claim"><b>honest claim:</b> ${esc(r.honest_claim)}</div></div>`);
+  }
+  if (o.rescue) {
+    const r = o.rescue;
+    cards.push(`<div class="card"><h3>Cold path: mid-run rescue ladder</h3>
+      <p class="task">${esc(r.task)} · ${esc(r.cheap_model)} → ${esc(r.escalate_model)} → executable node</p>
+      ${r.ladder.map(l => `<div class="rung">
+        <span class="who">${esc(l.rung)}</span>
+        <span class="chip ${l.outcome === "RESOLVED" ? "pass" : "fail"}">${esc(l.outcome)}</span>
+        <span class="why">${esc(l.why)}</span></div>`).join("")}
+      <div class="rung"><span class="who">totals</span>
+        <span class="chip ${r.totals.result === "PASS" ? "pass" : "fail"}">${esc(r.totals.result)}</span>
+        <span class="why num">${fmt(r.totals.episodes)} episodes · ${fmt(r.totals.input_tokens)} in / ${fmt(r.totals.output_tokens)} out · rescue injection ${fmt(r.totals.rescue_injection_tokens)} tokens</span></div>
+      <div class="claim"><b>honest claim:</b> ${esc(r.honest_claim)}</div></div>`);
+  }
+  $("#story").innerHTML = cards.join("") ||
+    `<div class="card unavailable">No demo_replay results found in this carn checkout.</div>`;
+}
+
+/* ---------------- graphs ---------------- */
+function renderGraphs(gs) {
+  $("#graphs").innerHTML = gs.map(g => `<div class="card">
+    <h3 style="font-size:.85rem; margin:0 0 .1rem">${esc(g.family)} <span class="counts">(${esc(g.file)} · ${g.nodes.length} nodes)</span></h3>
+    <p class="sub" style="margin-bottom:.5rem">${esc(g.desc)}</p>
+    ${g.nodes.map(n => `<div class="gnode"><span class="id">${esc(n.id)}</span>
+      <div class="cols">
+        <div><span class="lbl">action</span><code>${esc(n.action)}</code></div>
+        <div><span class="lbl">checkpoint</span><code>${esc(n.checkpoint)}</code></div>
+      </div></div>`).join("")}
+    <div class="glegend">walk semantics: checkpoint <b class="p">passes → deterministic, 0 tokens</b> ·
+      <b class="f">fails → cheapest-tier model fixes this node only</b> (fix = candidate new node)</div>
+    </div>`).join("") ||
+    `<div class="card unavailable">No *_graph.json in demo_replay/ yet.</div>`;
+}
+
+/* ---------------- trie (ported from the carn artifact) ---------------- */
+const purity = n => (n.npass && !n.nfail) ? "p" : (n.nfail && !n.npass) ? "f" : "";
+function isFork(n) {
+  const kids = Object.values(n.children || {});
+  if (kids.length < 2) return false;
+  const kinds = new Set(kids.map(purity));
+  return kinds.has("p") && kinds.has("f");
+}
+const sortKids = n => Object.entries(n.children || {}).sort((a, b) => b[1].nfail - a[1].nfail);
+function findNode(root, path) { let n = root; for (const t of path) { n = (n.children || {})[t]; if (!n) return null; } return n; }
+function walkChain(tok, node) {
+  const stops = [{tok, node}]; let n = node;
+  while (Object.keys(n.children || {}).length === 1 && !isFork(n)) {
+    const [t, c] = Object.entries(n.children)[0]; stops.push({tok: t, node: c}); n = c;
+  }
+  return {stops, truncated: Object.keys(n.children || {}).length > 0};
+}
+function stopHtml(tok, raw) {
+  return `<div class="stop"><span class="tok">${esc(tok)}</span>
+    <span class="raw" title="${esc(raw)}">${esc(raw)}</span></div>`;
+}
+function renderSummary(d) {
+  const np = d.runs.filter(r => r.passed).length, nf = d.runs.length - np;
+  const s = d.stats, k = d.forks.length;
+  $("#summary").hidden = false;
+  $("#summary").innerHTML =
+    `${d.runs.length} runs <span class="dim">(</span><b class="p">${np} pass</b><span class="dim"> · </span>` +
+    `<b class="f">${nf} fail</b><span class="dim">)</span><span class="dim"> · </span>` +
+    `${s.total_steps} run-steps <span class="dim">→</span> ${s.nodes} trie nodes ` +
+    `<span class="dim">(${s.shared} deduped)</span><span class="dim"> · </span>` +
+    `<b class="k">${k} outcome fork${k === 1 ? "" : "s"}</b>`;
+}
+function renderForks(d) {
+  if (!d.forks.length) {
+    $("#forks").innerHTML = `<div class="card unavailable">No outcome forks: runs agree, or diverge from step one.</div>`;
+    return;
+  }
+  $("#forks").innerHTML = d.forks.map(f => {
+    const node = findNode(d.trie, f.path);
+    if (!node) return "";
+    let cur = d.trie;
+    const trunk = f.path.map(t => { cur = cur.children[t]; return {tok: t, node: cur}; });
+    const trunkHtml = trunk.length
+      ? trunk.map(s => stopHtml(s.tok, s.node.example)).join('<div class="link"></div>')
+      : `<div class="stop"><span class="tok">(start)</span><span class="raw">&nbsp;</span></div>`;
+    const kids = sortKids(node);
+    const routes = kids.map(([t, c]) => {
+      const cls = purity(c);
+      const {stops, truncated} = walkChain(t, c);
+      const runsEnd = stops[stops.length - 1].node.ends || [];
+      const flag = cls === "p" ? "✓" : cls === "f" ? "✕" : "→";
+      const label = runsEnd.length ? runsEnd.join(", ") : `${c.npass}p/${c.nfail}f subtree`;
+      return `<div class="route ${cls}">
+        <div class="stops">${stops.map(s => stopHtml(s.tok, s.node.example)).join('<div class="link"></div>')}
+        ${truncated ? '<div class="link"></div><div class="stop"><span class="tok">…</span><span class="raw">continues below</span></div>' : ""}</div>
+        <span class="flag">${flag} ${esc(label)}</span></div>`;
+    });
+    const n = kids.length;
+    const paths = kids.map((kv, i) => {
+      const y = ((i + 0.5) / n) * 100;
+      const col = purity(kv[1]) === "p" ? "var(--pass)" : purity(kv[1]) === "f" ? "var(--fail)" : "var(--line)";
+      return `<path d="M0,50 C14,50 14,${y} 28,${y}" fill="none" stroke="${col}" stroke-width="2" opacity=".55" vector-effect="non-scaling-stroke"/>`;
+    }).join("");
+    return `<div class="railbox"><div class="rail">
+        <div class="stops">${trunkHtml}</div>
+        <div class="split"><svg viewBox="0 0 28 100" preserveAspectRatio="none" aria-hidden="true">${paths}</svg></div>
+        <div class="routes">${routes.join("")}</div></div>
+      <div class="cairn-note">⌃ cairn / checkpoint belongs here: after <b>${esc(f.path[f.path.length - 1] || "(start)")}</b>, compile the ✓ route</div>
+    </div>`;
+  }).join("");
+}
+function renderTree(d) {
+  function nodeHtml(tok, n, path) {
+    const cls = purity(n);
+    const forkTag = isFork(n) ? ' <span class="chip fork">FORK</span>' : "";
+    const ends = (n.ends || []).map(e => `<span class="endchip">◆ ${esc(e)} ends</span>`).join(" ");
+    const kids = sortKids(n).map(([t, c]) =>
+      `<li class="${purity(c)}" data-node="n:${esc(path.concat(t).join("/"))}">${nodeHtml(t, c, path.concat(t))}</li>`).join("");
+    return `<div class="node"><span class="tok ${cls}">${esc(tok)}</span>
+        <span class="counts">[${n.npass}p/${n.nfail}f]</span>
+        <span class="ex" title="${esc(n.example)}">${esc(n.example)}</span>
+        ${forkTag} ${ends}</div>` + (kids ? `<ul>${kids}</ul>` : "");
+  }
+  $("#tree").innerHTML = sortKids(d.trie).map(([t, c]) =>
+    `<li class="${purity(c)}" data-node="n:${esc(t)}">${nodeHtml(t, c, [t])}</li>`).join("")
+    || '<li><span class="counts">empty trie</span></li>';
+}
+function runPathIds(run) {
+  const ids = [], path = [];
+  for (const t of run.tokens) { path.push(t.tok); ids.push("n:" + path.join("/")); }
+  return ids;
+}
+function setLit(run, on) {
+  if (!run) return;
+  for (const id of runPathIds(run)) {
+    const li = document.querySelector(`[data-node="${CSS.escape(id)}"]`);
+    if (li) li.classList.toggle("lit", on);
+  }
+}
+function relight() {
+  document.querySelectorAll(".lit").forEach(e => e.classList.remove("lit"));
+  if (pinnedRun) setLit(DATA.runs.find(r => r.name === pinnedRun), true);
+}
+function renderRuns(d) {
+  $("#runsub").textContent = showRaw
+    ? "Every raw command behind every token. Nothing summarized."
+    : "Normalized token chains. Hover to trace in the trie; click to pin.";
+  $("#runs").innerHTML = d.runs.map(r => {
+    const body = showRaw
+      ? `<ul class="rawlist">${r.tokens.map(t =>
+          `<li><span class="t">${esc(t.tok)}</span><span class="c">${esc(t.raw)}</span></li>`).join("")}</ul>`
+      : `<span class="chain">${r.tokens.map(t =>
+          `<b title="${esc(t.raw)}">${esc(t.tok)}</b>`).join(" → ")}</span>`;
+    return `<div class="run ${pinnedRun === r.name ? "pinned" : ""}" tabindex="0" data-run="${esc(r.name)}">
+      <span class="name">${esc(r.name)}</span>
+      <span class="chip ${r.passed ? "pass" : "fail"}">${r.passed ? "✓ PASS" : "✕ FAIL"}</span>
+      <span class="counts">${r.tokens.length} tokens</span>
+      <span class="hint">${pinnedRun === r.name ? "pinned (click to release)" : ""}</span>
+      ${body}</div>`;
+  }).join("");
+  document.querySelectorAll(".run").forEach(el => {
+    const run = DATA.runs.find(r => r.name === el.dataset.run);
+    el.addEventListener("mouseenter", () => setLit(run, true));
+    el.addEventListener("mouseleave", () => { setLit(run, false); relight(); });
+    const toggle = () => { pinnedRun = pinnedRun === run.name ? null : run.name; renderRuns(DATA); relight(); };
+    el.addEventListener("click", toggle);
+    el.addEventListener("keydown", e => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); toggle(); } });
+  });
+}
+
+$("#rawtoggle").addEventListener("change", e => { showRaw = e.target.checked; renderRuns(DATA); relight(); });
+
+/* ---------------- load ---------------- */
+(async () => {
+  const fail = (sel, e) => { $(sel).innerHTML = `<div class="card unavailable">Unavailable: ${esc(e.message)}</div>`; };
+  let carnDir = "?";
+  try {
+    const o = await j("/api/carn/overview"); carnDir = o.carn_dir; renderStory(o);
+  } catch (e) { fail("#story", e); }
+  try { renderGraphs(await j("/api/carn/graphs")); } catch (e) { fail("#graphs", e); }
+  try {
+    const d = await j("/api/carn/trie");
+    DATA = d;
+    renderSummary(d); renderForks(d); renderTree(d); renderRuns(d);
+    $("#provenance").innerHTML =
+      `carn checkout: <code>${esc(carnDir)}</code> · trie computed live by <code>scripts/trie_forks.py</code>` +
+      (d.demo ? ` · <b>demo data</b>: no runs/ on disk yet, showing the fix-git exemplar (same runs as <code>--self-test</code>)`
+              : ` · ${d.runs.length} runs from <code>runs/</code> · labels: pytest summary in each run's <code>test_output.txt</code>`);
+  } catch (e) { fail("#forks", e); $("#provenance").textContent = "trie unavailable"; }
+})();
+</script>
+</body>
+</html>
