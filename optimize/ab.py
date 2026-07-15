@@ -12,17 +12,19 @@ import json
 import os
 import statistics
 import time
+from dataclasses import replace
 from pathlib import Path
 
 import yaml
 from langchain_core.tools import tool
 
 from agent.run import _connect, build_agent, langfuse_config, run_task
-from mcp_server.registry import SKILLS_DIR, optimizable_components
+from mcp_server.registry import SKILLS_DIR, load_skills, optimizable_components
 
 from . import usage as usage_ledger
 from .judge import judge
 from .promote import promote, save_pending
+from .evidence import build_evidence, component_revision, write_evidence
 
 TASKS_DIR = Path(__file__).resolve().parent / "tasks"
 
@@ -69,11 +71,10 @@ def promotion_gate(skill: str, champ_scores: list[float], chall_scores: list[flo
 # Eval agents get mutation tools stripped (see _variant_tools), so their instructions must not
 # mandate create_skill the way the production INSTRUCTIONS do — an instructed-but-missing tool
 # sends the model into tool-not-found retries and corrupts the rollout.
-EVAL_INSTRUCTIONS = """You are a deep agent with access to a skill router over MCP.
-For every task, first call `suggest_skills` to find relevant skills, then call `get_skill` to load
-the most relevant one and read its instructions, then follow those instructions to complete the task.
-If `suggest_skills` returns an empty list, solve the task directly from your own knowledge.
-Keep the final answer concise."""
+EVAL_INSTRUCTIONS = """You are a deep agent with access to a read-only skill router over MCP.
+For every task, call `route_and_load` once with the full task, harness `codex`, current working
+directory, and available tools/MCPs. Follow `skill_body` when a match is returned. With no match,
+solve directly. Never request a skill catalog. Keep the final answer concise."""
 
 
 def load_tasks(skill: str, log=print) -> tuple[list[dict], list[dict]]:
@@ -94,23 +95,23 @@ def load_tasks(skill: str, log=print) -> tuple[list[dict], list[dict]]:
 
 
 def _variant_tools(mcp_tools, skill: str, body: str, description: str):
-    """The real MCP tools, with get_skill swapped for one that serves the variant body.
-    Mutation tools are stripped — an eval run must not create skills or reload the library."""
-    real_get_skill = next(t for t in mcp_tools if t.name == "get_skill")
+    """One read-only route tool backed by the variant description and body."""
+    from mcp_server.router import Router
+    skills = load_skills()
+    variants = [replace(item, description=description, body=body) if item.name == skill else item
+                for item in skills]
+    variant_router = Router(variants)
 
     @tool
-    async def get_skill(name: str) -> str:
-        """Load a skill by name: returns its full SKILL.md instructions to follow."""
-        if name == skill:
-            # exact same format the real server emits — the eval must measure the production shape
-            return f"# Skill: {skill}\n{description}\n\n{body}"
-        return await real_get_skill.ainvoke({"name": name})
+    async def route_and_load(task: str, harness: str, cwd: str, available_tools: list[str] = [],
+                             available_mcps: list[str] = []) -> dict:
+        """Select and load one compatible skill, or return no match."""
+        return variant_router.route(task, harness, cwd, available_tools, available_mcps)
 
-    drop = {"get_skill", "create_skill", "reload_skills"}
-    return [t for t in mcp_tools if t.name not in drop] + [get_skill]
+    return [route_and_load]
 
 
-def _run_variant(dataset, variant: str, agent, tasks: list[dict]) -> tuple[list[float], list[dict]]:
+def _run_variant(dataset, variant: str, agent, tasks: list[dict]):
     """One Langfuse dataset run (experiment) for a variant; returns (judge scores, per-task token usage)."""
     from langfuse import Evaluation
 
@@ -118,12 +119,15 @@ def _run_variant(dataset, variant: str, agent, tasks: list[dict]) -> tuple[list[
     # run_experiment processes items in; a failed item defaults to 0
     scores_by_task: dict[str, float] = {}
     usage_by_task: dict[str, dict] = {}
+    behavior_by_task: dict[str, list[dict]] = {}
 
     async def task_fn(*, item, **kwargs):
         # run_experiment drives its own event loop and awaits async tasks
-        answer, _, usage = await run_task(
-            agent, item.input["task"], config=langfuse_config(tags=[f"variant={variant}"]))
+        answer, _, usage, behavior = await run_task(
+            agent, item.input["task"], config=langfuse_config(tags=[f"variant={variant}"]),
+            include_behavior=True)
         usage_by_task[item.input["task"]] = usage
+        behavior_by_task[item.input["task"]] = behavior
         usage_ledger.add("agent_ab", usage)
         return answer
 
@@ -142,7 +146,8 @@ def _run_variant(dataset, variant: str, agent, tasks: list[dict]) -> tuple[list[
                            evaluators=[judge_evaluator,
                                        token_evaluator("input_tokens"), token_evaluator("output_tokens")])
     return ([scores_by_task.get(t["task"], 0.0) for t in tasks],
-            [usage_by_task.get(t["task"], {"input_tokens": 0, "output_tokens": 0}) for t in tasks])
+            [usage_by_task.get(t["task"], {"input_tokens": 0, "output_tokens": 0}) for t in tasks],
+            [behavior_by_task.get(t["task"], []) for t in tasks])
 
 
 def run_ab(skill: str, promote_now: bool = False, budget: int = 60,
@@ -201,7 +206,7 @@ def run_ab(skill: str, promote_now: bool = False, budget: int = 60,
         # are reviewed in the diff, not executed here (the agent reads files from the on-disk champion).
         agent = build_agent(_variant_tools(mcp_tools, skill, comps["body"], comps["description"]),
                             instructions=EVAL_INSTRUCTIONS)
-        scores, usages = _run_variant(dataset, run_name, agent, holdout)
+        scores, usages, behaviors = _run_variant(dataset, run_name, agent, holdout)
         results[variant] = {
             "run": run_name, "scores": scores,
             "mean": statistics.mean(scores) if scores else 0.0,  # all items failing must not crash the run
@@ -211,6 +216,7 @@ def run_ab(skill: str, promote_now: bool = False, budget: int = 60,
                 "mean_input": statistics.mean(u["input_tokens"] for u in usages),
                 "mean_output": statistics.mean(u["output_tokens"] for u in usages),
             },
+            "behavior": behaviors,
         }
         r = results[variant]
         log(f"[ab] {variant}: mean judge score {r['mean']:.3f}  {scores}")
@@ -232,6 +238,9 @@ def run_ab(skill: str, promote_now: bool = False, budget: int = 60,
         "changed_components": changed,
         "champion_components": champion,
         "challenger_components": challenger,
+        "harness": "codex",
+        "model": os.environ.get("MODEL", "unknown"),
+        "behavior": {variant: result["behavior"] for variant, result in results.items()},
     }
 
     c_tok, ch_tok = results["champion"]["tokens"], results["challenger"]["tokens"]
@@ -246,6 +255,13 @@ def run_ab(skill: str, promote_now: bool = False, budget: int = 60,
         f"({ch_tok['mean_input'] - c_tok['mean_input']:+.0f}) (informational)")
 
     summary["optimization_usage"] = usage_ledger.report()
+    champion_skill = next(item for item in load_skills() if item.name == skill)
+    evidence = build_evidence(summary, champion_skill.revision, component_revision(challenger))
+    evidence_root = Path(__file__).resolve().parent.parent / "runs" / "evidence" / skill / str(ts)
+    evidence_json, evidence_markdown = write_evidence(evidence, evidence_root)
+    summary["evidence"] = evidence
+    summary["evidence_paths"] = {"json": str(evidence_json), "markdown": str(evidence_markdown)}
+    log(f"[ci] behavioral evidence: {evidence_json} and {evidence_markdown}")
     log("\n[usage] tokens spent by this optimization run:")
     log(usage_ledger.format_report())
     log(f"[ab] compare runs in Langfuse: Datasets -> {ds_name} (http://localhost:3100)")
