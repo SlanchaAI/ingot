@@ -1,8 +1,0 @@
-{
-  "mcpServers": {
-    "skill-router": {
-      "command": "skill-router",
-      "args": ["serve", "--stdio"]
-    }
-  }
-}

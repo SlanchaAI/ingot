@@ -1,4 +1,4 @@
-"""Portable evidence emitted by the route-and-improve loop for local, CI, UI, and CARN use."""
+"""Portable evidence emitted by the route-and-improve loop for local, CI, UI, and API use."""
 from __future__ import annotations
 
 import json

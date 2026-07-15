@@ -4,7 +4,7 @@
 
 **Goal:** Shrink PR #2 to additive MCP routing and safe skill improvement while preserving the existing Docker product.
 
-**Architecture:** Restore `master` packaging, Docker, demo-agent, fetch, and README surfaces. Add `route_and_load` beside—not instead of—the existing MCP tools. Shared roots augment the local writable skill root. Retain revisioned Behavioral CI and promotion hardening.
+**Architecture:** Restore `master` packaging, Docker, demo-agent, fetch, and README surfaces. Add `route_and_load` beside—not instead of—the existing MCP tools. Shared roots follow the local writable skill root. Retain revisioned Behavioral CI and promotion hardening.
 
 **Tech Stack:** Python 3.12 Docker image, FastMCP 3 HTTP transport, fastembed, LangGraph, Langfuse, GEPA, pytest.
 
@@ -30,11 +30,11 @@
 - Preserves: `list_skills`, `suggest_skills`, `get_skill`, `create_skill`, `reload_skills`
 - Adds: `route_and_load(task, harness, cwd, available_tools=None, available_mcps=None) -> dict`
 
-- [ ] Write failing registration and external-root/local-authoring coexistence tests.
-- [ ] Run targeted tests and confirm expected failures.
-- [ ] Restore the five tools and add `route_and_load` as the sixth.
-- [ ] Make configured roots append the local writable root.
-- [ ] Run targeted tests.
+- [x] Write failing registration and external-root/local-authoring coexistence tests.
+- [x] Run targeted tests and confirm expected failures.
+- [x] Restore the five tools and add `route_and_load` as the sixth.
+- [x] Keep the local writable root first and append configured roots.
+- [x] Run targeted tests.
 
 ### Task 2: Remove packaged CLI and restore launch workflow
 
@@ -49,12 +49,12 @@
 
 **Interfaces:**
 - Preserves: `python -m mcp_server.server`, `docker compose up --build`
-- Removes: `skill-router index|route|serve|improve|review|promote|eval|doctor`
+- Removes: the packaged console-command surface introduced by the draft PR
 
-- [ ] Remove CLI-only tests and implementation.
-- [ ] Restore Docker, dependency, demo-agent, and fetch files mechanically from `master`.
-- [ ] Restore module startup in `mcp_server.server`.
-- [ ] Run server, agent, and Compose tests.
+- [x] Remove CLI-only tests and implementation.
+- [x] Restore Docker, dependency, demo-agent, and fetch files mechanically from `master`.
+- [x] Restore module startup in `mcp_server.server`.
+- [x] Run server, agent, and Compose tests.
 
 ### Task 3: Restore product documentation
 
@@ -68,10 +68,10 @@
 **Interfaces:**
 - Documents: existing Docker quick start, six MCP tools, optional shared roots, stronger promotion evidence.
 
-- [ ] Restore README from `master`.
-- [ ] Add concise additive routing and Behavioral CI sections.
-- [ ] Remove stale architecture artifacts and rewrite session logs.
-- [ ] Scan every tracked file for forbidden product names and packaged CLI commands.
+- [x] Restore README from `master`.
+- [x] Add concise additive routing and Behavioral CI sections.
+- [x] Remove stale architecture artifacts and rewrite session logs.
+- [x] Scan every tracked file for forbidden product names and packaged CLI commands.
 
 ### Task 4: Verify and publish correction
 
@@ -81,8 +81,8 @@
 **Interfaces:**
 - Produces: corrected PR #2 against `master`.
 
-- [ ] Run full pytest suite.
-- [ ] Run `docker compose config --quiet`.
-- [ ] Run GitNexus change detection against `origin/master`.
+- [x] Run full pytest suite.
+- [x] Run `docker compose config --quiet`.
+- [x] Run GitNexus change detection against `origin/master`.
 - [ ] Commit and push the correction.
 - [ ] Replace PR #2 title/body with the skills-only scope and verification evidence.

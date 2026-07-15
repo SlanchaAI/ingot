@@ -18,11 +18,20 @@ MODEL = os.environ.get("MODEL", "qwen/qwen3.6-27b")
 BASE_URL = os.environ.get("OPENROUTER_BASE_URL", "https://openrouter.ai/api/v1")
 API_KEY = os.environ.get("OPENROUTER_API_KEY", "")
 
-INSTRUCTIONS = """You are a deep agent with access to a read-only skill router over MCP.
-For every nontrivial task, call `route_and_load` once with the full task, harness `codex`, current
-working directory, and available tool/MCP names. If it returns a match, follow `skill_body`. If it
-returns no match, solve the task directly. Never request or inject a skill catalog. Keep the final
-answer concise."""
+INSTRUCTIONS = """You are a deep agent with access to a skill router over MCP.
+For every task, first call `suggest_skills`, then decide from what it returns. Only ever call
+`get_skill` with a name that `suggest_skills` returned — never guess skill names.
+
+- If it returns a **direct match** (entries with no `related` flag): call `get_skill` on the top one,
+  read it, and follow it.
+- If it returns only **`related: true`** entries (no direct match): load the closest with `get_skill`
+  and *compose or extend* it into your solution rather than authoring a duplicate.
+- If it returns an **empty list** (nothing even related — a truly novel task): solve it from your own
+  knowledge, then before your final answer you MUST call `create_skill` exactly once to persist a
+  reusable skill distilled from your solution (description = one paragraph starting "Use this skill
+  when..."; body = the general method/steps, not the specifics of this one request).
+
+Prefer reusing/extending an existing skill over creating a new one. Keep the final answer concise."""
 
 
 def build_agent(tools, instructions: str = INSTRUCTIONS):
@@ -92,13 +101,16 @@ async def run_task(agent, task: str, config: dict | None = None, include_behavio
     return result + (behavior_events(messages),) if include_behavior else result
 
 
+_AGENT_TOOL_DENYLIST = {"list_skills", "route_and_load"}
+
+
 async def _connect(retries: int = 20, delay: float = 1.5):
     """LangChain tools for the deep agent (deepagents needs LangChain tools, so this uses
     langchain-mcp-adapters rather than the FastMCP client). Retries while the server is starting."""
     client = MultiServerMCPClient({"skills": {"url": MCP_URL, "transport": "streamable_http"}})
     for i in range(retries):
         try:
-            return await client.get_tools()
+            return [tool for tool in await client.get_tools() if tool.name not in _AGENT_TOOL_DENYLIST]
         except Exception as e:  # MCP server may still be starting
             if i == retries - 1:
                 raise
@@ -114,23 +126,23 @@ async def main(task: str):
     # 1) Proposed skills — one FastMCP client call; `.data` is the parsed list, no content-block plumbing.
     from fastmcp import Client
     async with Client(MCP_URL) as client:
-        route = (await client.call_tool("route_and_load", {
-            "task": task, "harness": "codex", "cwd": os.getcwd(),
-            "available_tools": [], "available_mcps": [],
-        })).data
-    print("\nROUTE (MCP route_and_load):")
-    print(f"  {route.get('score', 0):>6}  {route.get('match') or '(no match)'} — {route.get('reason')}")
+        proposals = (await client.call_tool("suggest_skills", {"task": task, "k": 5})).data
+    print("\nPROPOSED SKILLS (MCP suggest_skills):")
+    for proposal in proposals:
+        tag = " (related — compose/extend)" if proposal.get("related") else ""
+        print(f"  {proposal.get('score', 0):>6}  {proposal.get('name')}{tag} — "
+              f"{str(proposal.get('description'))[:72]}")
 
     if not API_KEY:
-        print("\n[agent] OPENROUTER_API_KEY not set — showing router decision only.")
+        print("\n[agent] OPENROUTER_API_KEY not set — showing router proposals only.")
         print("        Set OPENROUTER_API_KEY in .env to run the deep agent.")
         return
 
-    # 2) Deep agent routes once and solves. Traced to Langfuse if configured.
+    # 2) Deep agent autonomously loads a skill via get_skill and solves.
     agent = build_agent(await _connect())
     final, loaded, usage = await run_task(agent, task, config=langfuse_config(tags=["demo"]))
 
-    print(f"\nLOADED SKILLS (MCP route_and_load): {loaded or '(none)'}")
+    print(f"\nLOADED SKILLS (MCP get_skill): {loaded or '(none)'}")
     print(f"TOKENS: {usage['input_tokens']} in / {usage['output_tokens']} out")
     print("\nRESULT:")
     print(final)

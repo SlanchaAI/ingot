@@ -1,4 +1,5 @@
-# Optional full-stack demo: read-only router, LangGraph agent, optimizer, approval UI,
+# MCP skill router demo: an MCP server that suggests + serves skills, a LangGraph deep agent
+# that loads skills from it, a GEPA optimizer that A/B-tests skill improvements, an approval UI,
 # and a self-hosted Langfuse (v3) stack for traces / experiments.
 #
 # NOTE on "secrets" below: every credential in this file (postgres/redis/minio/clickhouse
@@ -7,8 +8,9 @@
 services:
   mcp:
     build: .
-    # Loopback inside this container. The agent shares this network namespace below.
-    command: skill-router serve --http --host 127.0.0.1 --port 8000
+    command: python -m mcp_server.server
+    ports:
+      - "127.0.0.1:8000:8000"          # MCP streamable-HTTP
     volumes:
       - ./skills:/app/skills # promoted skills must reach the running server (hot reload)
 
@@ -17,10 +19,9 @@ services:
     # entrypoint (not command) so `docker compose run --rm agent "your task"` appends the task
     entrypoint: ["python", "-m", "agent.run"]
     env_file:
-      - path: .env
-        required: false      # OPENROUTER_API_KEY is optional and pay-per-token
+      - .env                 # OPENROUTER_API_KEY (see .env.example)
     environment:
-      MCP_URL: http://127.0.0.1:8000/mcp
+      MCP_URL: http://mcp:8000/mcp
       LANGFUSE_BASE_URL: http://langfuse-web:3000
       LANGFUSE_PUBLIC_KEY: ${LANGFUSE_PUBLIC_KEY:-pk-lf-local-demo}
       LANGFUSE_SECRET_KEY: ${LANGFUSE_SECRET_KEY:-sk-lf-local-demo}
@@ -29,16 +30,15 @@ services:
         condition: service_started
       langfuse-web:
         condition: service_healthy
-    network_mode: "service:mcp"
 
   # GEPA skill optimizer + A/B eval: `docker compose run --rm optimize pdf`
   optimize:
     build: .
     entrypoint: ["python", "-m", "optimize.ab"]
     env_file:
-      - path: .env
-        required: false
+      - .env
     environment:
+      MCP_URL: http://mcp:8000/mcp
       LANGFUSE_BASE_URL: http://langfuse-web:3000
       LANGFUSE_PUBLIC_KEY: ${LANGFUSE_PUBLIC_KEY:-pk-lf-local-demo}
       LANGFUSE_SECRET_KEY: ${LANGFUSE_SECRET_KEY:-sk-lf-local-demo}
@@ -46,6 +46,8 @@ services:
       - ./skills:/app/skills
       - ./runs:/app/runs
     depends_on:
+      mcp:
+        condition: service_started
       langfuse-web:
         condition: service_healthy
     profiles: ["optimize"]   # only runs on demand, not with `docker compose up`
@@ -55,8 +57,7 @@ services:
     build: .
     entrypoint: ["python", "-m", "optimize.mine"]
     env_file:
-      - path: .env
-        required: false
+      - .env
     environment:
       LANGFUSE_BASE_URL: http://langfuse-web:3000
       LANGFUSE_PUBLIC_KEY: ${LANGFUSE_PUBLIC_KEY:-pk-lf-local-demo}
@@ -73,9 +74,9 @@ services:
     build: .
     entrypoint: ["python", "-m", "optimize.loop"]
     env_file:
-      - path: .env
-        required: false
+      - .env
     environment:
+      MCP_URL: http://mcp:8000/mcp
       LANGFUSE_BASE_URL: http://langfuse-web:3000
       LANGFUSE_PUBLIC_KEY: ${LANGFUSE_PUBLIC_KEY:-pk-lf-local-demo}
       LANGFUSE_SECRET_KEY: ${LANGFUSE_SECRET_KEY:-sk-lf-local-demo}
@@ -83,6 +84,8 @@ services:
       - ./skills:/app/skills
       - ./runs:/app/runs
     depends_on:
+      mcp:
+        condition: service_started
       langfuse-web:
         condition: service_healthy
     profiles: ["optimize"]
@@ -92,9 +95,9 @@ services:
     build: .
     entrypoint: ["python", "-m", "optimize.canary"]
     env_file:
-      - path: .env
-        required: false
+      - .env
     environment:
+      MCP_URL: http://mcp:8000/mcp
       LANGFUSE_BASE_URL: http://langfuse-web:3000
       LANGFUSE_PUBLIC_KEY: ${LANGFUSE_PUBLIC_KEY:-pk-lf-local-demo}
       LANGFUSE_SECRET_KEY: ${LANGFUSE_SECRET_KEY:-sk-lf-local-demo}
@@ -102,6 +105,8 @@ services:
       - ./skills:/app/skills
       - ./runs:/app/runs
     depends_on:
+      mcp:
+        condition: service_started
       langfuse-web:
         condition: service_healthy
     profiles: ["optimize"]
@@ -113,9 +118,9 @@ services:
     ports:
       - "127.0.0.1:8080:8080"
     env_file:
-      - path: .env
-        required: false
+      - .env
     environment:
+      MCP_URL: http://mcp:8000/mcp
       LANGFUSE_BASE_URL: http://langfuse-web:3000
       LANGFUSE_PUBLIC_KEY: ${LANGFUSE_PUBLIC_KEY:-pk-lf-local-demo}
       LANGFUSE_SECRET_KEY: ${LANGFUSE_SECRET_KEY:-sk-lf-local-demo}
@@ -124,8 +129,8 @@ services:
       - ./skills:/app/skills
       - ./runs:/app/runs
     depends_on:
-      langfuse-web:
-        condition: service_healthy
+      mcp:
+        condition: service_started
 
   # ---------------------------------------------------------------------------
   # Self-hosted Langfuse v3 (adapted from the official docker-compose.yml).

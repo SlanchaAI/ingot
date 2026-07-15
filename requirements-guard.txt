@@ -2,6 +2,6 @@
 # Heavy (torch); NOT installed in the base image. Enable with:
 #   pip install -r requirements-guard.txt
 #   export SKILL_GUARD_MODEL=llm-semantic-router/mmbert32k-jailbreak-detector-merged
-# The quarantine/review path may run it alongside the literal-pattern prefilter.
+# Then create_skill runs the classifier alongside the regex heuristic. See mcp_server/guard_model.py.
 transformers>=4.44
 torch>=2.2

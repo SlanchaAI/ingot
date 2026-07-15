@@ -70,17 +70,27 @@ def _skill(root, dirname="sample", *, name="sample", description="route sample",
 
 
 def test_configured_roots_reads_platform_path_separator(tmp_path, monkeypatch):
-    a, b = tmp_path / "a", tmp_path / "b"
-    a.mkdir(); b.mkdir()
+    a, b, local = tmp_path / "a", tmp_path / "b", tmp_path / "local"
+    a.mkdir(); b.mkdir(); local.mkdir()
     monkeypatch.setenv("SKILL_ROUTER_PATHS", os.pathsep.join([str(a), str(b), str(a)]))
-    assert configured_roots() == [a.resolve(), b.resolve()]
+    monkeypatch.setattr("mcp_server.registry.SKILLS_DIR", local)
+    assert configured_roots() == [local.resolve(), a.resolve(), b.resolve()]
 
 
 def test_explicit_roots_override_environment(tmp_path, monkeypatch):
-    env_root, explicit = tmp_path / "env", tmp_path / "explicit"
-    env_root.mkdir(); explicit.mkdir()
+    env_root, explicit, local = tmp_path / "env", tmp_path / "explicit", tmp_path / "local"
+    env_root.mkdir(); explicit.mkdir(); local.mkdir()
     monkeypatch.setenv("SKILL_ROUTER_PATHS", str(env_root))
-    assert configured_roots([explicit]) == [explicit.resolve()]
+    monkeypatch.setattr("mcp_server.registry.SKILLS_DIR", local)
+    assert configured_roots([explicit]) == [local.resolve(), explicit.resolve()]
+
+
+def test_environment_roots_keep_local_authoring_root(tmp_path, monkeypatch):
+    external, local = tmp_path / "external", tmp_path / "local"
+    external.mkdir(); local.mkdir()
+    monkeypatch.setenv("SKILL_ROUTER_PATHS", str(external))
+    monkeypatch.setattr("mcp_server.registry.SKILLS_DIR", local)
+    assert configured_roots() == [local.resolve(), external.resolve()]
 
 
 def test_load_skills_uses_declared_root_precedence_with_warning(tmp_path):

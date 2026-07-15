@@ -1,10 +1,11 @@
-"""Literal-pattern prefilter for quarantined or externally sourced skill content.
+"""Content guardrails for agent-authored skills (create_skill is the un-gated live-write path;
+GEPA promotions go through human approval instead).
 
 Deliberately narrow: we hard-reject only *low-false-positive* signals. We do NOT denylist shell
 commands, `.env`/credential mentions, or `curl | sh`, because legitimate skills routinely contain
 code, install steps, and secret-handling guidance — scanning for those would break real skills.
-This is not semantic prompt-injection detection. Human review and optional model classification
-cover the stronger layers."""
+The residual risk (a skill is followed instructions) is covered by the README threat model: run the
+agent without secrets or sensitive filesystem access in its container."""
 import os
 import re
 

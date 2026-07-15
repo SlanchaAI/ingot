@@ -1,4 +1,0 @@
-interface:
-  display_name: "Skill Router"
-  short_description: "Route nontrivial tasks through one selected skill"
-  default_prompt: "Route this task through the shared skill library."

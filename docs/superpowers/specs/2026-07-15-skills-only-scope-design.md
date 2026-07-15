@@ -22,9 +22,9 @@ unchanged from `master`.
 
 ## Skill roots
 
-`SKILL_ROUTER_PATHS` may add shared read-only roots. The repository `skills/` directory is always
-included last as the writable authoring root, so `create_skill` remains live and newly created skills
-remain routable. Earlier roots win duplicate names with a visible warning.
+`SKILL_ROUTER_PATHS` may add shared read-only roots. The repository `skills/` directory remains first
+as the writable authoring and optimization root, so existing behavior wins duplicate names and newly
+created skills remain routable. Later duplicates emit a visible warning.
 
 ## Improvement safety
 

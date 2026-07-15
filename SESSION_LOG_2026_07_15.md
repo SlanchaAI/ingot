@@ -2,58 +2,52 @@
 
 ## Goal
 
-Close adversarial review findings, prove the install surface from a built wheel, and publish the
-Friday launch work as a draft pull request.
+Prepare Skill Router for open-source developer adoption while preserving its existing skills-only
+MCP/Docker product and self-improvement loop.
 
-## Spruce-comet review
+## Scope correction
 
-Wire identity was re-keyed to v3.2 as `briar-heath@wireup.net`; the verified peer channel now accepts
-signed events. Spruce-comet reviewed commit `5947fa5` and found three launch-blocking trust gaps:
+An initial draft pull request accidentally introduced a packaged CLI, harness adapters, and product
+positioning outside this repository's established boundary. Operator review corrected that direction.
 
-1. Missing holdout data silently reused training tasks.
-2. Recall@3 and no-route precision were named but not computed or gated.
-3. Project path patterns matched the cwd string rather than files below cwd.
+Final boundary:
 
-Commit `5b42e9b` fixes the mechanisms, not only fixtures: absent holdout evidence is marked leaked and
-cannot promote; the committed routing suite computes and gates both metrics plus cross-harness
-parity; path scope inspects real project files. It also closes review findings in `doctor`, root
-precedence, router metadata validation, and the optimizer's dead MCP dependency. Re-review requested
-over Wire; result must be checked before PR handoff.
+- Keep the existing Docker quick start and Python module entrypoints.
+- Keep all five existing discovery, loading, authoring, and reload MCP tools.
+- Add `route_and_load` as an optional sixth tool, not a replacement workflow.
+- Keep skill improvement and behavioral promotion checks inside the existing optimizer/UI loop.
+- Do not add a packaged console command, PyPI launch story, or harness plugin bundle in this PR.
+- Do not integrate or position unrelated products through this repository.
 
-Final self-review found a separate revision-binding gap: the live revision covered `SKILL.md` and
-harness variants but not bundled references/scripts. The complete logical skill is now hashed;
-prospective challenger evidence uses that same hash, bundled drift blocks promotion, external
-symlink reads fail closed, and `file:SKILL.md` cannot bypass structured serialization.
+The separate UI integration pull request was closed. Its branch remains preserved outside the
+Skill Router merge path.
 
-## Packaging decisions
+## Review findings retained
 
-- Keep one distribution for the first run; dependency extras preserve runtime boundaries.
-- Base wheel includes core routing, CLI, and stdio MCP only.
-- Optimizer, approval UI, semantic guard, and development tools remain optional.
-- Wheel must include optimizer task YAML and UI static assets.
-- Docker is an optional demo surface and explicitly opts into loopback HTTP.
-- Mutable third-party fetch remains disabled until sources are commit-pinned with hashes, provenance,
-  and licenses.
+- Missing holdout data is marked leaked and cannot produce promotable evidence.
+- Recall@3, no-route precision, routing regressions, and compatible-harness parity are computed when
+  a routing description changes.
+- Project path patterns inspect real files below the working directory.
+- Complete logical skill revisions include bundled references and scripts.
+- Bundled drift, traversal, external symlink reads, and `file:SKILL.md` overwrite attempts fail
+  closed before promotion.
+- Prior revisions are snapshotted; promotion stages the challenger and rolls back a failed swap.
 
-## Verification evidence
+## Verification
 
-- Full suite: 165 passed, 1 skipped.
-- Built sdist and wheel; Twine accepted both metadata records.
-- Clean wheel install indexed 11 fixture skills and routed through the installed console script.
-- Routing suite: 15 cases, top-1 1.0, Recall@3 1.0, no-route precision 1.0.
-- Clean-home doctor: no issues; only `route_and_load` is model-facing; stdio is default.
-- Installed dependency check: no broken requirements.
-- Stdio server remained live through the process smoke window.
-- Claude skills and Codex skill/plugin passed their official validators.
-- Docker Compose configuration parsed successfully.
-- Warm 102-entry local latency: median 4.892 ms, p95 5.13 ms, maximum 5.663 ms across 250 routes
-  after 10 warmups. Entries were synthesized from 34 real local skill descriptions to isolate
-  102-item retrieval cost; repeat with the final public catalog before publishing the number.
+- Full suite: 155 passed, 1 skipped.
+- Docker Compose configuration parses with the original local `.env` contract.
+- `python -m mcp_server.server` serves HTTP successfully.
+- Live MCP discovery returns the existing five tools plus additive `route_and_load`.
+- No packaged CLI module, console entrypoint, package manifest, or harness adapter remains.
+- Repository-wide scope scan contains no names belonging to the separate product.
+- GitNexus maps the retained diff to 19 routing, authoring, and promotion flows; risk is critical by
+  breadth, with those paths covered by regression tests.
 
 ## Artifact catalog
 
-- `evals/routing.yaml` — deterministic routing, no-route, filter, priority, conflict, and parity cases.
-- `evals/fixtures/` — committed skill and real-project fixtures for the routing gate.
-- `optimize/evidence.py` — revisioned Behavioral CI evidence contract.
-- `skills.lock.json` — empty, fail-closed third-party source manifest.
-- `adapters/` — thin Claude and Codex bootstrap integrations.
+- `docs/superpowers/specs/2026-07-15-skills-only-scope-design.md` — corrected repository boundary.
+- `docs/superpowers/plans/2026-07-15-skills-only-scope.md` — correction implementation plan.
+- `mcp_server/routing_eval.py` — reusable routing metrics for promotion checks.
+- `evals/routing.yaml` — deterministic routing regression cases.
+- `optimize/evidence.py` — revisioned Behavioral CI evidence artifact.

@@ -17,10 +17,6 @@ __pycache__/
 *.pyc
 .hf_cache/
 .venv/
-.worktrees/
-build/
-dist/
-*.egg-info/
 
 # fetched skills are optional & not redistributed here (scripts/fetch_skills.sh)
 skills/*

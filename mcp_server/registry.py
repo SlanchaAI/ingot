@@ -90,8 +90,7 @@ def configured_roots(explicit: Iterable[str | Path] | None = None) -> list[Path]
     values = list(explicit) if explicit is not None else [
         p for p in os.environ.get("SKILL_ROUTER_PATHS", "").split(os.pathsep) if p
     ]
-    if not values:
-        values = [SKILLS_DIR]
+    values = [SKILLS_DIR, *values] if values else [SKILLS_DIR]
     roots: list[Path] = []
     seen: set[Path] = set()
     for value in values:
