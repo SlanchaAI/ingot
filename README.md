@@ -11,19 +11,36 @@ optimizer** mines the traces for failures, rewrites a failing skill, and **A/B-t
 challenger through the full agent** on held-out tasks; you review the diff and scores in a small
 **approval UI**, and the winner goes live via hot reload — no restart.
 
-**Privacy focused throughout**: every OpenRouter call is hardcoded to route only to
-[zero-data-retention endpoints](#privacy-zero-data-retention) that don't collect user data, tracing
-is self-hosted on your machine, and every service binds to localhost only.
+## Privacy first
 
-The tutorial below runs that whole loop on a real skill, and the arc is simple: **find a request
+**Privacy focused throughout** — three properties, all defaults, none optional:
+
+- **Zero data retention LLM calls.** Every OpenRouter request — agent runs, GEPA rollouts and
+  reflection, the judge, task drafting — carries a hardcoded provider preference:
+
+  ```json
+  {"provider": {"zdr": true, "data_collection": "deny"}}
+  ```
+
+  OpenRouter then routes only to **zero-data-retention endpoints** operated by providers that do
+  not collect user data; a model with no qualifying endpoint fails loudly rather than falling back
+  to one that retains prompts.
+- **Self-hosted tracing.** Langfuse (and its Postgres / ClickHouse / MinIO) runs inside the compose
+  stack — traces, skill contents, and eval outputs never leave your machine.
+- **Localhost only.** No service is reachable off the machine
+  (see [Network exposure](#network-exposure)).
+
+The only data that leaves your machine is the LLM traffic itself, under ZDR.
+
+## Tutorial
+
+The tutorial runs the whole loop on a real skill, and the arc is simple: **find a request
 the existing skill doesn't help with, then optimize the skill until it does.** The failing champion
 is not a strawman: it is the **current `pdf` skill from
 [anthropics/skills](https://github.com/anthropics/skills), exactly as fetched from upstream
 today** — the agent routes to it, loads it, follows it, and still fails the request. You'll watch
 that happen, mine the failure from your own traces, let GEPA rewrite the skill, review the diff,
 promote it, and re-run the *same request* to see it succeed.
-
-## Tutorial
 
 ### 1. Set up and start the stack
 
@@ -432,22 +449,6 @@ threshold is rejected alongside the regex check (~20ms per call on CPU). When th
 or the download fails it **degrades silently** to the regex heuristic — no crash. To run it in
 Docker, set `SKILL_GUARD_MODEL` on the `mcp` service in `docker-compose.yml` (mount a persistent
 `HF_HOME` to keep the one-time download).
-
-### Privacy: zero data retention
-
-Every OpenRouter request — agent runs, GEPA rollouts and reflection, the judge, task drafting —
-carries a hardcoded provider preference:
-
-```json
-{"provider": {"zdr": true, "data_collection": "deny"}}
-```
-
-OpenRouter then routes only to **zero-data-retention endpoints** operated by providers that do not
-collect user data; a model with no qualifying endpoint fails loudly rather than falling back to one
-that retains prompts. The rest of the stack keeps the same posture: Langfuse (and its Postgres /
-ClickHouse / MinIO) is **self-hosted in the compose stack**, so traces never leave your machine, and
-no service is reachable off localhost (below). The only data that leaves your machine is the LLM
-traffic itself, under ZDR.
 
 ### Network exposure
 
