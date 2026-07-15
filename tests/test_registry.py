@@ -1,8 +1,11 @@
 """Unit tests for skill discovery / frontmatter parsing edge cases (mcp_server.registry)."""
+import os
+
 import pytest
 
 from mcp_server.registry import (
-    MAX_NAME, load_skills, name_problem, optimizable_components, parse_skill, slugify, write_skill_md,
+    MAX_NAME, configured_roots, load_skills, name_problem, optimizable_components, parse_skill,
+    slugify, write_skill_md,
 )
 
 
@@ -55,6 +58,72 @@ def test_load_skills_skips_missing_description(tmp_path):
     (tmp_path / "nodesc" / "SKILL.md").write_text("---\nname: nodesc\n---\nbody")   # no description
     names = {s.name for s in load_skills(tmp_path)}
     assert names == {"good"}
+
+
+def _skill(root, dirname="sample", *, name="sample", description="route sample", extra="", body="body"):
+    d = root / dirname
+    d.mkdir(parents=True)
+    (d / "SKILL.md").write_text(
+        f"---\nname: {name}\ndescription: {description}\n{extra}---\n{body}\n"
+    )
+    return d
+
+
+def test_configured_roots_reads_platform_path_separator(tmp_path, monkeypatch):
+    a, b = tmp_path / "a", tmp_path / "b"
+    a.mkdir(); b.mkdir()
+    monkeypatch.setenv("SKILL_ROUTER_PATHS", os.pathsep.join([str(a), str(b), str(a)]))
+    assert configured_roots() == [a.resolve(), b.resolve()]
+
+
+def test_explicit_roots_override_environment(tmp_path, monkeypatch):
+    env_root, explicit = tmp_path / "env", tmp_path / "explicit"
+    env_root.mkdir(); explicit.mkdir()
+    monkeypatch.setenv("SKILL_ROUTER_PATHS", str(env_root))
+    assert configured_roots([explicit]) == [explicit.resolve()]
+
+
+def test_load_skills_rejects_duplicate_identity_across_roots(tmp_path):
+    a, b = tmp_path / "a", tmp_path / "b"
+    _skill(a); _skill(b, dirname="other", name="sample")
+    with pytest.raises(ValueError, match="duplicate skill 'sample'"):
+        load_skills(roots=[a, b])
+
+
+def test_skill_revision_changes_with_routing_content(tmp_path):
+    d = _skill(tmp_path)
+    first = load_skills(tmp_path)[0]
+    (d / "SKILL.md").write_text("---\nname: sample\ndescription: changed route\n---\nbody\n")
+    second = load_skills(tmp_path)[0]
+    assert len(first.revision) == 64
+    assert first.revision != second.revision
+    assert first.root == str(d.resolve())
+
+
+def test_router_metadata_defaults_and_namespaced_overrides(tmp_path):
+    _skill(tmp_path, dirname="default", name="default")
+    _skill(
+        tmp_path,
+        dirname="codex-only",
+        name="codex-only",
+        extra=("metadata:\n  skill-router:\n    harnesses: [codex]\n    trust: reviewed\n"
+               "    activation: manual\n    priority: 90\n"),
+    )
+    by_name = {s.name: s for s in load_skills(tmp_path)}
+    assert by_name["default"].metadata["harnesses"] == ["claude", "codex"]
+    assert by_name["default"].metadata["activation"] == "automatic"
+    assert by_name["codex-only"].metadata["harnesses"] == ["codex"]
+    assert by_name["codex-only"].metadata["trust"] == "reviewed"
+    assert by_name["codex-only"].metadata["priority"] == 90
+
+
+def test_harness_variant_replaces_only_body(tmp_path):
+    d = _skill(tmp_path)
+    (d / "variants").mkdir()
+    (d / "variants" / "codex.md").write_text("codex body")
+    skill = load_skills(tmp_path)[0]
+    assert skill.body_for("claude") == "body"
+    assert skill.body_for("codex") == "codex body"
 
 
 # --- name_problem / slugify: spec boundaries --------------------------------------------------
