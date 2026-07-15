@@ -17,6 +17,7 @@ __pycache__/
 *.pyc
 .hf_cache/
 .venv/
+.worktrees/
 
 # fetched skills are optional & not redistributed here (scripts/fetch_skills.sh)
 skills/*
