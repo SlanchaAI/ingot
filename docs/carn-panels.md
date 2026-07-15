@@ -33,10 +33,12 @@ input, and should stay unset on any public box.
 | `GET /api/carn/runs` | `CARN_DIR/runs/**/trajectory.json` + `test_output.txt` | run list, pytest-derived pass/fail |
 | `GET /api/carn/trie?runs=a,b` | computed live by carn's `trie_forks.py` (imported by path) | trie, outcome forks, token chains |
 
-With no labeled runs on disk the trie endpoint serves the fix-git exemplar (same runs
-as `trie_forks.py --self-test`) flagged `demo: true`, and the page labels it as demo
-data. Runs that can't carry a signal (no test output, unreadable trajectory) are
-reported in `skipped`, shown on the page, and selectable-but-disabled in the run picker.
+With no labeled runs on disk the trie endpoint serves an illustrative exemplar flagged
+`demo: true` (nine synthetic weak-agent trajectories across three task families —
+crack-7z, fix-git, a shell-script task — tuned to surface three outcome forks), and the
+page labels it as demo data. Runs that can't carry a signal (no test output, unreadable
+trajectory) are reported in `skipped`, shown on the page, and selectable-but-disabled in
+the run picker.
 
 Read-only by construction: no endpoint launches runs, walks graphs, or writes.
 The `runs` query param is resolved and rejected if it escapes `CARN_DIR/runs/`;

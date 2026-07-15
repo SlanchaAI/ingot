@@ -141,14 +141,43 @@ def _ser(root_node):
     return out
 
 
-# the fix-git exemplar from trie_forks.py --self-test: shown when no labeled runs exist yet,
-# so the panel demonstrates the mechanics instead of rendering an empty page
+# Illustrative exemplar shown when no labeled runs/ exist on disk yet, so the panel
+# demonstrates the mechanics instead of rendering an empty page. Nine synthetic weak-agent
+# trajectories across three real task families (crack-7z, fix-git, a shell-script task),
+# tuned to surface three outcome forks — where a proven route splits from a dead end, i.e.
+# where a cairn belongs. Flagged demo:true; not real mined runs. The minimal 2-run fix-git
+# case lives in trie_forks.py --self-test.
 _EXEMPLAR = [
-    ("fix-git-baseline", False, ["cd /app/repo", "git reflog", "git merge a82b384",
-     "cat > _includes/about.md << 'ENDOFFILE'\nAbout us...", "git add -A && git commit --no-edit"]),
-    ("fix-git-rescue", True, ["cd /app/repo", "git reflog", "git merge a82b384",
-     "git checkout a82b384 -- _includes/about.md", "git commit --amend --no-edit",
-     "git diff a82b384 -- _includes/about.md"]),
+    # crack-7z-hash.hard — recover a secret from a password-protected archive.
+    ("crack7z-guess", False, [
+        "cd /app", "7z x secrets.7z -p'letmein'", "7z x secrets.7z -p'johntheRipper'"]),
+    ("crack7z-no-deps", False, [
+        "cd /app", "perl /app/john/run/7z2john.pl secrets.7z > /app/hash.txt"]),
+    ("crack7z-install-guess", False, [
+        "cd /app", "apt-get install -y p7zip-full", "7z x secrets.7z -p'admin'"]),
+    ("crack7z-solve", True, [
+        "cd /app", "apt-get install -y p7zip-full libcompress-raw-lzma-perl",
+        "perl /app/john/run/7z2john.pl secrets.7z > /app/hash.txt",
+        "john --incremental=Digits /app/hash.txt", "7z x secrets.7z -p1998",
+        "cp /app/secret.txt /app/solution.txt"]),
+    ("crack7z-no-deliver", False, [
+        "cd /app", "apt-get install -y p7zip-full libcompress-raw-lzma-perl",
+        "perl /app/john/run/7z2john.pl secrets.7z > /app/hash.txt",
+        "john --incremental=Digits /app/hash.txt", "7z x secrets.7z -p1998",
+        "echo 1998 > /app/answer.txt"]),
+    # fix-git — restore a file mangled by a bad merge.
+    ("fixgit-baseline", False, [
+        "cd /app/repo", "git reflog", "git merge a82b384",
+        "cat > _includes/about.md << 'ENDOFFILE'\nAbout us...", "git add -A && git commit --no-edit"]),
+    ("fixgit-rescue", True, [
+        "cd /app/repo", "git reflog", "git merge a82b384",
+        "git checkout a82b384 -- _includes/about.md", "git commit --amend --no-edit",
+        "git diff a82b384 -- _includes/about.md"]),
+    # shell-script task — ship a working executable.
+    ("script-noexec", False, [
+        "cd /app", "vim solution.sh", "bash solution.sh"]),
+    ("script-fixed", True, [
+        "cd /app", "vim solution.sh", "chmod +x solution.sh", "bash solution.sh"]),
 ]
 
 
