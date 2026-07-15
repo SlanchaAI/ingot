@@ -451,10 +451,12 @@ Write paths, and what guards each:
 ### Optional: ML prompt-injection classifier
 
 Beyond the regex heuristic, `create_skill` can run the **[vLLM Semantic Router](https://github.com/vllm-project/semantic-router)
-jailbreak detector** (`llm-semantic-router/mmbert32k-jailbreak-detector-merged`, an mmBERT CPU
-classifier). Inference runs on **ONNX Runtime** via the model repo's bundled ONNX export — no
-`torch`/`transformers`; the deps already ship with the base image via fastembed. It's **opt-in**
-(the ~1.2GB model downloads to the HF cache on first use) — just point the guard at the model:
+jailbreak detector** ([`llm-semantic-router/mmbert32k-jailbreak-detector-merged`](https://huggingface.co/llm-semantic-router/mmbert32k-jailbreak-detector-merged),
+an mmBERT CPU classifier, Apache-2.0). Inference runs on **ONNX Runtime** via the model repo's
+bundled ONNX export — no `torch`/`transformers`; the deps already ship with the base image via
+fastembed. It's **opt-in**, and like the skills, the model is **not redistributed here** — it
+downloads (~1.2GB, one-time) from Hugging Face into the HF cache on first use, under its own
+upstream license. Just point the guard at the model:
 
 ```bash
 # point the guard at the model (empty = disabled)
