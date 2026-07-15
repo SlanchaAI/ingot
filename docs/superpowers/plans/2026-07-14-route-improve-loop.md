@@ -93,7 +93,7 @@
 
 **Interfaces:**
 - Produces: `build_evidence(summary, champion_revision, challenger_revision) -> dict`
-- Produces: `write_evidence(evidence, root) -> tuple[Path, Path]` for `evidence.json` and `BENCHMARK.md`
+- Produces: `write_evidence(evidence, root) -> tuple[Path, Path]` for `evidence.json` and `EVIDENCE.md`
 - Changes agent routing instruction/tool parsing from two calls to `route_and_load`.
 
 - [ ] Write failing tests for exact revision attribution, per-case score deltas, gate reasons, token deltas, optional first-divergence records, deterministic Markdown, and routed skill extraction.
@@ -138,11 +138,11 @@
 - Documents zero-key route path and optional improvement path.
 - Docker demo explicitly opts into loopback HTTP while local CLI defaults to stdio.
 
-- [ ] Add a deterministic routing fixture and run it through the CLI.
-- [ ] Rewrite first-run and product story around route-and-improve, with Behavioral CI as promotion gate.
-- [ ] Document dependency extras, adapter installation, security model, CARN boundary, and unresolved copyright ownership.
-- [ ] Build wheel, install into a clean venv, run `index`, `route`, and stdio smoke checks.
-- [ ] Run full tests, `pip check`, package metadata validation, and staged-scope review.
+- [x] Add a deterministic routing fixture and run it through the CLI.
+- [x] Rewrite first-run and product story around route-and-improve, with Behavioral CI as promotion gate.
+- [x] Document dependency extras, adapter installation, security model, CARN boundary, and unresolved copyright ownership.
+- [x] Build wheel, install into a clean venv, run `index`, `route`, and stdio smoke checks.
+- [x] Run full tests, `pip check`, package metadata validation, and staged-scope review.
 - [ ] Commit `docs: prepare route and improve launch`.
 - [ ] Push `launch/core-skill-router` and open a draft PR against `master`.
 

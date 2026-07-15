@@ -1,498 +1,269 @@
-# MCP Skill Router
+# Skill Router
 
-A minimal, end-to-end example of a **self-improving skill library**:
+**Route to the right skill. Learn from failures. Improve it safely.**
 
-- an **MCP server** that suggests and serves [Agent Skills](https://github.com/anthropics/skills) (fetch 70+ real ones — document, GPU/infra, testing, security — from four public sources, see [Skill sources](#skill-sources)),
-- a **LangGraph deep agent** that asks the router for suggestions, loads the best skill, follows it — and **authors a new skill** when nothing matches,
-- **[Langfuse](https://langfuse.com)** (self-hosted, included in compose) tracing every run,
-- a **[GEPA](https://github.com/gepa-ai/gepa) optimizer** that evolves a skill's SKILL.md, **A/B-tests champion vs challenger through the full agent** (judge score + token cost), and
-- a tiny **approval UI**: review the diff and scores, approve, and the winner goes live via a **hot reload** of the MCP server — no restart.
+Skill Router is a local control plane for shared [Agent Skills](https://agentskills.io). It keeps the
+full library outside Claude and Codex native discovery, selects one compatible skill for each
+nontrivial task, and returns that skill body through one read-only tool call.
 
-## The payoff, in one story
+When a skill underperforms, the improvement loop mines its failures, proposes a challenger, runs the
+champion and challenger through the full agent, and quarantines the result. Behavioral Skill CI is
+the promotion gate: it proves routing and execution improved before a human can make the revision
+live.
 
-You ask the agent to **fill out a PDF form**. It routes to the stock `pdf` skill (a reference guide)
-and the answer is subtly wrong — it forgets `NeedAppearances`, so the filled fields render blank.
-Annoying, and *systematic*: mining your Langfuse traces shows the same skill fails **16/23** real PDF
-requests on correctness, mostly *"described the code instead of writing it"* and missing exactly these
-details.
-
-So you run one command. **GEPA** re-writes the skill against those mined failures — from a browse-y
-guide into an explicit contract (*read the request → pick the library by fixed rules → output complete,
-runnable code*) — and A/B-tests it through the full agent on **held-out** PDF operations it never
-trained on: judge score **0.05 → 0.525** (10×), output tokens **−30%**. You eyeball the diff in the UI,
-click approve, and it's live with no restart.
-
-Now a *different* form-filling request comes in — and the agent returns a concise, complete script that
-sets the checkbox to `/Yes` and the fields actually render. The library got better at your workload,
-you approved the one change, and the next user just… got a working answer.
-
-Every step below is real and reproducible — `docker compose up` and follow along.
-
-## Quick start
-
-```bash
-cp .env.example .env               # put your OpenRouter key in it
-scripts/fetch_skills.sh all        # fetch example skills into ./skills (see Skill sources)
-docker compose up --build
+```text
+task → route + load → observed outcome → improve → Behavioral CI → approve → promote
 ```
 
-No skills are committed to this repo — `fetch_skills.sh` clones each source, copies its skills in, and
-deletes the clone, so everything stays under its own upstream license (pass `anthropics`, `nvidia`,
-`lambdatest`, `trailofbits`, or `all`). Then `docker compose up` brings up the MCP server, Langfuse,
-the approval UI, and runs the agent once on a demo task.
+## Why this exists
 
+Native Agent Skills already support progressive disclosure. Large multi-harness libraries still pay
+for catalog metadata, duplicate installation state, and different selection behavior in each
+harness. Skill Router adds one shared runtime decision and one shared improvement history without
+building another marketplace.
+
+- One external library for Claude and Codex.
+- One model-facing tool, `route_and_load`.
+- One selected body—or no skill. Never a catalog dump.
+- Local embeddings; warm routes require no network.
+- Revision attribution for every routed skill and improvement result.
+- Full-agent champion/challenger evaluation before promotion.
+- Human approval and staged, reversible promotion.
+
+## Install and route
+
+Python 3.10 or newer:
+
+```bash
+pip install skill-router
+
+skill-router index ~/.agents/skills
+skill-router route "debug this failing post-tool hook"
+skill-router serve --stdio
+```
+
+For a source checkout:
+
+```bash
+python -m pip install -e .
+skill-router index ~/.agents/skills
+```
+
+`index` validates and remembers one or more roots. `route` uses the saved roots unless `--root` is
+provided. The first embedding-model installation may download model files; routing is local after
+that.
+
+Configure several roots directly when needed:
+
+```bash
+export SKILL_ROUTER_PATHS="$HOME/Source/shared-skills:$HOME/.agents/skills"
+skill-router doctor
+```
+
+Roots have declared precedence. When two roots contain the same skill name, the first root wins and
+`index` emits a visible warning; duplicates never shadow silently.
+
+## One-call runtime
+
+The default MCP server exposes only:
+
+```text
+route_and_load(task, harness, cwd, available_tools=[], available_mcps=[])
+```
+
+Response:
+
+```json
+{
+  "match": "systematic-debugging",
+  "score": 0.812,
+  "reason": "compatible codex skill; cosine 0.812",
+  "skill_body": "...selected instructions...",
+  "skill_root": "/Users/me/.agents/skills/systematic-debugging",
+  "revision": "c8a2...",
+  "alternatives": [
+    {"name": "debugging-hooks", "score": 0.701, "reason": "compatible alternative; cosine 0.701"}
+  ]
+}
+```
+
+Below threshold, `match` is `null` and `skill_body` is empty. Alternatives never contain bodies.
+There is no model-facing list, author, reload, or promotion tool.
+
+The server defaults to stdio:
+
+```bash
+skill-router serve --stdio
+```
+
+HTTP is explicit and loopback-only:
+
+```bash
+skill-router serve --http --host 127.0.0.1 --port 8000
+```
+
+## Thin harness adapters
+
+Reference adapters live under [`adapters/`](adapters/):
+
+- Claude: one 66-word bootstrap skill plus stdio MCP configuration.
+- Codex: one validated plugin with the same bootstrap policy and stdio server.
+
+The full library must not also remain installed in the harness-native skill directory. Leave only
+the bootstrap there; keep shared skills in indexed external roots. The adapters never delete or move
+existing files automatically.
+
+## Routing metadata
+
+Ordinary Agent Skills work without changes. Optional router fields live under a namespaced metadata
+block:
+
+```yaml
 ---
-
-## The full loop, step by step
-
-### 1. The agent routes to a skill and uses it
-
-```bash
-docker compose run --rm agent "Merge a.pdf and b.pdf into one PDF and add page numbers"
-```
-
-```
-PROPOSED SKILLS (MCP suggest_skills):
-    0.73  pdf — Use this skill whenever the user wants to do anything with PDF files...
-   0.615  pptx — Use this skill any time a .pptx file is involved in any way...
-   0.601  docx — Use this skill whenever the user wants to create, read, edit...
-
-LOADED SKILLS (MCP get_skill): ['pdf']
-TOKENS: 20843 in / 1551 out
-
-RESULT:
-... (working pypdf + reportlab code, following the loaded skill)
-[agent] trace sent to Langfuse (http://localhost:3100)
-```
-
-### 2. Every run is traced in Langfuse
-
-Open **http://localhost:3100** (login `demo@local.dev` / `localdemo123` — headless-init demo
-credentials baked into the compose file; local literals, not secrets). Each run is a trace with
-every tool call, LLM call, and token count.
-
-### 3. Create and load a new skill
-
-A skill is just a directory `skills/<name>/SKILL.md` with YAML frontmatter — the `description` is the
-routing key, the body is what the agent loads. There are two ways to add one.
-
-**a) Write it yourself.** Create the file and hot-reload (no restart):
-
-```bash
-mkdir -p skills/sql-explain
-cat > skills/sql-explain/SKILL.md <<'EOF'
+name: deploy-service
+description: Use when deploying or rolling back a service in a managed environment.
+metadata:
+  skill-router:
+    harnesses: [claude, codex]
+    scopes: [project]
+    path_patterns: ["*/service-repo/*"]
+    required_tools: [bash]
+    required_mcps: []
+    trust: reviewed
+    activation: automatic
+    platforms: [macos, linux]
+    priority: 60
+    conflicts: []
 ---
-name: sql-explain
-description: Use this skill whenever the user wants to understand, optimize, or debug a SQL query —
-  reading EXPLAIN/EXPLAIN ANALYZE output, spotting missing indexes, or rewriting a slow query.
----
-
-# SQL query analysis
-1. Run `EXPLAIN (ANALYZE, BUFFERS)` and read the plan bottom-up.
-2. Flag sequential scans on large tables → candidate indexes.
-... (your reusable method here)
-EOF
-
-# tell the running server to pick up the new skill (skills/ is bind-mounted, so no rebuild):
-docker compose restart mcp        # or call the reload_skills MCP tool for a live hot reload
 ```
 
-The router embeds the new `description` on reload. A matching task now routes to it:
+Filtering happens before embedding rank. Manual or blocked skills are never automatically returned.
+Harness variants may live at `variants/claude.md` and `variants/codex.md`; missing variants fall back
+to the main `SKILL.md` body.
+
+## Route and improve
+
+Install improvement dependencies:
 
 ```bash
-docker compose run --rm agent "Why is this Postgres query doing a seq scan and how do I speed it up?"
-# PROPOSED SKILLS:  0.71  sql-explain — Use this skill whenever the user wants to understand...
-# LOADED SKILLS: ['sql-explain']
+pip install 'skill-router[optimizer]'
 ```
 
-Only two frontmatter fields matter: `name` (must be a slug: lowercase, digits, dashes) and
-`description` (the routing trigger — write it "pushy", starting with "Use this skill when…", since
-under-triggering is the common failure). A skill with no `description` is skipped by the router.
-
-**b) Let the agent write it.** When `suggest_skills` returns an **empty list** (every match below
-`MIN_SCORE`, default 0.65), the agent solves the task itself and persists what it learned via the
-`create_skill` MCP tool — the library grows itself:
+Then run the useful loop:
 
 ```bash
-docker compose run --rm agent "Plan a strict low-FODMAP weekly dinner menu for two people"
-# PROPOSED SKILLS (MCP suggest_skills):            <- empty: no skill covers this
-# ... solves the task ...
-# mcp log: [skill-router] created skill 'low-fodmap-meal-planning' — live immediately
-
-docker compose run --rm agent "What can I cook this week? I have IBS and need a gentle diet"
-# PROPOSED SKILLS:
-#    0.687  low-fodmap-meal-planning — Use this skill when planning low-FODMAP meals...
-# LOADED SKILLS: ['low-fodmap-meal-planning']      <- routed to the skill it just wrote
+skill-router improve pdf
+skill-router review pdf
+skill-router promote pdf
 ```
 
-`create_skill` never overwrites an existing skill and sanitizes the name/frontmatter. To then
-*improve* a created skill, mine what's failing (next) and run the optimizer — which **auto-drafts an
-eval task set** (train/holdout) with the teacher model if the skill doesn't have one yet, so any
-freshly created skill is immediately optimizable.
+`improve` retains the project’s GEPA-based optimization path:
 
-**Compose-awareness.** The agent doesn't blindly create when there's no *exact* match. If a skill is
-merely *related* (similarity in a band below the routing threshold), `suggest_skills` returns it
-flagged `related: true`, and the agent is told to **load and extend/compose** it rather than author a
-near-duplicate — so the library grows by reuse, not sprawl:
+1. Load failures and a held-out task set for the exact current skill revision.
+2. Propose targeted description/body changes.
+3. Run champion and challenger through the full agent.
+4. Check judge score, objective execution checks, token cost, catastrophic regressions, routing
+   collisions, and held-out routing behavior.
+5. Write a quarantined challenger plus evidence.
 
+The current optional optimizer backend uses an OpenAI-compatible model endpoint and Langfuse. It is
+not required for indexing, routing, adapters, evidence review, or serving. Provider configuration is
+documented in [`.env.example`](.env.example); never set an API key unless pay-per-token execution is
+intentional.
+
+## Behavioral Skill CI
+
+Behavioral CI supports improvement; it is not a benchmark-only product.
+
+Every improvement writes:
+
+```text
+runs/evidence/<skill>/<run>/evidence.json
+runs/evidence/<skill>/<run>/EVIDENCE.md
 ```
-docker compose run --rm agent "summarize a news article about tennis"
-# PROPOSED SKILLS:
-#    0.57  template-skill (related — compose/extend) — ...
-#    0.57  pptx (related — compose/extend) — ...
-```
 
-### 4. Mine what's failing (from real traces)
+Evidence records:
 
-Every agent run is already in Langfuse, so before optimizing you can ask *what's actually going
-wrong*. `optimize/mine.py` re-judges real logged outcomes and classifies each failure across fixed
-dimensions — the [SkillForge paper's](https://arxiv.org/abs/2604.08618) "Failure Analyzer" applied to
-your own traffic:
+- champion and challenger revisions;
+- dataset, harness, and model identity;
+- per-case and aggregate outcome deltas;
+- input/output token deltas;
+- changed components and gate reasons;
+- scrubbed tool-order trajectories and first divergence.
+
+Run routing fixtures independently:
 
 ```bash
-docker compose run --rm optimize-mine pdf
+skill-router eval evals/routing.yaml --root evals/fixtures/skills
 ```
 
-```
-[mine] analyzed 23 real traces · mean judge score 0.52 · 11 bad cases (score < 0.5)
-[mine] failure dimensions (paper's Failure Analyzer), most common first:
-    correctness             16/23  ███████
-        · 'rotates only the landscape pages of mixed.pdf…' → Conceptually right but no actual code provided
-    completeness            15/23  ███████
-        · 'fill out the form fields in application.pdf…'   → Missing NeedAppearances flag for rendering
-    instruction_following   13/23  ██████
-        · 'rotates only the landscape pages of mixed.pdf…' → Described code instead of writing complete runnable code
-    efficiency              13/23  ██████
-        · 'fill out the form fields in application.pdf…'   → Included unrequested PDF creation script
-[mine] 6 weakest tasks mined as eval candidates → optimize on these next.
-```
+Description changes cannot promote when held-out tasks stop routing to the intended skill. Execution
+wins alone are insufficient.
 
-The top failure — **instruction-following: "described code instead of writing runnable code"** — is
-exactly the weakness the optimizer fixes below. That categorized signal also feeds GEPA's reflection
-(*diagnose → smallest targeted fix*, not a blind rewrite), so optimization is aimed, not scattershot.
+## Promotion safety
 
-### 5. Optimize a skill: GEPA + A/B eval
+- Improvement output stays under `runs/pending/`.
+- `promote` requires a passing Behavioral CI gate.
+- Evidence champion revision must still equal the live revision.
+- Evidence challenger revision must equal the proposed content.
+- Previous live content is snapshotted under `runs/revisions/`.
+- Promotion stages a complete directory, swaps it into place, and rolls back if the swap fails.
+- The read-only server notices the revision change and rebuilds its immutable registry.
+- Traversal and symlink escapes are rejected.
+
+`runs/` is an operator-only trust boundary: promotion revalidates content revisions, but it consumes
+the recorded gate verdict rather than rerunning paid evaluation. Do not grant untrusted writers
+access to pending evidence.
+
+Literal prompt-injection patterns remain a cheap prefilter only. Optional semantic classification and
+human review provide the stronger layers.
+
+## Packages and dependencies
+
+One distribution keeps first-run simple:
+
+- Base: registry, local embeddings, routing, CLI, stdio MCP.
+- `skill-router[optimizer]`: GEPA, full-agent A/B, Langfuse/model plumbing.
+- `skill-router[ui]`: approval UI.
+- `skill-router[guard]`: optional semantic injection classifier.
+- `skill-router[dev]`: tests and package verification.
+
+No Docker, model API key, hosted tracing, or demo agent is required for routing.
+
+## Third-party skills
+
+Skill Router does not compete with skill installers. Use `npx skills`, `gh skill`, or another trusted
+installer to populate an external review root, then index that root.
+
+The old mutable-branch fetch script is disabled. `scripts/fetch_skills.sh` fails closed until
+`skills.lock.json` contains reviewed commit pins, content hashes, provenance, and license metadata.
+Never fetch an unlocked source directly into a live indexed library.
+
+## CARN
+
+Structural divergence records tool order and argument names, not semantic equivalence. CARN or a
+model-graded layer may add deeper trajectory interpretation.
+
+The OSS evidence schema is the boundary to CARN, SlanchaAI’s enterprise add-on. Skill Router owns the
+single-developer loop: route, learn, improve, gate, approve, promote. CARN can add fleet trajectory
+tries, cross-run clustering, stuck detection, rescue analysis, governance, and organization-wide
+dashboards without changing the OSS promotion contract.
+
+## Development
 
 ```bash
-docker compose run --rm optimize pdf
+python -m pip install -e '.[optimizer,ui,dev]'
+pytest -q
 ```
 
-GEPA evolves the skill's **routing `description` + SKILL.md `body`** — the two things the agent
-actually loads and the A/B actually measures — on the **train** tasks in `optimize/tasks/pdf.yaml`.
-(Bundled files — `reference.md`, `scripts/*.py`, `LICENSE` — are *preserved as-is*, not optimized: a
-text optimizer shouldn't rewrite a license or unrun code, and the A/B doesn't execute them. Optimizing
-those is future work, see [What's next](#whats-next).) A **length penalty** on the body keeps GEPA
-from winning by bloat. An LLM judge scores each rollout **and writes a critique**, and a reflection
-LM uses those critiques to author better versions. The task set is
-split **train / holdout**: GEPA only ever sees train, and the A/B + promotion decision (below) is
-judged on the **held-out** tasks — different PDF operations the optimizer never touched. This isn't
-benchmark hygiene (there's no leaderboard to game) — it's that GEPA *optimizes against* the train
-judge score, so that score is a biased estimate by construction. Gating promotion on data the
-optimizer didn't push on is how you avoid shipping a skill that just learned to satisfy the judge on
-a few phrasings. **In production the honest form of this is temporal or online** — optimize on older
-traces, gate on a recent slice or a live canary / ε-exploration A/B — and the static offline split
-here is a cheap stand-in for that. (A task set with only a flat `tasks:` list skips the split and
-leans on the human approval gate + live monitoring instead.)
+Launch targets:
 
-```
-[gepa] optimizing 'pdf' (2 components) on 4 train tasks (budget 60 metric calls)…
-[gepa] inner-loop score: seed 0.938 -> best 1.000     # on the TRAIN tasks GEPA optimizes
-[gepa] components changed: ['body']                   # e.g. ['description', 'body'] if it rewrote both
-[gepa] challenger checkpointed to runs/challenger-pdf.json (resume with --challenger-file)
-```
+- Recall@3 at least 95% on real held-out prompts.
+- No-route precision at least 95%.
+- Warm routing p95 below 100 ms, network disabled.
+- Bootstrap startup overhead below 500 measured tokens.
+- Claude/Codex parity for compatible fixtures.
+- No live mutation through the default MCP surface.
 
-> A/B faithfully measures the evolved **description + body** (what `get_skill` serves). Changes to
-> bundled files are shown in the review diff and written on promotion, but aren't executed during the
-> A/B (the eval agent reads files from the on-disk champion) — review those by eye.
-
-Then champion vs challenger run **through the full deep agent** (real router, real tool calls) on the
-**held-out** tasks (form-fill, rotate, encrypt, extract-images — none of which GEPA trained on), each
-as a Langfuse dataset run — side-by-side in the UI — scored on quality *and* token cost:
-
-```
-[ab] champion:   mean judge score 0.050   [0.0, 0.2, 0.0, 0.0]
-[ab] challenger: mean judge score 0.525   [0.2, 1.0, 0.7, 0.2]
-[ab] champion 0.050 vs challenger 0.525 -> CHALLENGER WINS
-[ab] output tokens/task: 1072 -> 750 (-322)      # -30%
-[ab] input tokens/task:  41857 -> 26032 (-15825) (informational)
-[usage] tokens spent by this optimization run:
-  rollout        60 calls    875,682 in   105,129 out
-  judge          68 calls     40,238 in    26,684 out
-  reflection      2 calls      5,461 in     3,638 out
-  agent_ab        8 calls    271,555 in     7,286 out
-  TOTAL         138 calls  1,192,936 in   142,737 out      (~$1 at current OpenRouter prices)
-[ab] pending approval written to runs/pending/pdf.json — review + promote at http://localhost:8080
-```
-
-Output tokens are treated as the cost that matters (they're generated on every future task); a
-challenger that wins on quality but regresses output tokens >10% gets a ⚠ flag. A bigger SKILL.md
-(input tokens) is cheap context by comparison.
-
-**What actually improved — and read these numbers honestly.** GEPA nails the *train* tasks (0.94 →
-1.00), but the number that gates promotion is the **held-out 0.05 → 0.525** — a 10× lift on PDF
-operations the optimizer never saw, at −30% output tokens. The champion's near-zero is the exact
-failure the mining step surfaced: through the full agent, the reference-guide champion *described*
-code instead of writing it (the top `instruction_following` failure). The challenger rewrites the
-skill around an explicit contract — *read the request → pick the library by fixed rules → output a
-concise, fully runnable script* — and generalizes it to unseen operations. Note the challenger is
-**0.525, not 0.9**: it genuinely improved but is far from perfect on operations it never trained on —
-which is what an honest held-out number looks like, and exactly why promotion stays human-gated.
-
-### 6. Review and promote in the approval UI
-
-Open **http://localhost:8080**:
-
-![approval UI — skills list](docs/ui-home.png)
-
-Click **Review** to see judge scores, the token shift, and the SKILL.md diff:
-
-![approval UI — pending challenger review](docs/ui-review.png)
-
-**Approve & promote** overwrites `skills/pdf/SKILL.md` (frontmatter kept — the routing description
-stays stable) and calls the MCP server's `reload_skills` tool. The new version is served
-**immediately, with no restart** — git is the version history. Reject discards the challenger.
-
-To optimize another skill, just run `optimize <skill>` — if it has no task set, the teacher
-auto-drafts a train/holdout one first.
-
-### 7. (Optional) Promote via a live canary instead
-
-The offline A/B gates on a fixed held-out set. The production-honest alternative is a **canary**:
-serve the challenger to a fraction of *live* traffic, judge each real outcome, and promote only once
-the challenger's posterior beats the champion's — protecting live traffic and gating on real results.
-
-```bash
-docker compose run --rm optimize-canary pdf --epsilon 0.5
-```
-
-```
-[canary] 'pdf': routing 50% of traffic to the challenger, judging each outcome (promote at P≥0.95, …)
-[canary] req  4: challenger ok | served champ 2 / chall 2 | P(chall>champ)=0.50
-[canary] req 21: challenger ok | served champ 13 / chall 8 | P(chall>champ)=0.89
-[canary] req 23: champion   ·  | served champ 15 / chall 8 | P(chall>champ)=0.94
-[canary] inconclusive after 24 requests (P=0.91) — keeping champion; raise --max/--epsilon for more samples.
-```
-
-Each request flips an ε-coin (champion vs challenger), the outcome is judged, and each arm keeps a
-Beta posterior; after each request we estimate `P(challenger > champion)` and stop early to promote
-(≥0.95) or reject (≤0.05). Here the challenger climbed to **P=0.91** — likely better — but stayed
-under the conservative 0.95 bar, so the canary **kept the champion and would keep sampling** rather
-than flip production on borderline evidence. (It also shows the champion isn't as weak on the full
-live mix as its holdout-only 0.05 implied.) That's the point: the gate is deliberately hard to trip.
-Add `--promote` to auto-promote on a win; otherwise a win is recorded as a recommendation for the UI.
-
-### 8. Put it on autopilot (the continuous loop)
-
-The pieces above compose into one command: **mine every skill's real traffic for health, and optimize
-only the ones that are actually failing** — auto-drafting an eval set where none exists, and leaving
-every survivor in the approval UI (nothing auto-promotes).
-
-```bash
-docker compose run --rm optimize-loop            # all skills with eval sets; add names to target some
-```
-
-```
-[loop] ===== pdf =====
-[mine] analyzed 23 real traces · mean judge score 0.52 · 11 bad cases
-[loop] pdf: below health bar (mean 0.52) — optimizing…
-   … GEPA + held-out A/B + gate …
-[loop] done. 1 challenger(s) passed the gate and are queued for review at http://localhost:8080: ['pdf']
-```
-
-This is the production shape: point it at your logged traffic on a schedule, and skills that drift on
-your real workload get re-optimized and queued for a human — the strong-model teacher improving the
-served model's skills, continuously.
-
----
-
-## Keeping the optimizer honest (anti reward-hacking)
-
-Optimizing a skill against an **LLM judge** invites the classic failure mode: the challenger learns to
-please the judge, not to actually get better. Four guards close the obvious paths:
-
-1. **Judge ≠ author.** GEPA's reflection LM (`GEPA_MODEL`, GLM) writes the skill; the judge
-   (`JUDGE_MODEL`, default **`google/gemini-2.5-flash`**) is a *different* model. If the author and
-   grader were the same model they'd share blind spots and GEPA could game them — so the optimizer
-   warns loudly if you set them to the same model. Set `JUDGE_MODELS=a,b` for an **ensemble** judge
-   (mean score, majority-vote on failure dimensions) — harder still to exploit.
-2. **Held-out gate, not a lucky mean.** A challenger that merely wins the average can be exploiting a
-   small/noisy eval. Promotion additionally requires a **margin** (`PROMOTE_MIN_MARGIN`, default
-   +0.15, set above the judge's noise floor), **enough samples** (`PROMOTE_MIN_SAMPLES`), and **no catastrophic per-task regression**
-   (it may not drop a held-out task the champion passed below the pass line).
-3. **No routing hacks.** If GEPA rewrites the *routing description*, promotion re-checks it against
-   every other skill's description — a rewrite that over-broadly **shadows** another skill (cosine ≥
-   `COLLISION_SCORE`) is blocked, so a skill can't grab traffic by widening its trigger.
-4. **Execution-grounded judging.** For code tasks the judge doesn't just *read* the code — an
-   objective check (`execcheck.py`) extracts and `ast.parse`s it, and hands the judge a verdict it's
-   told to treat as ground truth, so "described the code" or a syntax error can't be talked into a
-   high score. Opt-in `EXEC_SANDBOX=1` additionally *runs* it in a subprocess (a missing-fixture
-   error is treated as inconclusive, not a code defect).
-5. **Length penalty.** GEPA's objective subtracts a penalty for a bloated body, so it can't win by
-   padding the skill with filler the judge mistakes for completeness.
-6. **Human override, informed.** A challenger that wins the mean but fails the gate is still recorded
-   for review — the UI shows a red **⛔ promotion gate** banner with the reasons, so a human can
-   override deliberately rather than rubber-stamp a gamed win.
-
-```
-[ab] champion 0.55 vs challenger 0.60 -> CHALLENGER WINS
-[ab] ⛔ challenger won the mean but the promotion gate BLOCKED it:
-     margin +0.10 < required +0.15; catastrophic regression on 1 task(s) the champion passed
-```
-
-Still not done (documented, not built): holdout rotation to prevent multiple-comparisons leakage
-across repeated runs, a fixed never-regress suite, and true sandboxed execution *with fixtures* to
-optimize the bundled `scripts/`. See [What's next](#whats-next).
-
----
-
-## Configuration
-
-Set in `.env` (never committed):
-
-| var | default | notes |
-|-----|---------|-------|
-| `OPENROUTER_API_KEY` | — | required ([get one](https://openrouter.ai/keys)) |
-| `MODEL` | `qwen/qwen3.6-27b` | the agent — everything that *executes* skills, incl. GEPA rollouts |
-| `GEPA_MODEL` | `z-ai/glm-5.2` | GEPA's reflection LM (the skill author) |
-| `JUDGE_MODEL` | `google/gemini-2.5-flash` | the LLM judge — must differ from `GEPA_MODEL` (anti reward-hacking) |
-| `MIN_SCORE` | `0.65` | at/above → routable match; below → `related` band or novel |
-
-See [Keeping the optimizer honest](#keeping-the-optimizer-honest-anti-reward-hacking) for the
-promotion-gate knobs (`PROMOTE_MIN_MARGIN`, `PROMOTE_MIN_SAMPLES`, `COLLISION_SCORE`, `JUDGE_MODELS`).
-
-The teacher/student split is deliberate: a strong model authors and judges skills, but rollouts and
-the A/B always run on the model the skills will actually serve. Without a key, the demo still prints
-the router's **suggestions** (the embedding router needs no LLM).
-
-## How it works
-
-- **`mcp_server/`** — [FastMCP](https://github.com/jlowin/fastmcp) v3 server (HTTP transport), five tools:
-  - `suggest_skills(task, k)` — routable matches by embedding similarity (CPU [fastembed](https://github.com/qdrant/fastembed), no GPU); if none, returns near-misses flagged `related` (compose-awareness); empty = truly novel. (`list_skills()` exists for debug/UI but is kept out of the agent's toolset — the agent routes, it doesn't scan.)
-  - `get_skill(name)` — the full SKILL.md to load
-  - `create_skill(name, description, body)` — persist a new agent-authored skill (never overwrites)
-  - `reload_skills()` — hot reload after promotion/creation (or `docker compose restart mcp`)
-- **`agent/run.py`** — [deepagents](https://github.com/langchain-ai/deepagents) LangGraph agent wired to those tools via `langchain-mcp-adapters`, traced to Langfuse.
-- **`skills/<name>/SKILL.md`** — YAML `description` is the routing key; the body is what the agent loads.
-- **`optimize/`** — success/failure mining over real traces (`mine.py`), multi-dimensional LLM judge (`judge.py`), GEPA loop over the full skill's components with diagnose→minimal-edit reflection (`gepa_loop.py`), A/B + pending results (`ab.py`), live **canary** promotion (`canary.py`), promotion writing all components + hot reload (`promote.py`), per-role token ledger (`usage.py`). A/B agents get mutation tools stripped, so evals can't alter the library. The mining + categorized-failure ideas are borrowed from [SkillForge (Liu et al., arXiv:2604.08618)](https://arxiv.org/abs/2604.08618).
-- **`ui/`** — FastAPI approval UI (one HTML page, no build step).
-
-## Skill sources
-
-**No skills are committed** — every source is optional and pulled from upstream by
-`scripts/fetch_skills.sh` (clone → copy skill dirs → delete the clone), so each stays under its own
-license and nothing is redistributed here. All are curated from the
-[VoltAgent index](https://github.com/VoltAgent/awesome-agent-skills):
-
-| source arg | repo | skills | license |
-|------------|------|--------|---------|
-| `anthropics` | [anthropics/skills](https://github.com/anthropics/skills) | document skills (pdf, docx, pptx, xlsx, …) | per-skill (see frontmatter) |
-| `nvidia` | [nvidia/skills](https://github.com/nvidia/skills) | GPU / infra / data / medical imaging | Apache-2.0 |
-| `lambdatest` | [LambdaTest/agent-skills](https://github.com/LambdaTest/agent-skills) | testing frameworks (pytest, playwright, cypress, appium, …) | MIT |
-| `trailofbits` | [trailofbits/skills](https://github.com/trailofbits/skills) | security analysis (semgrep, static analysis, vuln scanners, …) | CC-BY-SA-4.0 |
-
-```bash
-scripts/fetch_skills.sh all                    # everything above (whole dirs, incl. bundled files)
-scripts/fetch_skills.sh anthropics trailofbits # or pick sources
-docker compose restart mcp                      # pick up the new skills
-```
-
-Fetching skips skills already present (never clobbers) and caps large sources. Trail of Bits' skills
-are **CC-BY-SA-4.0** (share-alike); LambdaTest is **MIT**; nvidia is **Apache-2.0**; Anthropic's carry
-per-skill licenses in their frontmatter — review each source's terms before redistributing.
-
-## Security & threat model
-
-**A loaded skill is instructions the agent follows.** That's the whole mechanism — so treat skill
-content as *code*, and the skills library as *trusted state that must be curated*. You cannot fully
-"solve" prompt injection in a system whose job is to retrieve and follow instructions; the design
-goal is proportionate guardrails plus a small, well-defended write surface.
-
-Write paths, and what guards each:
-
-- **`create_skill` (agent-authored, goes live with no human approval)** — the highest-risk path, so
-  it's the most guarded: slug + frontmatter sanitization (`yaml.safe_dump`), never overwrites an
-  existing skill, Agent-Skills-spec name/description limits (≤64-char slug, ≤1024-char description,
-  no reserved words, no XML tags), an instruction-override / prompt-injection phrase check
-  (`mcp_server/safety.py`), an embedding **collision check** that rejects a description which
-  near-duplicates an existing skill's (blocks *route-shadowing* / memory-poisoning), and an
-  **optional ML classifier** (below). Accepted skills are tagged `source: agent` in frontmatter.
-- **GEPA promotion** — content is authored by the reflection LM but **gated by human approval**: it
-  lands in `runs/pending/` and you review the per-component diff in the UI before it goes live.
-- **Third-party skills** (`skills/` from nvidia/anthropic) — unaudited but not attacker-controlled at
-  runtime; review them as you would any dependency.
-
-### Optional: ML prompt-injection classifier
-
-Beyond the regex heuristic, `create_skill` can run the **[vLLM Semantic Router](https://github.com/vllm-project/semantic-router)
-jailbreak detector** (`llm-semantic-router/mmbert32k-jailbreak-detector-merged`, an mmBERT CPU
-classifier). It's **opt-in** — its `transformers`+`torch` deps are kept out of the base image so
-`docker compose up` stays light. Enable it:
-
-```bash
-# 1. install the extra deps (into the mcp image, or a derived one)
-pip install -r requirements-guard.txt
-# 2. point the guard at the model (empty = disabled)
-export SKILL_GUARD_MODEL=llm-semantic-router/mmbert32k-jailbreak-detector-merged
-# optional: export SKILL_GUARD_THRESHOLD=0.7   (the classifier's default)
-```
-
-With it set, every `create_skill` call is scored and a jailbreak/injection classification above the
-threshold is rejected alongside the regex check. When the deps or model are missing it **degrades
-silently** to the regex heuristic — no crash. To run it in Docker, add the two lines to `requirements.txt`
-(or build a derived image) and set `SKILL_GUARD_MODEL` on the `mcp` service in `docker-compose.yml`.
-
-What is deliberately **not** done (and why): we do **not** denylist shell commands, `.env`/credential
-mentions, or `curl … | sh` in skill bodies — legitimate skills routinely contain code, install steps,
-and secret-handling guidance, so scanning for those produces constant false positives. The residual
-risk is contained operationally instead: **run the agent in a container without real secrets or
-sensitive host paths** (this demo's `agent` service mounts nothing sensitive and needs only
-`OPENROUTER_API_KEY`). For a real deployment, add per-tool sandboxing and treat `create_skill` output
-as untrusted until reviewed. Further reading:
-[OpenAI on prompt injection](https://openai.com/safety/prompt-injections/).
-
-## Tests
-
-**109 fast unit tests** (no network/LLM — mocked) in `tests/` cover the security guards (content scan,
-name/traversal validation, YAML-injection round-trip, collision, the ML classifier's decision logic),
-the optimizer (promotion gate, judge parsing/clamping + ensemble aggregation, canary Thompson decision,
-length penalty, execution-based code check + sandbox, task drafting, continuous-loop health-gating,
-token-ledger thread-safety), and the router (retrieval, thresholds, `nearest`):
-
-```bash
-docker run --rm -v $(pwd):/app -w /app skill_router-mcp python -m pytest tests -q
-```
-
-One **opt-in integration test** exercises the real jailbreak classifier and auto-skips unless the
-model is present — to run it, build an image with the guard deps and set the model:
-
-```bash
-docker build -t skill_router-guard - <<'DOCKER'
-FROM skill_router-mcp
-RUN pip install --no-cache-dir "transformers>=4.44" torch --index-url https://download.pytorch.org/whl/cpu
-DOCKER
-docker run --rm -e SKILL_GUARD_MODEL=llm-semantic-router/mmbert32k-jailbreak-detector-merged \
-  -e HF_HOME=/app/.hf_cache -v $(pwd):/app -w /app skill_router-guard python -m pytest tests -q
-```
-
-## What's next
-
-- **Optimize the bundled files, honestly.** Today GEPA only touches the routing description + SKILL.md
-  body (what the A/B measures); `reference.md` / `scripts/*.py` are preserved as-is. Optimizing scripts
-  needs true sandboxed execution *with fixtures* so a rewrite can be measured, not guessed.
-- **Deeper execution-based scoring.** `EXEC_SANDBOX=1` runs code today; next is per-task fixtures and
-  assertions so "does it actually produce the right output" becomes the score, not an LLM's read of it.
-- **Overfitting hardening.** Rotate the holdout across repeated runs (multiple-comparisons leakage), and
-  keep a fixed never-regress suite separate from the optimize task set.
-- **Trace → skill attribution.** The loop mines recent traffic; scoping traces to the *right* skill by
-  Langfuse tag/cluster makes per-skill health sharper at volume.
-
-## Honest footnotes
-
-- **Judge variance is real** even at temperature 0 (the same seed skill has scored anywhere from
-  0.6 to 0.94 across runs). Read small A/B deltas skeptically; the held-out gap above (0.05 → 0.525,
-  a 10× lift) is large enough to trust, but the exact figures move run to run.
-- **The holdout is small and offline** (a handful of tasks) — enough to keep the promotion gate off
-  the metric GEPA optimized, but a real deployment would gate on a recent/live traffic slice (canary),
-  not a static split, and use more of it for a tighter estimate.
-- **Langfuse shows token counts out of the box**; for $ cost, add your models' prices under
-  Project Settings → Models.
+The repository license currently names James Maki as copyright holder. Ownership and public-release
+attribution must be confirmed with James and SlanchaAI before publishing a release artifact.

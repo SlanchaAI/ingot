@@ -1,6 +1,6 @@
 import json
 
-from optimize.evidence import build_evidence, component_revision, first_divergence, render_markdown, write_evidence
+from optimize.evidence import build_evidence, first_divergence, render_markdown, write_evidence
 
 
 SUMMARY = {
@@ -25,13 +25,6 @@ SUMMARY = {
                        [{"type": "tool", "name": "route_and_load"}]],
     },
 }
-
-
-def test_component_revision_is_stable_and_content_addressed():
-    a = component_revision({"description": "d", "body": "b"})
-    b = component_revision({"body": "b", "description": "d"})
-    assert a == b and len(a) == 64
-    assert a != component_revision({"description": "d", "body": "changed"})
 
 
 def test_first_divergence_finds_behavioral_fork():

@@ -1,6 +1,8 @@
 """Security / malicious-input tests for the skill-router write paths. Pure-function tests (no
 network, no LLM) — run in Docker: `docker run --rm -v $(pwd):/app skill_router-mcp python -m pytest tests -q`."""
 import os
+import subprocess
+from pathlib import Path
 
 import pytest
 
@@ -152,3 +154,34 @@ def test_read_write_components_roundtrip_bundled_files(tmp_path):
     write_components(d, comps)
     assert (d / "scripts" / "h.py").read_text() == "print(2)"
     assert (d / "REFERENCE.md").read_text() == "ref v1"  # untouched component preserved
+
+
+def test_read_components_rejects_symlink_escape(tmp_path):
+    skill = tmp_path / "skill"
+    skill.mkdir()
+    write_skill_md(skill / "SKILL.md", {"name": "skill", "description": "d"}, "body")
+    outside = tmp_path / "secret.md"
+    outside.write_text("secret")
+    (skill / "reference.md").symlink_to(outside)
+    with pytest.raises(ValueError, match="escapes skill root"):
+        read_components(skill)
+
+
+def test_write_components_rejects_skill_md_as_bundled_file(tmp_path):
+    skill = tmp_path / "skill"
+    skill.mkdir()
+    write_skill_md(skill / "SKILL.md", {"name": "skill", "description": "d"}, "body")
+    with pytest.raises(ValueError, match="escapes skill root"):
+        write_components(skill, {
+            "description": "d", "body": "safe", "file:SKILL.md": "unstructured overwrite"
+        })
+    assert "body" in (skill / "SKILL.md").read_text()
+    assert "safe" not in (skill / "SKILL.md").read_text()
+
+
+def test_third_party_fetch_fails_closed_without_locked_sources():
+    root = Path(__file__).resolve().parent.parent
+    result = subprocess.run(["bash", str(root / "scripts" / "fetch_skills.sh")], cwd=root,
+                            text=True, capture_output=True)
+    assert result.returncode != 0
+    assert "locked source manifest" in result.stderr

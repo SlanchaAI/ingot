@@ -19,12 +19,12 @@ import yaml
 from langchain_core.tools import tool
 
 from agent.run import build_agent, langfuse_config, run_task
-from mcp_server.registry import SKILLS_DIR, load_skills, optimizable_components
+from mcp_server.registry import SKILLS_DIR, load_skills, optimizable_components, skill_revision
 
 from . import usage as usage_ledger
 from .judge import judge
 from .promote import promote, save_pending
-from .evidence import build_evidence, component_revision, write_evidence
+from .evidence import build_evidence, write_evidence
 
 TASKS_DIR = Path(__file__).resolve().parent / "tasks"
 
@@ -313,7 +313,8 @@ def run_ab(skill: str, promote_now: bool = False, budget: int = 60,
 
     summary["optimization_usage"] = usage_ledger.report()
     champion_skill = next(item for item in load_skills() if item.name == skill)
-    evidence = build_evidence(summary, champion_skill.revision, component_revision(challenger))
+    evidence = build_evidence(summary, champion_skill.revision,
+                              skill_revision(Path(champion_skill.root), challenger))
     evidence_root = Path(__file__).resolve().parent.parent / "runs" / "evidence" / skill / str(ts)
     evidence_json, evidence_markdown = write_evidence(evidence, evidence_root)
     summary["evidence"] = evidence

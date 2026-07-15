@@ -6,9 +6,7 @@ import shutil
 import uuid
 from pathlib import Path
 
-from mcp_server.registry import SLUG_RE, load_skills, write_components
-
-from .evidence import component_revision
+from mcp_server.registry import SLUG_RE, load_skills, skill_revision, write_components
 
 RUNS_DIR = Path(__file__).resolve().parent.parent / "runs"
 PENDING_DIR = RUNS_DIR / "pending"
@@ -54,7 +52,7 @@ def _validate_evidence(current, components: dict[str, str], evidence: dict) -> N
     if evidence.get("champion", {}).get("revision") != current.revision:
         raise ValueError("champion revision changed since Behavioral CI; rerun improve")
     expected = evidence.get("challenger", {}).get("revision")
-    if expected != component_revision(components):
+    if expected != skill_revision(Path(current.root), components):
         raise ValueError("challenger revision does not match Behavioral CI evidence")
 
 
@@ -70,7 +68,7 @@ def _snapshot(skill_dir: Path, skill: str, revision: str) -> Path:
 
 def promote(skill: str, components: dict[str, str] | None = None,
             evidence: dict | None = None) -> str:
-    """Promote only a tested challenger; snapshot and atomically exchange the live directory."""
+    """Promote only a tested challenger; snapshot, stage, swap, and roll back on failure."""
     skill = check_slug(skill)
     pending = load_pending(skill)
     if components is None:

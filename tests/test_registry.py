@@ -101,6 +101,15 @@ def test_skill_revision_changes_with_routing_content(tmp_path):
     assert first.root == str(d.resolve())
 
 
+def test_skill_revision_changes_with_bundled_content(tmp_path):
+    d = _skill(tmp_path)
+    (d / "reference.md").write_text("version one")
+    first = load_skills(tmp_path)[0]
+    (d / "reference.md").write_text("version two")
+    second = load_skills(tmp_path)[0]
+    assert first.revision != second.revision
+
+
 def test_router_metadata_defaults_and_namespaced_overrides(tmp_path):
     _skill(tmp_path, dirname="default", name="default")
     _skill(

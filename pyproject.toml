@@ -8,7 +8,8 @@ version = "0.2.0"
 description = "Route to the right Agent Skill, learn from failures, and improve it safely"
 readme = "README.md"
 requires-python = ">=3.10"
-license = {file = "LICENSE"}
+license = "MIT"
+license-files = ["LICENSE"]
 dependencies = [
   "fastmcp>=3",
   "fastembed>=0.4.0",
@@ -34,3 +35,7 @@ skill-router = "mcp_server.cli:main"
 
 [tool.setuptools.packages.find]
 include = ["mcp_server*", "agent*", "optimize*", "ui*"]
+
+[tool.setuptools.package-data]
+optimize = ["tasks/*.yaml"]
+ui = ["static/*"]

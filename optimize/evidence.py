@@ -1,22 +1,11 @@
 """Portable evidence emitted by the route-and-improve loop for local, CI, UI, and CARN use."""
 from __future__ import annotations
 
-import hashlib
 import json
 from pathlib import Path
 
 
 SCHEMA = "skill-router/evidence/v1"
-
-
-def component_revision(components: dict[str, str]) -> str:
-    digest = hashlib.sha256()
-    for name, content in sorted(components.items()):
-        digest.update(name.encode())
-        digest.update(b"\0")
-        digest.update(content.encode())
-        digest.update(b"\0")
-    return digest.hexdigest()
 
 
 def first_divergence(champion: list[dict], challenger: list[dict]) -> dict | None:

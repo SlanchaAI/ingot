@@ -18,7 +18,7 @@ layer inside improvement; it is not the product's primary positioning or a bench
 
 **Positioning:** Route to the right skill. Learn from failures. Improve it safely.
 
-The launch claim is concrete: reduce the current approximately 102-entry, 7,500-token startup
+The launch target is concrete: reduce the current approximately 102-entry, 7,500-token startup
 catalog to less than 500 startup tokens, with skill instructions entering context only after a
 route matches.
 
@@ -69,8 +69,10 @@ works exactly as shown. Extras are:
 
 - `skill-router[optimizer]`: GEPA, Langfuse, and model-provider plumbing.
 - `skill-router[ui]`: approval UI.
-- `skill-router[demo-agent]`: LangGraph/OpenRouter demonstration agent.
 - `skill-router[guard]`: optional semantic injection classifier.
+
+The legacy demo agent ships with the optimizer extra for this release; a separate demo-agent extra
+is deferred with the split distributions below.
 
 The full improvement loop is:
 
@@ -98,8 +100,8 @@ SKILL_ROUTER_PATHS=~/Source/dotfiles-claude/skills:~/.agents/skills:~/Source/sha
 ```
 
 The repository's existing `skills/` directory remains a default only when it contains skills. The
-router never copies the external library into a native harness directory. Duplicate skill names are
-an index error unless an explicit root-precedence rule selects one; they never collapse silently.
+router never copies the external library into a native harness directory. Root order is explicit;
+the first duplicate skill name wins with a visible warning, so duplicates never collapse silently.
 
 Each indexed revision records:
 

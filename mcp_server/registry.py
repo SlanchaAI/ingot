@@ -132,12 +132,40 @@ def _contained_file(skill_root: Path, path: Path) -> Path:
     return resolved
 
 
-def _revision(files: list[Path]) -> str:
+def skill_revision(skill_root: Path, components: dict[str, str] | None = None) -> str:
+    """Hash the complete logical skill, optionally with prospective component replacements."""
+    skill_root = skill_root.resolve()
+    files: dict[str, Path] = {}
+    for path in skill_root.rglob("*"):
+        if path.is_symlink():
+            _contained_file(skill_root, path)
+        if path.is_file():
+            safe = _contained_file(skill_root, path)
+            files[path.relative_to(skill_root).as_posix()] = safe
+    for key in (components or {}):
+        if not key.startswith("file:"):
+            continue
+        relative = Path(key[len("file:"):])
+        if relative.as_posix() == "SKILL.md" or relative.is_absolute() or ".." in relative.parts:
+            raise ValueError(f"component escapes skill root: {relative}")
+        _contained_file(skill_root, skill_root / relative)
+        files.setdefault(relative.as_posix(), skill_root / relative)
+
     digest = hashlib.sha256()
-    for path in sorted(files, key=lambda p: p.as_posix()):
-        digest.update(path.name.encode())
+    for relative, path in sorted(files.items()):
+        digest.update(relative.encode())
         digest.update(b"\0")
-        digest.update(path.read_bytes())
+        if relative == "SKILL.md":
+            meta, body = parse_skill(path.read_text(encoding="utf-8", errors="ignore"), skill_root.name)
+            if components is not None:
+                meta["description"] = components["description"]
+                body = components["body"]
+            digest.update(yaml.safe_dump(meta, sort_keys=True, allow_unicode=True).encode())
+            digest.update(b"\0")
+            digest.update(body.strip().encode())
+        else:
+            replacement = (components or {}).get(f"file:{relative}")
+            digest.update(replacement.encode() if replacement is not None else path.read_bytes())
         digest.update(b"\0")
     return digest.hexdigest()
 
@@ -162,21 +190,19 @@ def load_skills(skills_dir: Path | None = None, *, roots: Iterable[str | Path] |
                               UserWarning, stacklevel=2)
                 continue
             variants: dict[str, str] = {}
-            revision_files = [sk]
             variants_dir = skill_root / "variants"
             for harness in ("claude", "codex"):
                 variant = variants_dir / f"{harness}.md"
                 if variant.exists():
                     safe_variant = _contained_file(skill_root, variant)
                     variants[harness] = safe_variant.read_text(encoding="utf-8", errors="ignore").strip()
-                    revision_files.append(safe_variant)
             by_name[name] = sk
             skills.append(Skill(
                 name=name,
                 description=meta["description"],
                 body=body,
                 path=str(sk),
-                revision=_revision(revision_files),
+                revision=skill_revision(skill_root),
                 root=str(skill_root),
                 metadata=_router_metadata(meta),
                 variants=variants,
@@ -202,12 +228,15 @@ def write_skill_md(path: Path, meta: dict, body: str) -> None:
 def read_components(skill_dir: Path) -> dict[str, str]:
     """Every optimizable text component of a skill: its routing `description`, its SKILL.md `body`,
     and each bundled text file as `file:<relpath>`. This is the unit GEPA evolves for a full skill."""
-    meta, body = parse_skill((skill_dir / "SKILL.md").read_text(encoding="utf-8", errors="ignore"),
-                             skill_dir.name)
+    skill_root = skill_dir.resolve()
+    md_path = _contained_file(skill_root, skill_dir / "SKILL.md")
+    meta, body = parse_skill(md_path.read_text(encoding="utf-8", errors="ignore"), skill_dir.name)
     comps = {"description": meta["description"], "body": body}
     for f in sorted(skill_dir.rglob("*")):
         if f.is_file() and f.name != "SKILL.md" and f.suffix.lower() in _TEXT_SUFFIXES:
-            comps[f"file:{f.relative_to(skill_dir).as_posix()}"] = f.read_text(encoding="utf-8", errors="ignore")
+            safe = _contained_file(skill_root, f)
+            relative = f.relative_to(skill_dir).as_posix()
+            comps[f"file:{relative}"] = safe.read_text(encoding="utf-8", errors="ignore")
     return comps
 
 
@@ -226,18 +255,22 @@ def write_components(skill_dir: Path, comps: dict[str, str]) -> None:
     updating the `description`, `body`, and each bundled `file:<relpath>` component."""
     skill_root = skill_dir.resolve()
     md_path = _contained_file(skill_root, skill_dir / "SKILL.md")
+    component_paths: dict[str, Path] = {}
+    for key in comps:
+        if not key.startswith("file:"):
+            continue
+        relative = Path(key[len("file:"):])
+        if relative.as_posix() == "SKILL.md" or relative.is_absolute() or ".." in relative.parts:
+            raise ValueError(f"component escapes skill root: {relative}")
+        component_paths[key] = _contained_file(skill_root, skill_dir / relative)
+
     meta, _ = parse_skill(md_path.read_text(encoding="utf-8", errors="ignore"), skill_dir.name)
     meta["description"] = comps["description"]
     md_tmp = md_path.with_name(f".{md_path.name}.{uuid.uuid4().hex}.tmp")
     write_skill_md(md_tmp, meta, comps["body"])
     md_tmp.replace(md_path)
-    for key, content in comps.items():
-        if key.startswith("file:"):
-            relative = Path(key[len("file:"):])
-            if relative.is_absolute() or ".." in relative.parts:
-                raise ValueError(f"component escapes skill root: {relative}")
-            p = _contained_file(skill_root, skill_dir / relative)
-            p.parent.mkdir(parents=True, exist_ok=True)
-            tmp = p.with_name(f".{p.name}.{uuid.uuid4().hex}.tmp")
-            tmp.write_text(content, encoding="utf-8")
-            tmp.replace(p)
+    for key, p in component_paths.items():
+        p.parent.mkdir(parents=True, exist_ok=True)
+        tmp = p.with_name(f".{p.name}.{uuid.uuid4().hex}.tmp")
+        tmp.write_text(comps[key], encoding="utf-8")
+        tmp.replace(p)
