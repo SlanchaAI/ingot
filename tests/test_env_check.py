@@ -79,3 +79,108 @@ def test_provider_allowlist_composes_with_zdr(monkeypatch):
     monkeypatch.setenv("OPENROUTER_API_KEY", "sk-or-test")
     assert client_kwargs("https://openrouter.ai/api/v1")["extra_body"] == body
     assert client_kwargs("http://localhost:8000/v1")["extra_body"] == {}  # local: no prefs at all
+
+
+class _FakeEndpoints:
+    def __init__(self, providers):
+        import json
+        self._body = json.dumps({"data": {"endpoints": [{"provider_name": p} for p in providers]}}).encode()
+
+    def read(self):
+        return self._body
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *a):
+        return False
+
+
+def test_provider_conflict_loose_name_matching(monkeypatch):
+    import urllib.request
+    from optimize import provider_conflict
+    monkeypatch.setattr(urllib.request, "urlopen",
+                        lambda url, timeout=10: _FakeEndpoints(["DeepInfra", "Io Net", "Fireworks"]))
+    assert provider_conflict("qwen/x", ["fireworks"]) is None          # display-name vs slug
+    assert provider_conflict("qwen/x", ["io-net"]) is None             # punctuation-insensitive
+    msg = provider_conflict("qwen/x", ["groq"])
+    assert "don't serve 'qwen/x'" in msg and "DeepInfra" in msg and "OPENROUTER_PROVIDERS=groq" in msg
+
+
+def test_provider_conflict_unknown_model_and_network_failure(monkeypatch):
+    import urllib.request
+    from optimize import provider_conflict
+    monkeypatch.setattr(urllib.request, "urlopen", lambda url, timeout=10: _FakeEndpoints([]))
+    assert "no endpoints on OpenRouter" in provider_conflict("qwen/typo-27b", ["fireworks"])
+    def boom(url, timeout=10):
+        raise OSError("offline")
+    monkeypatch.setattr(urllib.request, "urlopen", boom)
+    assert provider_conflict("qwen/x", ["fireworks"]) is None          # fail open offline
+
+
+def test_preflight_no_pins_makes_no_network_calls(monkeypatch):
+    import urllib.request
+    from optimize import preflight_provider_pins
+    monkeypatch.delenv("OPENROUTER_PROVIDERS", raising=False)
+    def forbidden(url, timeout=10):
+        raise AssertionError("network call without pins")
+    monkeypatch.setattr(urllib.request, "urlopen", forbidden)
+    preflight_provider_pins()  # no-op, no network
+
+
+def test_preflight_reports_every_conflicting_role(monkeypatch):
+    import pytest
+    import optimize
+    monkeypatch.setenv("OPENROUTER_PROVIDERS", "fireworks")
+    monkeypatch.delenv("MODEL_BASE_URL", raising=False)
+    monkeypatch.delenv("OPENROUTER_BASE_URL", raising=False)
+    monkeypatch.setattr(optimize, "provider_conflict",
+                        lambda model, pins: None if "gemini" in model else f"nope for {model}")
+    with pytest.raises(SystemExit) as exc:
+        optimize.preflight_provider_pins()
+    text = str(exc.value)
+    assert "MODEL=" in text and "GEPA_MODEL=" in text and "JUDGE_MODEL" not in text
+
+
+def test_preflight_skips_roles_on_local_endpoints(monkeypatch):
+    import optimize
+    monkeypatch.setenv("OPENROUTER_PROVIDERS", "fireworks")
+    monkeypatch.setenv("OPENROUTER_BASE_URL", "http://localhost:11434/v1")  # fully local
+    monkeypatch.setattr(optimize, "provider_conflict",
+                        lambda model, pins: f"nope for {model}")
+    optimize.preflight_provider_pins()  # nothing talks to OpenRouter -> nothing to check
+
+
+def test_invoke_retry_fails_fast_on_permanent_config_errors(monkeypatch):
+    import pytest
+    from optimize import judge as judge_mod
+    monkeypatch.setattr(judge_mod.time, "sleep", lambda s: (_ for _ in ()).throw(AssertionError("slept")))
+
+    class Doomed:
+        calls = 0
+        def invoke(self, messages):
+            Doomed.calls += 1
+            raise ValueError("Error 404: No allowed providers are available for the selected model")
+    with pytest.raises(SystemExit) as exc:
+        judge_mod.invoke_retry(Doomed(), [])
+    assert Doomed.calls == 1                                # no retries, no sleeps
+    assert "OpenRouter cannot route this request" in str(exc.value)
+    monkeypatch.setenv("OPENROUTER_PROVIDERS", "fireworks")
+    with pytest.raises(SystemExit) as exc:
+        judge_mod.invoke_retry(Doomed(), [])
+    assert "OPENROUTER_PROVIDERS=fireworks" in str(exc.value)
+
+
+def test_invoke_retry_still_retries_transient_errors(monkeypatch):
+    from optimize import judge as judge_mod
+    monkeypatch.setattr(judge_mod.time, "sleep", lambda s: None)
+
+    class Flaky:
+        calls = 0
+        def invoke(self, messages):
+            Flaky.calls += 1
+            if Flaky.calls < 3:
+                raise ValueError("502 upstream hiccup")
+            return "answer"
+    assert judge_mod.invoke_retry(Flaky(), []) == "answer"
+    assert Flaky.calls == 3

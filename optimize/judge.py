@@ -57,12 +57,35 @@ def _get_llm(model: str):
     return _llms[model]
 
 
+# OpenRouter phrasings that mean "your model/provider configuration can never work" — retrying
+# only burns time, so explain and stop instead.
+_PERMANENT = ("no allowed providers", "no providers are available", "not a valid model",
+              "no endpoints found", "is not available")
+
+
+def _config_error(exc: Exception) -> str | None:
+    text = str(exc).lower()
+    if any(marker in text for marker in _PERMANENT):
+        pins = os.environ.get("OPENROUTER_PROVIDERS", "")
+        hint = (f" You have OPENROUTER_PROVIDERS={pins} — the pinned provider may not serve this "
+                f"model, or may not be ZDR-qualified for it; unset the pin or change the model."
+                if pins else
+                " No ZDR-qualified endpoint may exist for this model; try another model.")
+        return f"OpenRouter cannot route this request: {exc}.{hint}"
+    return None
+
+
 def invoke_retry(llm, messages, tries: int = 3):
-    """Retry transient provider failures (corrupted responses, 5xx) with a short backoff."""
+    """Retry transient provider failures (corrupted responses, 5xx) with a short backoff.
+    Permanent configuration errors (model/provider mismatch) fail immediately with an explanation
+    instead of retrying."""
     for i in range(tries):
         try:
             return llm.invoke(messages)
-        except Exception:
+        except Exception as exc:
+            explained = _config_error(exc)
+            if explained:
+                raise SystemExit(explained) from exc
             if i == tries - 1:
                 raise
             time.sleep(5 * (i + 1))
