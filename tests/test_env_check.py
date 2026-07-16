@@ -65,3 +65,17 @@ def test_model_base_url_overrides_only_the_serving_role(monkeypatch):
     monkeypatch.setenv("MODEL_BASE_URL", "http://vllm:8000/v1")
     assert model_base_url() == "http://vllm:8000/v1"
     assert teacher_base_url() == "https://openrouter.ai/api/v1"
+
+
+def test_provider_allowlist_composes_with_zdr(monkeypatch):
+    from optimize import ZDR_PROVIDER, client_kwargs, openrouter_extra_body
+    monkeypatch.delenv("OPENROUTER_PROVIDERS", raising=False)
+    assert openrouter_extra_body() == ZDR_PROVIDER                       # default: ZDR only, no pin
+    monkeypatch.setenv("OPENROUTER_PROVIDERS", "fireworks, deepinfra")
+    body = openrouter_extra_body()
+    assert body["provider"]["only"] == ["fireworks", "deepinfra"]
+    assert body["provider"]["zdr"] is True                               # pin never relaxes ZDR
+    assert "only" not in ZDR_PROVIDER["provider"]                        # constant not mutated
+    monkeypatch.setenv("OPENROUTER_API_KEY", "sk-or-test")
+    assert client_kwargs("https://openrouter.ai/api/v1")["extra_body"] == body
+    assert client_kwargs("http://localhost:8000/v1")["extra_body"] == {}  # local: no prefs at all

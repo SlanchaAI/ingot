@@ -36,13 +36,26 @@ def is_openrouter(url: str) -> bool:
     return "openrouter.ai" in url
 
 
+def openrouter_extra_body() -> dict:
+    """Provider preferences for OpenRouter calls: the hardcoded ZDR policy, plus an optional
+    allowlist (OPENROUTER_PROVIDERS=fireworks[,deepinfra] -> provider.only) for users who prefer
+    one trusted vendor over pool resilience. The allowlist composes with ZDR — a pinned provider
+    still must qualify as zero-data-retention."""
+    provider = dict(ZDR_PROVIDER["provider"])
+    only = [p.strip() for p in os.environ.get("OPENROUTER_PROVIDERS", "").split(",") if p.strip()]
+    if only:
+        provider["only"] = only
+    return {"provider": provider}
+
+
 def client_kwargs(base_url: str) -> dict:
     """ChatOpenAI connection kwargs for an endpoint. OpenRouter gets the hardcoded ZDR provider
-    preference; anything else is treated as a local OpenAI-compatible server — no provider
-    preferences, and a placeholder api_key if none is set (the client requires one)."""
+    preference (plus the optional OPENROUTER_PROVIDERS allowlist); anything else is treated as a
+    local OpenAI-compatible server — no provider preferences, and a placeholder api_key if none
+    is set (the client requires one)."""
     key = os.environ.get("OPENROUTER_API_KEY", "")
     if is_openrouter(base_url):
-        return {"base_url": base_url, "api_key": key, "extra_body": ZDR_PROVIDER}
+        return {"base_url": base_url, "api_key": key, "extra_body": openrouter_extra_body()}
     return {"base_url": base_url, "api_key": key or "local", "extra_body": {}}
 
 
