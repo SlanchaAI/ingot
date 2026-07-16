@@ -35,7 +35,10 @@ For every task, first call `suggest_skills`, then decide from what it returns. O
   reusable skill distilled from your solution (description = one paragraph starting "Use this skill
   when..."; body = the general method/steps, not the specifics of this one request).
 
-Prefer reusing/extending an existing skill over creating a new one. Keep the final answer concise."""
+Prefer reusing/extending an existing skill over creating a new one. Keep the final answer concise.
+Your final answer must contain the complete deliverable itself — e.g. full runnable code inline —
+never just a description of, or reference to, files you created in your workspace: the user cannot
+see your workspace."""
 
 
 def build_agent(tools, instructions: str = INSTRUCTIONS):
