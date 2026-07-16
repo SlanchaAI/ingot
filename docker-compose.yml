@@ -51,6 +51,7 @@ services:
     volumes:
       - ./skills:/app/skills
       - ./runs:/app/runs
+      - ./optimize/tasks:/app/optimize/tasks   # auto-drafted eval sets must survive the container
     depends_on:
       mcp:
         condition: service_started
@@ -91,6 +92,7 @@ services:
     volumes:
       - ./skills:/app/skills
       - ./runs:/app/runs
+      - ./optimize/tasks:/app/optimize/tasks   # auto-drafted eval sets must survive the container
     depends_on:
       mcp:
         condition: service_started
@@ -113,6 +115,7 @@ services:
     volumes:
       - ./skills:/app/skills
       - ./runs:/app/runs
+      - ./optimize/tasks:/app/optimize/tasks   # auto-drafted eval sets must survive the container
     depends_on:
       mcp:
         condition: service_started
@@ -138,6 +141,7 @@ services:
     volumes:
       - ./skills:/app/skills
       - ./runs:/app/runs
+      - ./optimize/tasks:/app/optimize/tasks   # auto-drafted eval sets must survive the container
     depends_on:
       mcp:
         condition: service_started
