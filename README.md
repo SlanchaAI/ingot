@@ -36,13 +36,11 @@ The only data that leaves your machine is the LLM traffic itself, under ZDR.
 
 ## Tutorial
 
-The tutorial runs the whole loop on a real skill, and the arc is simple: **find a request
-the existing skill doesn't help with, then optimize the skill until it does.** The failing champion
-is not a strawman: it is the **current `pdf` skill from
-[anthropics/skills](https://github.com/anthropics/skills), exactly as fetched from upstream
-today** — the agent routes to it, loads it, follows it, and still fails the request. You'll watch
-that happen, mine the failure from your own traces, let GEPA rewrite the skill, review the diff,
-promote it, and re-run the *same request* to see it succeed.
+The tutorial runs the whole improvement loop on a skill you write yourself, and the arc is the
+product's honest pitch: **write the quick first-draft skill you'd actually jot down, watch it
+under-deliver on real traffic, and let the system mature it** — content and routing, each measured
+by its own metric, each change gated and human-approved. Every command, number, and screenshot
+below comes from a real run; nothing is mocked.
 
 ### 1. Set up and start the stack
 
@@ -83,116 +81,117 @@ The agent asked the router (`suggest_skills`), loaded the top match (`get_skill`
 Open **http://localhost:3100** (login `demo@local.dev` / `localdemo123` — local demo literals baked
 into the compose file, not secrets) to see the full trace: every tool call, LLM call, and token count.
 
-### 3. Find a request the stock skill doesn't help with
+### 3. Write a first-draft skill — and watch it under-deliver
 
-Now ask for something the skill's own docs say it covers — rotating pages. (No `scan_mix.pdf`
-exists, and none needs to: the request asks for a *script*, so the filename is just a placeholder
-in the code you get back.) The router matches, the agent loads the skill and follows it — and the
-loaded skill still doesn't get the user working code:
+A skill is a directory with a `SKILL.md`: YAML frontmatter whose `description` is the routing key,
+and a body the agent loads. Write the quick version you'd actually jot down:
 
 ```bash
-docker compose run --rm agent "Write Python code that straightens just the sideways (landscape) pages of scan_mix.pdf and saves a corrected copy."
+mkdir -p skills/excel-formulas
+cat > skills/excel-formulas/SKILL.md <<'EOF'
+---
+name: excel-formulas
+description: Use this skill when the user needs help writing or debugging spreadsheet formulas
+  in Excel or Google Sheets — lookups, sums, conditionals, text manipulation, or date math.
+---
+
+# Excel formulas
+
+1. Prefer built-in functions over manual arithmetic.
+2. Use VLOOKUP to find values in tables.
+3. Use IF for conditions; SUM and AVERAGE for aggregation.
+4. Wrap formulas that can error in IFERROR.
+EOF
+```
+
+`skills/` is bind-mounted and the server hot-reloads on change — the skill is live immediately.
+Now send it some realistic traffic:
+
+```bash
+docker compose run --rm agent "For each order in A2:D500, look up the customer tier in Sheet2 and return the matching discount rate — orders with no match should show 0 instead of an error."
 ```
 
 ```
 PROPOSED SKILLS (MCP suggest_skills):
-   0.642  pdf (related — compose/extend) — Use this skill whenever the user wants to do anything...
+    0.62  api-rate-limiting-helper (related — compose/extend) — Designs rate limiting strategies...
 
-LOADED SKILLS (MCP get_skill): ['pdf']
-TOKENS: 33721 in / 1241 out
-
-RESULT:
-Created `straighten_landscape.py`. Here's what it does:
-
-1. Opens `scan_mix.pdf` with `pypdf`
-2. For each page, checks if `width > height` (landscape)
-3. Rotates landscape pages **-90°** to make them portrait; leaves portrait pages alone
-4. Saves the result as `scan_mix_corrected.pdf`
-...
+LOADED SKILLS (MCP get_skill): (none)
+TOKENS: 46428 in / 3512 out
 ```
 
-Read that answer again: the user asked for code and got a *description* of code. The script exists
-only in the agent's throwaway container filesystem — the user receives nothing runnable. Other
-requests fare no better (a form-fill request came back with an empty answer after 75k input
-tokens). This is the tutorial's premise: **loading today's Anthropic `pdf` skill did not help with
-this request.** The failure is systematic and traces back to the skill itself — the stock SKILL.md
-is a 7,500-character reference guide to browse, not an instruction contract, so the serving model
-reads it and paraphrases instead of delivering. The rest of the tutorial optimizes the skill until
-this exact request works.
+Read that routing line again: a spreadsheet-lookup request matched **a rate-limiting skill**, and
+`excel-formulas` never even surfaced — the first-draft description under-triggers (in our traffic,
+3 of 4 realistic requests missed it). The answer itself came from the model's own knowledge after
+burning 46k input tokens looking for spreadsheet files, resting on invented column assumptions.
+The skill helped with none of it. Both failures are now sitting in your traces.
 
 ### 4. Mine what's failing (from real traces)
 
-After a few runs like the ones above, Langfuse holds your real traffic. `optimize-mine` re-judges
-each logged outcome with a multi-dimensional LLM judge and aggregates which failure dimensions
-dominate — the [SkillForge paper's](https://arxiv.org/abs/2604.08618) "Failure Analyzer" applied to
-your own traces:
+`optimize-mine` re-judges your logged traffic with a multi-dimensional LLM judge and aggregates
+which failure dimensions dominate — the [SkillForge paper's](https://arxiv.org/abs/2604.08618)
+"Failure Analyzer" applied to your own traces:
 
 ```bash
-docker compose run --rm optimize-mine pdf
+docker compose run --rm optimize-mine excel-formulas
 ```
 
 ```
-[mine] analyzed 6 real traces · mean judge score 0.42 · 3 bad cases (score < 0.5)
+[mine] analyzed 6 real traces · mean judge score 0.73 · 1 bad cases (score < 0.5)
 [mine] failure dimensions (paper's Failure Analyzer), most common first:
-    completeness             4/6  ███████
-        · 'Write a Python script that stamps a diagonal DRAFT watermark across ev' → no code provided
-        · 'How do I extract all the text from statement.pdf in Python? It might b' → missing PIL import for OCR
-    instruction_following    3/6  █████
-        · 'Write a Python script that stamps a diagonal DRAFT watermark across ev' → no runnable python code block
-        · 'Write Python code that straightens just the sideways (landscape) pages' → no runnable python code block
-    correctness              2/6  ███
-        · 'Write a Python script that stamps a diagonal DRAFT watermark across ev' → no code provided
-    efficiency               0/6
-
+    completeness             2/6  ███
+        · 'For each order in A2:D500, look up the customer tier in Sheet2 and ret' → Python script not provided
+        · 'For each order row in A2:D500, look up the customer tier from the tabl' → assumes customer ID column
+    instruction_following    2/6  ███
+        · 'For each order in A2:D500, look up the customer tier in Sheet2 and ret' → Python script not provided
+    ...
 [mine] 6 weakest tasks mined as eval candidates → optimize on these next.
 ```
 
-The dominant failure — *no runnable code provided* — is exactly what you watched in step 3. That
-categorized signal also feeds GEPA's reflection (*diagnose → smallest targeted fix*, not a blind
-rewrite), so the optimization below is aimed, not scattershot.
+(Reference-free judging of live traffic is noisier than rubric-based judging — treat mined
+dimensions as a diagnosis to investigate, not a verdict. The optimizer's own gate runs on rubrics.)
 
-### 5. Optimize the skill so it does help: GEPA + held-out A/B
+### 5. Optimize the body: GEPA + held-out A/B
 
 ```bash
-docker compose run --rm optimize pdf --budget 30
+docker compose run --rm optimize excel-formulas
 ```
 
-One command does two things (~$0.50 of OpenRouter credit at budget 30, ~15–20 minutes; the default
-budget is 60 metric calls — 30 is plenty for a task set this small):
+The skill has no eval set yet, so the teacher model **auto-drafts one** (train/holdout, persisted
+to `optimize/tasks/excel-formulas.yaml`), then GEPA evolves the body on the train tasks and the
+champion and challenger are A/B-ed through the full agent on the held-out tasks (~$1–1.5 of
+OpenRouter credit; the serving-side A/B injects each variant body, so the comparison is exactly
+body vs body):
 
-1. **GEPA evolves the SKILL.md `body`** — the instructions the agent actually loads — on the
-   *train* tasks in `optimize/tasks/pdf.yaml`, using judge critiques to author better versions.
-   The routing `description` is deliberately **not** optimized here: it's an embedding-matched
-   routing trigger, not instructions, and a quality judge can't measure routing (set
-   `OPTIMIZE_COMPONENTS` to widen, including bundled `file:` components — those are diffed for
-   review but never executed by the A/B, so keep scripts out unless you have execution-grounded
-   evals). Everything else is preserved on disk as-is. A length penalty keeps GEPA from winning by
-   bloat. (A skill without a task set gets one **auto-drafted** — train/holdout — by the teacher
-   model first.)
-2. **Champion vs challenger through the full agent** — real router, real tool calls — on the
-   **held-out** tasks GEPA never saw, scored on quality and token cost. GEPA optimizes *against*
-   the train judge score, so that score is biased by construction; promotion is gated on tasks the
-   optimizer never touched.
+```
+[draft] no eval set for 'excel-formulas' — teacher (z-ai/glm-5.2) drafting 8 train/holdout tasks…
+[gepa] optimizing 'excel-formulas' (components: ['body']; frozen: ['description']) on 4 train tasks…
+[gepa] inner-loop score: seed 0.250 -> best 0.675
+[gepa] components changed: ['body']
+[ab] champion:   mean judge score 0.100  [0.4, 0.0, 0.0, 0.0]
+[ab] challenger: mean judge score 0.675  [0.5, 0.7, 0.5, 1.0]
+[ab] champion 0.100 vs challenger 0.675 -> CHALLENGER WINS
+[ab] output tokens/task: 128 -> 160 (+32)  ⚠ output-token regression
+[ab] ⚠ challenger drops 100% of the champion body, gated on only 4 held-out task(s) — review the deletions carefully
+[ab] pending approval written to runs/pending/excel-formulas.json — review + promote at http://localhost:8080
+```
 
-<!-- FILL:OPTIMIZE-RUN -->
-
-Output tokens are the cost that matters (they're generated on every future task); a challenger that
-wins on quality but regresses output tokens >10% gets a ⚠ flag. A bigger SKILL.md (input tokens) is
-cheap context by comparison.
+The four-line stub scored **0.100** on held-out tasks; the challenger scores **0.675** — a +0.575
+margin, far above the gate's +0.15 bar. Note both ⚠ flags are doing their jobs: output tokens grew
+(richer answers than a stub's — worth a look, not a block), and the retention warning fires because
+the challenger replaced the entire body — for a four-line stub that's exactly right, and the human
+reviewing the diff decides.
 
 **Optimization is greedy — one component per pass, each scored by its own role's metric:**
 
 | pass | command | inner-loop objective | cost |
 |------|---------|---------------------|------|
-| body (default) | `optimize pdf` | LLM judge on train tasks; full-agent A/B gate | ~$1 |
-| description | `optimize pdf --description` | the **routing suite**, scored by the real embedding router — no LLM rollouts (reflection only) | ~$0.05, minutes |
-| scripts | `optimize pdf --scripts` | refused for now: bundled scripts need execution-grounded evals before a rewrite can be measured | — |
+| body (default) | `optimize excel-formulas` | LLM judge on train tasks; full-agent A/B gate | ~$1 |
+| description | `optimize excel-formulas --description` | the **routing suite**, scored by the real embedding router — no LLM rollouts (reflection only) | ~$0.05, seconds |
+| scripts | `optimize excel-formulas --scripts` | refused for now: bundled scripts need execution-grounded evals before a rewrite can be measured | — |
 
-The description pass gates on **no regression on any routing metric, at least one strict
-improvement, and no collision** with another skill's description — then the same human approval UI.
 This split exists because a quality judge can't measure routing and a router can't measure quality;
-one shared metric let early runs "improve" the description in ways that either broke routing (the
-gate caught it) or never reached the serving agent.
+letting one metric grade both components teaches the optimizer to hide behavioral rules in the
+routing description (the routing-regression gate catches it, but better to make it impossible).
 
 ### 6. Review and promote in the approval UI
 
@@ -200,26 +199,70 @@ Open **http://localhost:8080**:
 
 ![approval UI — skills list](docs/ui-home.png)
 
-Click **Review** to see the judge scores, the token shift, and the SKILL.md diff:
+Click **Review** to see the judge scores, the token shift, both warnings, and the full body diff:
 
 ![approval UI — pending challenger review](docs/ui-review.png)
 
 **Approve & promote** verifies the evidence still matches the on-disk champion and the exact
-challenger, snapshots the prior revision, and swaps the challenger into `skills/pdf/`. The MCP
-server notices the revision change on its next request — the new skill is served with **no
+challenger, snapshots the prior revision, and swaps the challenger into `skills/excel-formulas/`.
+The MCP server notices the revision change on its next request — the new body is served with **no
 restart**. **Reject** discards it.
 
-### 7. The same request now works
+### 7. Fix the routing with the description pass
 
-The request from step 3 — the one the stock skill didn't help with — again, against the promoted
-skill:
+The body is better — but the router still under-triggers (step 3's lookup request never matched).
+That's a *routing* problem, so it gets the routing-objective pass: add `routing:` cases to
+`optimize/tasks/excel-formulas.yaml` (realistic positive phrasings plus `expected: null`
+negatives), then:
 
-<!-- FILL:AFTER-RUN -->
+```bash
+docker compose run --rm optimize excel-formulas --description
+```
 
-That's the loop: a request the existing skill couldn't serve → mined failures → targeted rewrite →
-held-out A/B → human review → hot-reloaded promotion → the same request served properly.
+```
+[routing] optimizing 'excel-formulas' description against 6 routing cases (budget 40 metric calls;
+          inner loop is embedding-only — no LLM rollouts)…
+[routing] inner-loop score: seed 0.417 -> best 0.833
+[routing] champion:   top1 0.250 · recall@3 0.500 · no-route precision 0.500
+[routing] challenger: top1 1.000 · recall@3 1.000 · no-route precision 0.500
+[routing] pending description written to runs/pending/excel-formulas.json — review + promote at http://localhost:8080
+[usage] tokens spent by this routing pass (reflection only):
+  reflection      4 calls      2,372 in     8,579 out
+```
 
-### 8. (Optional) Promote via a live canary instead
+Top-1 routing goes **0.250 → 1.000** in seconds, for four reflection calls (~$0.03) — every
+candidate description is scored by the real embedding router against the real skill corpus, so
+there's nothing for an LLM judge to be fooled about. The gate requires no regression on any routing
+metric, at least one strict improvement, and no collision with another skill's description; then
+the same review UI shows the metric deltas and the description diff. Approve it.
+
+### 8. The same request now finds the skill
+
+```bash
+docker compose run --rm agent "Write a formula that extracts the domain name from an email address in cell C2."
+```
+
+```
+PROPOSED SKILLS (MCP suggest_skills):
+   0.697  excel-formulas — Use this skill when the user asks to write, generate, or create an Excel...
+
+RESULT:
+=RIGHT(C2, LEN(C2) - FIND("@", C2))
+
+This finds the `@` symbol and returns everything after it.
+```
+
+Requests that missed the skill or landed in the related band now route to it directly (top-1 went
+1.000 on the routing suite), and the matured body wins its held-out A/B 0.675 to 0.100. One honest
+caveat from our runs: on trivially easy requests the serving model sometimes answers without
+bothering to load the matched skill at all — the controlled body-vs-body comparison is the A/B in
+step 5, which guarantees serving; live loading behavior is the serving model's own.
+
+That's the loop: a first-draft skill → real traffic → mined diagnosis → a body pass gated on
+held-out quality → a description pass gated on routing metrics → human approval at every promotion
+→ hot reload.
+
+### 9. (Optional) Promote via a live canary instead
 
 The offline A/B gates on a fixed held-out set. The production-honest alternative is a **canary**:
 serve the challenger to a fraction of *live* traffic, judge each real outcome, and promote only
@@ -248,7 +291,7 @@ skill revision (`canary=challenger`, `revision=<hash>`), and the judged outcome 
 scores (`canary_judge`, `canary_success`) on that trace — so the per-arm evidence is auditable in
 the Langfuse UI and the posterior can be recomputed from stored scores at any time.
 
-### 9. (Optional) Put it on autopilot
+### 10. (Optional) Put it on autopilot
 
 One command mines every skill's real traffic for health and optimizes only the ones actually
 failing, leaving every survivor in the approval UI (nothing auto-promotes):
@@ -268,33 +311,14 @@ docker compose run --rm optimize-loop            # all skills with eval sets; ad
 Point it at your logged traffic on a schedule and skills that drift on your real workload get
 re-optimized and queued for a human — continuously.
 
-### 10. Grow the library
+### 11. Grow the library
 
-A skill is just a directory `skills/<name>/SKILL.md`: YAML frontmatter whose `description` is the
-routing key, and a body the agent loads. Three ways the library grows:
+Three ways the library grows:
 
-**Write one yourself** — create the file and hot-reload (no rebuild; `skills/` is bind-mounted):
-
-```bash
-mkdir -p skills/sql-explain
-cat > skills/sql-explain/SKILL.md <<'EOF'
----
-name: sql-explain
-description: Use this skill whenever the user wants to understand, optimize, or debug a SQL query —
-  reading EXPLAIN/EXPLAIN ANALYZE output, spotting missing indexes, or rewriting a slow query.
----
-
-# SQL query analysis
-1. Run `EXPLAIN (ANALYZE, BUFFERS)` and read the plan bottom-up.
-2. Flag sequential scans on large tables → candidate indexes.
-... (your reusable method here)
-EOF
-
-docker compose restart mcp        # or call the reload_skills MCP tool for a live hot reload
-```
-
-Only two frontmatter fields matter: `name` (a slug) and `description` (the routing trigger — write
-it "pushy", starting with "Use this skill when…", since under-triggering is the common failure).
+**Write one yourself** — exactly like step 3: a directory, a `SKILL.md`, and it's live on the next
+request. Only two frontmatter fields matter: `name` (a slug) and `description` (the routing
+trigger — write it "pushy", starting with "Use this skill when…", since under-triggering is the
+common failure; and as step 7 showed, the description pass can fix it for you afterwards).
 
 **Let the agent write one** — when `suggest_skills` returns an empty list (nothing even related),
 the agent solves the task itself and persists what it learned via the `create_skill` MCP tool:
