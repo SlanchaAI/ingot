@@ -47,12 +47,14 @@ def assemble(candidate: dict[str, str]) -> str:
 
 
 class SkillAdapter:
-    """gepa.GEPAAdapter over the full-skill component dict {description, body, file:...}.
-    Batch items: {"task", "rubric"}."""
+    """gepa.GEPAAdapter over the skill component dict. Batch items: {"task", "rubric"}.
+    `frozen` components (e.g. the routing description when only the body is optimized) are
+    rendered into every rollout for fidelity but are invisible to GEPA's mutation."""
 
     propose_new_texts = None  # gepa probes this optional hook; None -> use its default reflection
 
-    def __init__(self):
+    def __init__(self, frozen: dict[str, str] | None = None):
+        self._frozen = frozen or {}
         self._llm = ChatOpenAI(model=MODEL, base_url=BASE_URL, api_key=API_KEY, temperature=0,
                                extra_body=ZDR_PROVIDER)
 
@@ -65,7 +67,7 @@ class SkillAdapter:
                                     "feedback": j["feedback"], "dimensions": j["dimensions"]}
 
     def evaluate(self, batch, candidate, capture_traces=False):
-        system = ROLLOUT_SYSTEM.format(skill=assemble(candidate))
+        system = ROLLOUT_SYSTEM.format(skill=assemble({**self._frozen, **candidate}))
         # the hosted model is slow (~15-60s/call) — run the batch's rollout+judge pairs concurrently
         with ThreadPoolExecutor(max_workers=min(6, len(batch))) as pool:
             results = list(pool.map(lambda ex: self._rollout(system, ex), batch))
@@ -113,9 +115,9 @@ def _track_reflection(kwargs, response, start_time, end_time):  # litellm succes
                                         "output_tokens": getattr(u, "completion_tokens", 0)})
 
 
-def run_gepa(seed: dict[str, str], tasks: list[dict],
-             max_metric_calls: int = 60) -> tuple[dict[str, str], float, float]:
-    """Evolve the full skill (component dict) with GEPA.
+def run_gepa(seed: dict[str, str], tasks: list[dict], max_metric_calls: int = 60,
+             frozen: dict[str, str] | None = None) -> tuple[dict[str, str], float, float]:
+    """Evolve the seed components with GEPA; `frozen` components ride along in rollouts unmutated.
     Returns (best_components, seed_score, best_score) on the task set."""
     import litellm
     litellm.success_callback = [_track_reflection]  # reflection goes through litellm below
@@ -131,7 +133,7 @@ def run_gepa(seed: dict[str, str], tasks: list[dict],
     result = gepa.optimize(
         seed_candidate=seed,
         trainset=tasks,
-        adapter=SkillAdapter(),
+        adapter=SkillAdapter(frozen),
         reflection_lm=reflection_lm,
         max_metric_calls=max_metric_calls,
         display_progress_bar=True,

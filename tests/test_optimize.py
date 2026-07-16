@@ -207,3 +207,37 @@ def test_judge_llms_carry_zdr_extra_body(monkeypatch):
     judge_mod._get_llm("some/model")
     judge_mod._llms.clear()
     assert captured["extra_body"] == {"provider": {"zdr": True, "data_collection": "deny"}}
+
+
+def test_optimize_split_default_is_body_only():
+    champion = {"description": "d", "body": "b"}
+    seed, frozen = ab_mod.optimize_split(champion)
+    assert seed == {"body": "b"} and frozen == {"description": "d"}
+
+
+def test_optimize_split_env_can_widen(monkeypatch):
+    monkeypatch.setattr(ab_mod, "OPTIMIZE_COMPONENTS", ["description", "body"])
+    seed, frozen = ab_mod.optimize_split({"description": "d", "body": "b"})
+    assert seed == {"description": "d", "body": "b"} and frozen == {}
+
+
+def test_optimize_split_rejects_unknown_component(monkeypatch):
+    import pytest
+    monkeypatch.setattr(ab_mod, "OPTIMIZE_COMPONENTS", ["bodyy"])
+    with pytest.raises(SystemExit, match="bodyy"):
+        ab_mod.optimize_split({"description": "d", "body": "b"})
+
+
+def test_skill_adapter_renders_frozen_components():
+    from optimize.gepa_loop import assemble
+    frozen, candidate = {"description": "when to use me"}, {"body": "the rules"}
+    text = assemble({**frozen, **candidate})
+    assert "when to use me" in text and "the rules" in text
+
+
+def test_optimize_split_accepts_file_components(monkeypatch):
+    monkeypatch.setattr(ab_mod, "OPTIMIZE_COMPONENTS", ["body", "file:reference.md"])
+    champion = {"description": "d", "body": "b", "file:reference.md": "ref"}
+    seed, frozen = ab_mod.optimize_split(champion)
+    assert seed == {"body": "b", "file:reference.md": "ref"}
+    assert frozen == {"description": "d"}

@@ -160,12 +160,15 @@ docker compose run --rm optimize pdf --budget 30
 One command does two things (~$0.50 of OpenRouter credit at budget 30, ~15–20 minutes; the default
 budget is 60 metric calls — 30 is plenty for a task set this small):
 
-1. **GEPA evolves the skill** — its routing `description` and SKILL.md `body`, the two things the
-   agent actually loads — on the *train* tasks in `optimize/tasks/pdf.yaml`, using judge critiques
-   to author better versions. Bundled files (`reference.md`, `scripts/`, `LICENSE.txt`) are
-   preserved as-is: a text optimizer has no business rewriting a license or unexecuted code. A
-   length penalty keeps it from winning by bloat. (A skill without a task set gets one
-   **auto-drafted** — train/holdout — by the teacher model first.)
+1. **GEPA evolves the SKILL.md `body`** — the instructions the agent actually loads — on the
+   *train* tasks in `optimize/tasks/pdf.yaml`, using judge critiques to author better versions.
+   The routing `description` is deliberately **not** optimized here: it's an embedding-matched
+   routing trigger, not instructions, and a quality judge can't measure routing (set
+   `OPTIMIZE_COMPONENTS` to widen, including bundled `file:` components — those are diffed for
+   review but never executed by the A/B, so keep scripts out unless you have execution-grounded
+   evals). Everything else is preserved on disk as-is. A length penalty keeps GEPA from winning by
+   bloat. (A skill without a task set gets one **auto-drafted** — train/holdout — by the teacher
+   model first.)
 2. **Champion vs challenger through the full agent** — real router, real tool calls — on the
    **held-out** tasks GEPA never saw, scored on quality and token cost. GEPA optimizes *against*
    the train judge score, so that score is biased by construction; promotion is gated on tasks the
@@ -347,6 +350,7 @@ Set in `.env` (never committed):
 | `LENGTH_PENALTY` | `0.10` | max score subtracted for a very long body |
 | `LOOP_HEALTH_THRESHOLD` | `0.7` | continuous loop re-optimizes skills whose mined mean score is below this |
 | `RETENTION_WARN` | `0.5` | ⚠ review warning when the challenger keeps less than this fraction of the champion body |
+| `OPTIMIZE_COMPONENTS` | `body` | what GEPA may rewrite; add `description` (routing gate applies) or `file:<path>` entries (diffed, never executed — avoid scripts) |
 | `SKILL_MAX_DESCRIPTION` | `1024` | `create_skill` description hard cap (Agent Skills spec) |
 | `SKILL_MAX_BODY` | `40000` | `create_skill` body ceiling (~500 lines) |
 

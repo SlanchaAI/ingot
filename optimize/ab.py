@@ -36,6 +36,27 @@ PROMOTE_MIN_SAMPLES = int(os.environ.get("PROMOTE_MIN_SAMPLES", "3"))       # mi
 PASS = float(os.environ.get("PROMOTE_PASS_SCORE", "0.5"))                   # a task "passes" at/above this
 COLLISION_SCORE = float(os.environ.get("COLLISION_SCORE", "0.93"))          # route-shadow cutoff
 RETENTION_WARN = float(os.environ.get("RETENTION_WARN", "0.5"))             # body-retention review warning
+# Which components GEPA may mutate. Default: body only — the description is a routing trigger
+# matched by embedding, not instructions the agent reads, so quality optimization has no business
+# there (bare rollouts can't tell the difference and will happily stuff behavior rules into it;
+# the full agent then never sees them). Widen with e.g. OPTIMIZE_COMPONENTS=body,file:reference.md
+# (bundled text files become mutable AND visible in rollouts) or description,body (the
+# routing-regression gate still applies). Caveat for file components: the A/B never executes or
+# serves them — review those diffs by eye, and keep scripts out unless you have execution-grounded
+# evals.
+OPTIMIZE_COMPONENTS = [c.strip() for c in os.environ.get("OPTIMIZE_COMPONENTS", "body").split(",")
+                       if c.strip()]
+
+
+def optimize_split(champion: dict[str, str]) -> tuple[dict[str, str], dict[str, str]]:
+    """(mutable seed, frozen context) per OPTIMIZE_COMPONENTS; unknown names fail loudly."""
+    unknown = [c for c in OPTIMIZE_COMPONENTS if c not in champion]
+    if unknown:
+        raise SystemExit(f"OPTIMIZE_COMPONENTS names unknown component(s) {unknown}; "
+                         f"skill has {sorted(champion)}")
+    seed = {k: v for k, v in champion.items() if k in OPTIMIZE_COMPONENTS}
+    frozen = {k: v for k, v in champion.items() if k not in OPTIMIZE_COMPONENTS}
+    return seed, frozen
 
 
 def body_retention(champion_body: str, challenger_body: str) -> float:
@@ -234,7 +255,14 @@ def run_ab(skill: str, promote_now: bool = False, budget: int = 60,
     skill_dir = SKILLS_DIR / skill
     if not (skill_dir / "SKILL.md").exists():
         raise SystemExit(f"No skill named '{skill}' in skills/.")
-    champion = optimizable_components(skill_dir)  # {description, body} — bundled files preserved on disk
+    # description + body always; bundled file components join only when OPTIMIZE_COMPONENTS names
+    # them (they then also render into rollouts). Everything else stays untouched on disk.
+    champion = optimizable_components(skill_dir)
+    file_components = [c for c in OPTIMIZE_COMPONENTS if c.startswith("file:")]
+    if file_components:
+        from mcp_server.registry import read_components
+        everything = read_components(skill_dir)
+        champion.update({k: everything[k] for k in file_components if k in everything})
 
     # 1) GEPA: evolve the full skill (all components) on the TRAIN tasks (judge feedback -> reflection).
     if challenger_file:  # resume: reuse a checkpointed GEPA result, skip straight to the A/B
@@ -244,10 +272,16 @@ def run_ab(skill: str, promote_now: bool = False, budget: int = 60,
     elif skip_gepa:  # debug path: A/B the champion against itself
         challenger, seed_score, best_score = champion, 0.0, 0.0
     else:
-        log(f"[gepa] optimizing '{skill}' ({len(champion)} components) on {len(train)} train tasks "
-            f"(budget {budget} metric calls)…")
+        seed, frozen = optimize_split(champion)
+        log(f"[gepa] optimizing '{skill}' (components: {sorted(seed)}; frozen: {sorted(frozen)}) "
+            f"on {len(train)} train tasks (budget {budget} metric calls)…")
         from .gepa_loop import run_gepa
-        challenger, seed_score, best_score = run_gepa(champion, train, max_metric_calls=budget)
+        # rollouts see the frozen description (get_skill serves it) but not frozen files — those
+        # are neither mutated nor measured, and pasting them in would only inflate rollout cost
+        rollout_frozen = {k: v for k, v in frozen.items() if k == "description"}
+        best, seed_score, best_score = run_gepa(seed, train, max_metric_calls=budget,
+                                                frozen=rollout_frozen)
+        challenger = {**champion, **best}
         log(f"[gepa] inner-loop score: seed {seed_score:.3f} -> best {best_score:.3f}")
         changed = [k for k in champion if challenger.get(k, "").strip() != champion[k].strip()]
         if not changed:
