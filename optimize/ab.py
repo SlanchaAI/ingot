@@ -244,7 +244,7 @@ def _run_variant(dataset, variant: str, agent, tasks: list[dict]):
         return answer
 
     def judge_evaluator(*, input, output, **kwargs):
-        j = judge(input["task"], input["rubric"], str(output))
+        j = judge(input["task"], input["rubric"], str(output), check=input.get("check"))
         scores_by_task[input["task"]] = j["score"]
         return Evaluation(name="judge_score", value=j["score"], comment=j["feedback"])
 
@@ -433,11 +433,12 @@ if __name__ == "__main__":
     args = ap.parse_args()
     if args.scripts:
         raise SystemExit(
-            "--scripts is not supported yet: optimizing bundled scripts needs execution-grounded "
-            "evals (fixtures) so a rewrite can be measured, not guessed — see "
-            "docs/superpowers/specs/2026-07-15-component-pass-optimization.md. Bundled text docs "
-            "can be opted in today via OPTIMIZE_COMPONENTS=body,file:<path> (diffed for review, "
-            "never executed).")
+            "--scripts is not supported yet. Execution-grounded evals now exist (per-task check: "
+            "fixtures — see README), which was the first prerequisite; the remaining gap is "
+            "file-serving rollouts so a rewritten script is exercised the way a harness would use "
+            "it — see docs/superpowers/specs/2026-07-15-component-pass-optimization.md. Bundled "
+            "text docs can be opted in today via OPTIMIZE_COMPONENTS=body,file:<path> (diffed for "
+            "review, never executed).")
     from . import require_openrouter_key
     require_openrouter_key()
     if args.description:

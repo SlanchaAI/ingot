@@ -99,7 +99,7 @@ def test_canary_loop_tags_arms_with_revisions(monkeypatch, tmp_path):
     async def fake_run(agent, task, config=None):
         return "an answer", [], {}
     monkeypatch.setattr(C, "run_task", fake_run)
-    monkeypatch.setattr(C, "judge", lambda t, r, a: {"score": 1.0, "feedback": "good"})
+    monkeypatch.setattr(C, "judge", lambda t, r, a, check=None: {"score": 1.0, "feedback": "good"})
     monkeypatch.setattr(C, "load_tasks", lambda s: ([{"task": "t", "rubric": "r"}], [], {}))
     monkeypatch.setattr(C, "load_pending", lambda s: {"challenger_components":
                                                       {"description": "Merge PDFs.", "body": "new"}})

@@ -373,8 +373,24 @@ to please the judge, not to actually get better. Guards close the obvious paths:
    `ast.parse`s the code and hands the judge a verdict it must treat as ground truth — "described
    the code" or a syntax error can't be talked into a high score. Opt-in `EXEC_SANDBOX=1`
    additionally *runs* it in a subprocess (a missing-fixture error counts as inconclusive, not a
-   defect). Despite the name this is a bare subprocess, **not** an isolated sandbox — only enable
-   it inside the disposable `optimize` container, never on the host.
+   defect). And a task can go all the way to **artifact-verified execution** by shipping a
+   `check:` spec in its task YAML — the answer's code then runs in a scratch directory seeded by
+   the fixture, and the verdict is whether the assertion holds on what it produced, not what a
+   judge thinks of the prose:
+
+   ```yaml
+   - task: "Write a Python script that uppercases input.txt into output.txt."
+     rubric: "Complete runnable code, reads input.txt, writes output.txt."
+     check:
+       fixture: |
+         open("input.txt", "w").write("hello")
+       assert: |
+         assert open("output.txt").read() == "HELLO"
+   ```
+
+   A broken fixture or missing dependency counts as inconclusive — the harness's failure is never
+   held against the answer. All of these are bare subprocesses, **not** isolated sandboxes — only
+   enable execution inside the disposable `optimize` container, never on the host.
 5. **Length penalty.** GEPA's objective subtracts a penalty for a bloated body, so it can't win by
    padding the skill with filler the judge mistakes for completeness.
 6. **Deletions need evidence.** The reflection prompt tells GEPA not to remove guidance the observed

@@ -117,13 +117,14 @@ def _judge_one(model: str, prompt: str) -> dict:
                 "dimensions": {d: "pass" for d in DIMENSIONS}}
 
 
-def judge(task: str, rubric: str = "", answer: str = "", reference: str = "") -> dict:
+def judge(task: str, rubric: str = "", answer: str = "", reference: str = "",
+          check: dict | None = None) -> dict:
     """Return {score, feedback, dimensions}. With multiple JUDGE_MODELS this is an ensemble: score is
     the mean, and a dimension counts as failed if a majority of judges flag it (harder to game)."""
     rubric_block = f"GRADING RUBRIC: {rubric}\n" if rubric else ""
     reference_block = f"KNOWN-GOOD REFERENCE ANSWER (judge consistency against it): {reference}\n" if reference else ""
     from . import execcheck  # objective code-validity signal to ground the judge
-    code_note = execcheck.judge_note(answer, task, rubric)
+    code_note = execcheck.judge_note(answer, task, rubric, check_spec=check)
     code_block = f"\n{code_note}\n" if code_note else ""
     prompt = _PROMPT.format(task=task, answer=answer, rubric_block=rubric_block,
                             reference_block=reference_block, code_block=code_block)

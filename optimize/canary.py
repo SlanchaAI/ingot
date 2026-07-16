@@ -98,7 +98,7 @@ def run_canary(skill: str, challenger_file: str | None = None, epsilon: float = 
         tags = [f"canary={variant}", f"revision={revisions[variant]}", skill]
         answer, _, _ = asyncio.run(run_task(agents[variant], task["task"],
                                             config=langfuse_config(tags=tags, trace_id=trace_id)))
-        verdict = judge(task["task"], task["rubric"], answer)
+        verdict = judge(task["task"], task["rubric"], answer, check=task.get("check"))
         success = verdict["score"] >= success_thresh
         record_outcome(lf, trace_id, verdict, success)
         beta[variant]["a"] += success

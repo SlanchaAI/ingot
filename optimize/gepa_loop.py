@@ -60,7 +60,8 @@ class SkillAdapter:
         msg = invoke_retry(self._llm, [("system", system), ("user", ex["task"])])
         usage_ledger.add("rollout", getattr(msg, "usage_metadata", None))
         answer = msg.content
-        j = judge(ex["task"], ex["rubric"], answer, reference=ex.get("reference", ""))
+        j = judge(ex["task"], ex["rubric"], answer, reference=ex.get("reference", ""),
+                  check=ex.get("check"))
         return answer, j["score"], {"task": ex["task"], "output": answer,
                                     "feedback": j["feedback"], "dimensions": j["dimensions"]}
 
