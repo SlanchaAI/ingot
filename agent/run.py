@@ -2,7 +2,8 @@
 loads the best skill's instructions, and follows them to solve the task. Prints the whole flow:
 task -> proposed skills -> loaded skills -> result.
 
-Env: OPENROUTER_API_KEY (required for the agent), MODEL, MCP_URL,
+Env: OPENROUTER_API_KEY (required unless MODEL_BASE_URL points at a local endpoint), MODEL,
+MODEL_BASE_URL (optional local vLLM/Ollama OpenAI-compatible endpoint), MCP_URL,
 LANGFUSE_PUBLIC_KEY / LANGFUSE_SECRET_KEY / LANGFUSE_BASE_URL (optional tracing).
 """
 import os
@@ -15,12 +16,10 @@ from langchain_mcp_adapters.client import MultiServerMCPClient
 
 MCP_URL = os.environ.get("MCP_URL", "http://mcp:8000/mcp")
 MODEL = os.environ.get("MODEL", "qwen/qwen3.6-27b")
-BASE_URL = os.environ.get("OPENROUTER_BASE_URL", "https://openrouter.ai/api/v1")
-API_KEY = os.environ.get("OPENROUTER_API_KEY", "")
-# Zero data retention, hardcoded: every OpenRouter call routes only to endpoints that neither
-# retain prompts (zdr) nor collect user data (README: Privacy). Same literal in optimize/judge.py
-# (kept in sync by a test) so the optimizer doesn't import this module's heavy deps.
-ZDR_PROVIDER = {"provider": {"zdr": True, "data_collection": "deny"}}
+# Endpoint + ZDR handling is shared with the optimizer (single source of truth): OpenRouter
+# endpoints get the hardcoded zero-data-retention provider preference; MODEL_BASE_URL points this
+# serving role at a local vLLM/Ollama server instead (README: Privacy).
+from optimize import ZDR_PROVIDER, client_kwargs, model_base_url  # noqa: E402
 
 INSTRUCTIONS = """You are a deep agent with access to a skill router over MCP.
 For every task, first call `suggest_skills`, then decide from what it returns. Only ever call
@@ -46,8 +45,7 @@ def build_agent(tools, instructions: str = INSTRUCTIONS):
     from langchain_openai import ChatOpenAI
     from deepagents import create_deep_agent
 
-    model = ChatOpenAI(model=MODEL, base_url=BASE_URL, api_key=API_KEY, temperature=0,
-                       extra_body=ZDR_PROVIDER)
+    model = ChatOpenAI(model=MODEL, temperature=0, **client_kwargs(model_base_url()))
     return create_deep_agent(model=model, tools=tools, system_prompt=instructions)
 
 
@@ -144,9 +142,11 @@ async def main(task: str):
         print(f"  {proposal.get('score', 0):>6}  {proposal.get('name')}{tag} — "
               f"{str(proposal.get('description'))[:72]}")
 
-    if not API_KEY:
+    from optimize import openrouter_key_missing
+    if openrouter_key_missing():
         print("\n[agent] OPENROUTER_API_KEY not set — showing router proposals only.")
-        print("        Set OPENROUTER_API_KEY in .env to run the deep agent.")
+        print("        Set OPENROUTER_API_KEY in .env to run the deep agent (or point")
+        print("        MODEL_BASE_URL at a local vLLM/Ollama endpoint — no key needed).")
         return
 
     # 2) Deep agent autonomously loads a skill via get_skill and solves.

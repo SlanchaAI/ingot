@@ -59,9 +59,11 @@ def skills():
 @app.post("/api/optimize/{skill}", dependencies=[Depends(same_origin)])
 def optimize(skill: str):
     _check(skill)
-    if not os.environ.get("OPENROUTER_API_KEY", "").strip():
+    from optimize import openrouter_key_missing
+    if openrouter_key_missing():
         raise HTTPException(400, "OPENROUTER_API_KEY is not set — copy .env.example to .env, "
-                                 "add your key (https://openrouter.ai/keys), and restart the stack")
+                                 "add your key (https://openrouter.ai/keys), and restart the stack "
+                                 "(or point MODEL_BASE_URL/OPENROUTER_BASE_URL at a local endpoint)")
     if not (TASKS_DIR / f"{skill}.yaml").exists():
         raise HTTPException(404, f"no eval task set for '{skill}'")
     # one optimization at a time: the token ledger is process-global, and concurrent runs

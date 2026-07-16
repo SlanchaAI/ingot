@@ -14,8 +14,6 @@ MODEL = os.environ.get("MODEL", "qwen/qwen3.6-27b")
 # GEPA's reflection LM (the skill *author*) — a stronger model than the serving agent, per the
 # teacher/student split: rollouts + judging stay on MODEL (the model the skill will serve).
 GEPA_MODEL = os.environ.get("GEPA_MODEL", "z-ai/glm-5.2")
-BASE_URL = os.environ.get("OPENROUTER_BASE_URL", "https://openrouter.ai/api/v1")
-API_KEY = os.environ.get("OPENROUTER_API_KEY", "")
 
 # Length penalty: the body re-enters context on every agent step, and a completeness-hungry judge
 # tempts GEPA to bloat it. Penalize only *past* a generous target so normal skills aren't touched.
@@ -32,7 +30,8 @@ bundled reference files) is provided below — follow it to complete the user's 
 
 {skill}"""
 
-from .judge import ZDR_PROVIDER, invoke_retry, judge  # noqa: E402
+from . import ZDR_PROVIDER, client_kwargs, is_openrouter, model_base_url, teacher_base_url  # noqa: E402
+from .judge import invoke_retry, judge  # noqa: E402
 from . import usage as usage_ledger  # noqa: E402
 
 
@@ -55,8 +54,7 @@ class SkillAdapter:
 
     def __init__(self, frozen: dict[str, str] | None = None):
         self._frozen = frozen or {}
-        self._llm = ChatOpenAI(model=MODEL, base_url=BASE_URL, api_key=API_KEY, temperature=0,
-                               extra_body=ZDR_PROVIDER)
+        self._llm = ChatOpenAI(model=MODEL, temperature=0, **client_kwargs(model_base_url()))
 
     def _rollout(self, system, ex):
         msg = invoke_retry(self._llm, [("system", system), ("user", ex["task"])])
@@ -117,15 +115,22 @@ def _track_reflection(kwargs, response, start_time, end_time):  # litellm succes
 
 def make_reflection_lm():
     """gepa LanguageModel protocol callable: (str | messages) -> str. Our own litellm call instead
-    of gepa's model-string plumbing, so the ZDR provider preference rides on every reflection
-    request too. Shared by the body (quality) and description (routing) passes."""
+    of gepa's model-string plumbing, so the ZDR provider preference rides on every OpenRouter
+    reflection request — and a local OPENROUTER_BASE_URL (vLLM/Ollama) is honored via litellm's
+    generic openai provider. Shared by the body (quality) and description (routing) passes."""
     import litellm
     litellm.success_callback = [_track_reflection]
+    base = teacher_base_url()
 
     def reflection_lm(prompt) -> str:
         messages = prompt if isinstance(prompt, list) else [{"role": "user", "content": prompt}]
-        response = litellm.completion(model=f"openrouter/{GEPA_MODEL}", messages=messages,
-                                      extra_body=ZDR_PROVIDER)
+        if is_openrouter(base):
+            response = litellm.completion(model=f"openrouter/{GEPA_MODEL}", messages=messages,
+                                          extra_body=ZDR_PROVIDER)
+        else:
+            kwargs = client_kwargs(base)
+            response = litellm.completion(model=f"openai/{GEPA_MODEL}", messages=messages,
+                                          api_base=kwargs["base_url"], api_key=kwargs["api_key"])
         return response.choices[0].message.content
 
     return reflection_lm

@@ -32,7 +32,23 @@ challenger through the full agent** on held-out tasks; you review the diff and s
 - **Localhost only.** No service is reachable off the machine
   (see [Network exposure](#network-exposure)).
 
-The only data that leaves your machine is the LLM traffic itself, under ZDR.
+The only data that leaves your machine is the LLM traffic itself, under ZDR — and you can remove
+even that: point `MODEL_BASE_URL` (the serving model: agent runs, A/B eval agents, GEPA rollouts)
+or `OPENROUTER_BASE_URL` (everything, including the teacher and judge) at any local
+OpenAI-compatible endpoint — vLLM, Ollama, llama.cpp:
+
+```bash
+# agent runs on your local vLLM; teacher/judge stay on OpenRouter under ZDR
+MODEL_BASE_URL=http://localhost:8000/v1  MODEL=Qwen/Qwen3-32B  docker compose run --rm agent "…"
+
+# fully local (no OpenRouter key needed at all): everything on Ollama
+OPENROUTER_BASE_URL=http://localhost:11434/v1  MODEL=qwen3:32b  GEPA_MODEL=qwen3:32b \
+  JUDGE_MODEL=llama3.3:70b  docker compose run --rm optimize excel-formulas
+```
+
+Local endpoints get no OpenRouter provider preferences attached (they wouldn't understand them),
+and no API key is required when nothing points at OpenRouter. From inside the compose containers,
+"localhost" is the container — use your host's LAN IP (or `172.17.0.1` on Linux) in the URL.
 
 ## Tutorial
 
@@ -384,6 +400,8 @@ Set in `.env` (never committed):
 |-----|---------|-------|
 | `OPENROUTER_API_KEY` | — | required ([get one](https://openrouter.ai/keys)) |
 | `MODEL` | `qwen/qwen3.6-27b` | the agent — everything that *executes* skills, incl. GEPA rollouts |
+| `MODEL_BASE_URL` | `OPENROUTER_BASE_URL` | point the serving-model role at a local OpenAI-compatible endpoint (vLLM/Ollama) |
+| `OPENROUTER_BASE_URL` | `https://openrouter.ai/api/v1` | endpoint for everything else (teacher, judge); set to a local URL to go fully local — no key needed |
 | `GEPA_MODEL` | `z-ai/glm-5.2` | GEPA's reflection LM (the skill author) |
 | `JUDGE_MODEL` | `google/gemini-2.5-flash` | the LLM judge — must differ from `GEPA_MODEL` (anti reward-hacking) |
 | `MIN_SCORE` | `0.65` | at/above → routable match; below → `related` band or novel |
