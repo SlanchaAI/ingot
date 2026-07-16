@@ -89,7 +89,11 @@ class SkillAdapter:
                      + ". Make the smallest targeted change that fixes the dominant dimension; "
                        "do not rewrite parts that already pass. Deletions need evidence: do not "
                        "remove guidance for operations these examples don't show failing — "
-                       "tighten or restructure it instead.")
+                       "tighten or restructure it instead. Component roles are fixed: `description` "
+                       "is ONLY a routing trigger matched by embedding similarity against the user's "
+                       "task — keep it a concise 'Use this skill when…' summary of trigger phrases, "
+                       "never behavioral instructions. Every how-to-behave rule (e.g. 'always output "
+                       "complete runnable code in the final answer') belongs in `body`.")
         records = []
         for t in trajs:
             failed = failed_dimensions(t.get("dimensions", {}))
