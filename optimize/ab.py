@@ -135,7 +135,7 @@ def promotion_gate(skill: str, champ_scores: list[float], chall_scores: list[flo
                 reasons.append(f"cross-harness parity {parity['rate']:.3f} < 1.000")
     return (not reasons), reasons
 
-# Eval agents receive the same single read-only route contract as production.
+# The canary serves its assigned arm through the same route-shaped tool as production.
 EVAL_INSTRUCTIONS = """You are a deep agent with access to a read-only skill router over MCP.
 For every task, call `route_and_load` once with the full task, harness `codex`, current working
 directory, and available tools/MCPs. Follow `skill_body` when a match is returned. With no match,
@@ -143,6 +143,19 @@ solve directly. Never request a skill catalog. Keep the final answer concise.
 Your final answer must contain the complete deliverable itself — e.g. full runnable code inline —
 never just a description of, or reference to, files you created in your workspace: the user cannot
 see your workspace."""
+
+# The quality A/B injects the variant body directly: the experiment compares BODIES, so serving
+# must be guaranteed — a model that skips the routing tool for easy-looking tasks would otherwise
+# silently turn both arms into identical no-skill baselines (observed: zero tool calls, both
+# variants' input tokens identical to the digit). Routing fidelity is the description pass's job.
+EVAL_SERVE_TEMPLATE = """You are a deep agent serving a user request. The following skill has been
+loaded for this task — follow its instructions. Keep the final answer concise.
+Your final answer must contain the complete deliverable itself — e.g. full runnable code inline —
+never just a description of, or reference to, files you created in your workspace: the user cannot
+see your workspace.
+
+# Loaded skill
+{body}"""
 
 
 def load_tasks(skill: str, log=print) -> tuple[list[dict], list[dict], dict]:
@@ -313,9 +326,9 @@ def run_ab(skill: str, promote_now: bool = False, budget: int = 60,
     for variant, comps in [("champion", champion), ("challenger", challenger)]:
         run_name = f"{variant}-{ts}"
         log(f"[ab] running variant '{run_name}' through the deep agent ({len(holdout)} held-out tasks)…")
-        # A/B serves the variant description and body through the same one-call routing shape.
-        agent = build_agent(_variant_tools(skill, comps["body"], comps["description"]),
-                            instructions=EVAL_INSTRUCTIONS)
+        # Guaranteed serving: the variant body is injected into the instructions (see
+        # EVAL_SERVE_TEMPLATE) instead of hoping the model fetches it through a tool call.
+        agent = build_agent([], instructions=EVAL_SERVE_TEMPLATE.format(body=comps["body"]))
         scores, usages, behaviors = _run_variant(dataset, run_name, agent, holdout)
         results[variant] = {
             "run": run_name, "scores": scores,

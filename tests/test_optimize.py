@@ -241,3 +241,10 @@ def test_optimize_split_accepts_file_components(monkeypatch):
     seed, frozen = ab_mod.optimize_split(champion)
     assert seed == {"body": "b", "file:reference.md": "ref"}
     assert frozen == {"description": "d"}
+
+
+def test_eval_serve_template_injects_body_and_contract():
+    text = ab_mod.EVAL_SERVE_TEMPLATE.format(body="THE SKILL BODY")
+    assert "THE SKILL BODY" in text
+    assert "final answer must contain the complete deliverable" in text
+    assert "# Loaded skill" in text

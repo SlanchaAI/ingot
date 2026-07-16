@@ -1,0 +1,19 @@
+skill: docx
+train:
+- task: Write JavaScript code using the `docx` library to create a new Word document. The document must be formatted for US Letter size (8.5 x 11 inches) with 1-inch margins on all sides, and contain a single paragraph saying 'Hello World'.
+  rubric: Must use `docx` library. Page size must be explicitly set to width 12240 and height 15840. Margins must be set to 1440 on all sides. Must include a paragraph with 'Hello World'.
+- task: Write JavaScript code using the `docx` library to generate a Word document that includes a Table of Contents, followed by a Heading 1 titled 'Introduction'. The Heading 1 style should be overridden to use Arial font, size 32, bold, and have an outlineLevel of 0.
+  rubric: Must use `TableOfContents` and `HeadingLevel.HEADING_1`. The styles configuration must override 'Heading1' with id 'Heading1', font 'Arial', size 32, bold true, and outlineLevel 0.
+- task: Write JavaScript code using the `docx` library to create a Word document containing one bulleted list item ('Item 1') and one numbered list item ('Item 2'). Ensure the numbering configuration uses `LevelFormat.BULLET` and `LevelFormat.DECIMAL` respectively, and do not use unicode bullet characters in the text.
+  rubric: 'Must define a `numbering` config with `LevelFormat.BULLET` and `LevelFormat.DECIMAL`. Paragraphs must use `numbering: { reference: ... }`. Must not include ''•'' or ''\u2022'' directly in the TextRun text.'
+- task: Write JavaScript code using the `docx` library to create a Word document with a 2-column table. The table must have a total width of 9360 DXA, column widths of 4680 each, and each cell must have its width explicitly set to 4680 DXA. Include a single row with cells containing 'A' and 'B'.
+  rubric: 'Must use `Table`, `TableRow`, and `TableCell`. Table must have `width: { size: 9360, type: WidthType.DXA }` and `columnWidths: [4680, 4680]`. Each `TableCell` must have `width: { size: 4680, type: WidthType.DXA }`.'
+holdout:
+- task: Provide the bash commands and steps to edit an existing Word document named 'report.docx' by unpacking it to a directory named 'unpacked/', editing the XML, and repacking it back into a new file named 'report_edited.docx'.
+  rubric: Must include `python scripts/office/unpack.py report.docx unpacked/` for unpacking. Must mention editing the XML files inside the unpacked directory. Must include a repacking command (e.g., using zip or a repack script).
+- task: Provide the bash command to extract the text from a Word document named 'changes.docx' into a Markdown file named 'output.md', ensuring that all tracked changes are included in the output.
+  rubric: Must use `pandoc`. Must include the flag `--track-changes=all`. Command should be `pandoc --track-changes=all changes.docx -o output.md`.
+- task: Provide the bash command to convert a legacy Word document named 'legacy.doc' into the modern .docx format.
+  rubric: Must use `python scripts/office/soffice.py`. Must include `--headless` and `--convert-to docx`. Command should be `python scripts/office/soffice.py --headless --convert-to docx legacy.doc`.
+- task: Provide the bash command to process a Word document named 'input.docx' to accept all tracked changes and save the clean result as 'output.docx'.
+  rubric: Must use `python scripts/accept_changes.py`. Command should be `python scripts/accept_changes.py input.docx output.docx`.
