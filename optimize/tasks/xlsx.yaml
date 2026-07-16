@@ -1,0 +1,31 @@
+skill: xlsx
+train:
+- task: 'Create an Excel file named `Revenue_Model.xlsx`. In Sheet1, create a simple 3-year revenue projection. Row 1: Headers (''Year'', ''Base Revenue ($mm)'', ''Growth Rate'', ''Projected Revenue ($mm)''). Row 2: 2023, 100, 5%, [Formula calculating Base Revenue * (1+Growth Rate)]. Row 3: 2024, [Formula pulling from previous year''s Projected Revenue], 5%, [Formula]. Row 4: 2025, [Formula], 5%, [Formula]. Apply industry-standard financial model color coding: Blue text for hardcoded inputs (Base Revenue 2023, Growth Rates), Black text for formulas. Format years as text, currency as $#,##0, percentages as 0.0%, and ensure zeros are formatted as ''-''.'
+  rubric: 'The deliverable must be an .xlsx file. It must contain the specified headers and data. Formulas must be used for calculations (no hardcoded calculated values). Color coding must be applied: Blue (RGB 0,0,255) for inputs, Black (RGB 0,0,0) for formulas. Number formats must match: years as text, currency as $#,##0, percentages as 0.0%, zeros as ''-''.'
+- task: "Create an Excel file named `Cleaned_Data.xlsx` from the following messy CSV-like data. The data has misplaced headers and junk rows.\nData:\nJunk Row, Junk, Junk\nName, Age, Department\nJohn Doe, 25, Sales\nJane Smith, 30, Marketing\n, , \nAnother Junk Row\nAlice Johnson, 22, IT\nClean this data by removing empty and junk rows, ensuring the header is correctly placed in Row 1, and output a properly formatted .xlsx file with bold headers and a frozen top row."
+  rubric: The deliverable must be an .xlsx file. It must contain only the valid data rows (John, Jane, Alice) and the header row. The header row must be in Row 1, bolded, and the top row must be frozen. Junk rows and empty rows must be removed.
+- task: 'Create an Excel file named `Sales_Analysis.xlsx`. Sheet1 should contain the following sales data: A1: ''Month'', B1: ''Sales'', C1: ''Cost''. Rows 2-4: ''Jan'', 1000, 500; ''Feb'', 1500, 800; ''Mar'', 1200, 600. Add a new column D named ''Profit'' that calculates Sales minus Cost using an Excel formula. Add a new column E named ''Profit Margin'' that calculates Profit / Sales using an Excel formula. Format column E as a percentage.'
+  rubric: The deliverable must be an .xlsx file. Columns D and E must be added with the correct headers. Column D must use an Excel formula (e.g., =B2-C2). Column E must use an Excel formula (e.g., =D2/B2) and be formatted as a percentage. No hardcoded calculated values.
+- task: "Convert the following TSV data into a formatted Excel file named `Converted_Data.xlsx`. The data represents user signups.\nDate\tUser_ID\tPlan\n2023-01-01\tU001\tFree\n2023-01-02\tU002\tPaid\nCreate an .xlsx file where the headers are bold and have a yellow background (RGB: 255,255,0), and the 'Date' column is formatted as a date (YYYY-MM-DD). Ensure the data is correctly parsed into columns."
+  rubric: The deliverable must be an .xlsx file. The TSV data must be parsed into 3 columns. Headers must be bold and have a yellow background fill. The Date column must be recognized and formatted as a date.
+holdout:
+- task: 'Create an Excel file named `Sales_Chart.xlsx`. Populate Sheet1 with the following data: A1: ''Quarter'', B1: ''Revenue''. A2:A5: ''Q1'', ''Q2'', ''Q3'', ''Q4''. B2:B5: 10000, 15000, 12000, 18000. Create a bar chart on the same sheet that visualizes this revenue data. The chart should have a title ''Quarterly Revenue'' and axis titles.'
+  rubric: The deliverable must be an .xlsx file. It must contain the specified data. A bar chart must be embedded in the sheet. The chart must reference the data correctly, have the title 'Quarterly Revenue', and axis titles.
+- task: 'Create an Excel file named `Template_Update.xlsx`. First, simulate an existing template by creating a sheet with headers ''Item'' and ''Price'' in row 1, formatted with Times New Roman font, size 12, bold, and a light blue background. Add one data row: ''Apple'', 1.00. Then, add a new data row: ''Banana'', 0.50. Ensure this new row EXACTLY matches the formatting of the existing data row (Times New Roman, size 12, same background if any, etc.), preserving the established template conventions.'
+  rubric: 'The deliverable must be an .xlsx file. It must contain the headers and both data rows. The new ''Banana'' row must exactly match the formatting of the ''Apple'' row (font: Times New Roman, size 12, etc.), demonstrating preservation of existing template styles.'
+- task: 'Create an Excel file named `Fixed_Errors.xlsx`. In Sheet1, recreate the following broken financial summary:
+
+    A1: ''Metric'', B1: ''Q1'', C1: ''Q2''
+
+    A2: ''Revenue'', B2: 100, C2: 120
+
+    A3: ''Costs'', B3: 0, C3: 50
+
+    A4: ''Margin'', B4: ''=B2/B3'', C4: ''=C2/C3''
+
+    A5: ''Bad Ref'', B5: ''=#REF!'', C5: ''=SUM(D1:D5)''
+
+    Fix all formula errors in this file. The Margin row should handle division by zero gracefully (e.g., using IFERROR to return 0 or ''-''). The Bad Ref row should be fixed to reference valid cells or removed if it''s just demonstrating an error. Ensure the final file has ZERO formula errors.'
+  rubric: 'The deliverable must be an .xlsx file. It must contain the data. The division by zero error in B4 must be fixed (e.g., using IFERROR). The #REF! error in B5 must be resolved. The file must be recalculated and contain zero formula errors (#REF!, #DIV/0!, etc.).'
+- task: 'Create an Excel file named `Sourced_Model.xlsx`. In Sheet1, create a simple assumption table. A1: ''Assumption'', B1: ''Value''. A2: ''Starting Revenue'', B2: 500000. B2 is a hardcoded input sourced from a 10-K filing. Add a comment to cell B2 with the exact text: ''Source: Company 10-K, FY2023, Page 12, [SEC EDGAR URL]''. Color the text in B2 Blue (RGB: 0,0,255) to indicate it is a hardcoded input.'
+  rubric: 'The deliverable must be an .xlsx file. It must contain the specified table. Cell B2 must contain the value 500000. Cell B2 must have a comment containing the exact source text. The text in B2 must be colored Blue (RGB: 0,0,255).'
