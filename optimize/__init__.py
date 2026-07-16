@@ -67,7 +67,65 @@ def openrouter_key_missing() -> bool:
 
 
 def require_openrouter_key() -> None:
-    """Friendly preflight for the CLI entrypoints: exit with setup help instead of a mid-run 401."""
+    """Friendly preflight for the CLI entrypoints: exit with setup help instead of a mid-run 401,
+    and catch pin/model conflicts before any tokens are spent."""
     if openrouter_key_missing():
         print(_KEY_HELP, file=sys.stderr)
         raise SystemExit(1)
+    preflight_provider_pins()
+
+
+def _normalize(name: str) -> str:
+    return "".join(ch for ch in name.lower() if ch.isalnum())
+
+
+def provider_conflict(model: str, pins: list[str]) -> str | None:
+    """None if some pinned provider serves `model` per OpenRouter's public endpoints API;
+    otherwise a human-readable explanation. Network problems return None (fail open — the
+    preflight is advice, not a gate on offline work)."""
+    import json
+    import urllib.request
+    try:
+        with urllib.request.urlopen(
+                f"https://openrouter.ai/api/v1/models/{model}/endpoints", timeout=10) as r:
+            endpoints = json.loads(r.read()).get("data", {}).get("endpoints", [])
+    except Exception:
+        return None
+    if not endpoints:
+        return (f"model '{model}' has no endpoints on OpenRouter — check the model id "
+                f"(https://openrouter.ai/models)")
+    served_by = [e.get("provider_name", "") for e in endpoints]
+    normalized = {_normalize(p) for p in served_by}
+    if any(_normalize(pin) in n or n in _normalize(pin) for pin in pins for n in normalized if n):
+        return None
+    return (f"OPENROUTER_PROVIDERS={','.join(pins)} pins providers that don't serve '{model}' "
+            f"(served by: {', '.join(sorted(set(served_by)))}). Fix OPENROUTER_PROVIDERS, or pick "
+            f"a model your pinned provider offers (https://openrouter.ai/{model}).")
+
+
+def preflight_provider_pins() -> None:
+    """When OPENROUTER_PROVIDERS is set, verify every role that talks to OpenRouter uses a model
+    the pinned providers actually serve — exit with the explanation instead of a mid-run 404.
+    (Even a served model can still fail at call time if the pinned provider isn't ZDR-qualified
+    for it; that error is caught and explained by the runtime handler in optimize/judge.py.)"""
+    pins = [p.strip() for p in os.environ.get("OPENROUTER_PROVIDERS", "").split(",") if p.strip()]
+    if not pins:
+        return
+    roles = {}
+    if is_openrouter(model_base_url()):
+        roles["MODEL"] = os.environ.get("MODEL", "qwen/qwen3.6-27b")
+    if is_openrouter(teacher_base_url()):
+        roles["GEPA_MODEL"] = os.environ.get("GEPA_MODEL", "z-ai/glm-5.2")
+        judges = os.environ.get("JUDGE_MODELS", os.environ.get("JUDGE_MODEL", "google/gemini-2.5-flash"))
+        for i, judge in enumerate(m.strip() for m in judges.split(",") if m.strip()):
+            roles[f"JUDGE_MODEL[{i}]"] = judge
+    problems = []
+    for role, model in sorted(set(roles.items())):
+        conflict = provider_conflict(model, pins)
+        if conflict:
+            problems.append(f"  {role}={model}: {conflict}")
+    if problems:
+        # SystemExit with a message: exits 1 with the text on stderr for CLIs, and the UI
+        # endpoint re-surfaces str(e) as a 400 detail.
+        raise SystemExit("error: provider pin conflicts detected before spending any tokens:\n"
+                         + "\n".join(problems))

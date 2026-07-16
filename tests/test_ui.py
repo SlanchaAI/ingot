@@ -128,3 +128,12 @@ def test_pending_routing_pass_renders_without_ab(client):
     assert p["kind"] == "routing" and p["ab"] is None
     assert p["routing"]["challenger"]["top1"] == 1.0
     assert "-old trigger" in p["diff"] and "+new trigger" in p["diff"]
+
+
+def test_optimize_surfaces_pin_conflicts_as_400(client, monkeypatch):
+    import optimize
+    def conflict():
+        raise SystemExit("error: provider pin conflicts detected before spending any tokens:\n  MODEL=x: nope")
+    monkeypatch.setattr(optimize, "preflight_provider_pins", conflict)
+    r = client.post("/api/optimize/pdf")
+    assert r.status_code == 400 and "pin conflicts" in r.json()["detail"]

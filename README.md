@@ -402,7 +402,7 @@ Set in `.env` (never committed):
 | `MODEL` | `qwen/qwen3.6-27b` | the agent — everything that *executes* skills, incl. GEPA rollouts |
 | `MODEL_BASE_URL` | `OPENROUTER_BASE_URL` | point the serving-model role at a local OpenAI-compatible endpoint (vLLM/Ollama) |
 | `OPENROUTER_BASE_URL` | `https://openrouter.ai/api/v1` | endpoint for everything else (teacher, judge); set to a local URL to go fully local — no key needed |
-| `OPENROUTER_PROVIDERS` | — | optional provider allowlist (e.g. `fireworks,deepinfra` → `provider.only`) — composes with ZDR, trades pool resilience for vendor predictability |
+| `OPENROUTER_PROVIDERS` | — | optional provider allowlist (e.g. `fireworks,deepinfra` → `provider.only`) — composes with ZDR, trades pool resilience for vendor predictability; pin/model conflicts are caught at startup with the list of providers that do serve each model |
 | `GEPA_MODEL` | `z-ai/glm-5.2` | GEPA's reflection LM (the skill author) |
 | `JUDGE_MODEL` | `google/gemini-2.5-flash` | the LLM judge — must differ from `GEPA_MODEL` (anti reward-hacking) |
 | `MIN_SCORE` | `0.65` | at/above → routable match; below → `related` band or novel |
