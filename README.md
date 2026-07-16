@@ -85,9 +85,10 @@ into the compose file, not secrets) to see the full trace: every tool call, LLM 
 
 ### 3. Find a request the stock skill doesn't help with
 
-Now ask for something the skill's own docs say it covers — rotating pages. The router matches, the
-agent loads the skill and follows it — and the loaded skill still doesn't get the user working
-code:
+Now ask for something the skill's own docs say it covers — rotating pages. (No `scan_mix.pdf`
+exists, and none needs to: the request asks for a *script*, so the filename is just a placeholder
+in the code you get back.) The router matches, the agent loads the skill and follows it — and the
+loaded skill still doesn't get the user working code:
 
 ```bash
 docker compose run --rm agent "Write Python code that straightens just the sideways (landscape) pages of scan_mix.pdf and saves a corrected copy."
