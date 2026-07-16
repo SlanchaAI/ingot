@@ -30,7 +30,7 @@ bundled reference files) is provided below — follow it to complete the user's 
 
 {skill}"""
 
-from . import ZDR_PROVIDER, client_kwargs, is_openrouter, model_base_url, teacher_base_url  # noqa: E402
+from . import client_kwargs, is_openrouter, model_base_url, openrouter_extra_body, teacher_base_url  # noqa: E402
 from .judge import invoke_retry, judge  # noqa: E402
 from . import usage as usage_ledger  # noqa: E402
 
@@ -126,7 +126,7 @@ def make_reflection_lm():
         messages = prompt if isinstance(prompt, list) else [{"role": "user", "content": prompt}]
         if is_openrouter(base):
             response = litellm.completion(model=f"openrouter/{GEPA_MODEL}", messages=messages,
-                                          extra_body=ZDR_PROVIDER)
+                                          extra_body=openrouter_extra_body())
         else:
             kwargs = client_kwargs(base)
             response = litellm.completion(model=f"openai/{GEPA_MODEL}", messages=messages,
