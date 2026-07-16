@@ -72,3 +72,13 @@ def test_behavior_events_capture_tool_order_and_hash_final_output():
     assert [event["name"] for event in events[:-1]] == ["route_and_load", "bash"]
     assert events[-1]["type"] == "final" and len(events[-1]["sha256"]) == 64
     assert "sensitive final answer" not in str(events)
+
+
+def test_serving_contract_requires_inline_deliverables():
+    # the scaffold habit of writing code to its scratch FS and describing it must be countered in
+    # BOTH serving contracts, symmetrically — production agent and A/B eval agent
+    from agent.run import INSTRUCTIONS
+    from optimize.ab import EVAL_INSTRUCTIONS
+    for contract in (INSTRUCTIONS, EVAL_INSTRUCTIONS):
+        assert "final answer must contain the complete deliverable" in contract
+        assert "cannot" in contract and "workspace" in contract
