@@ -29,7 +29,7 @@ def same_origin(request: Request):
     if urlparse(origin).netloc != request.headers.get("host"):
         raise HTTPException(403, "cross-origin request refused")
 
-app = FastAPI(title="skill-router approval UI")
+app = FastAPI(title="ingot approval UI")
 
 RUNS: dict[str, dict] = {}  # skill -> {"status": running|done|error, "log": [lines]}
 
@@ -59,6 +59,15 @@ def skills():
 @app.post("/api/optimize/{skill}", dependencies=[Depends(same_origin)])
 def optimize(skill: str):
     _check(skill)
+    from optimize import openrouter_key_missing, preflight_provider_pins
+    if openrouter_key_missing():
+        raise HTTPException(400, "OPENROUTER_API_KEY is not set — copy .env.example to .env, "
+                                 "add your key (https://openrouter.ai/keys), and restart the stack "
+                                 "(or point MODEL_BASE_URL/OPENROUTER_BASE_URL at a local endpoint)")
+    try:
+        preflight_provider_pins()
+    except SystemExit as e:  # pin/model conflict — surface the explanation, don't start a run
+        raise HTTPException(400, str(e))
     if not (TASKS_DIR / f"{skill}.yaml").exists():
         raise HTTPException(404, f"no eval task set for '{skill}'")
     # one optimization at a time: the token ledger is process-global, and concurrent runs
@@ -106,7 +115,8 @@ def pending(skill: str):
         blocks.append("\n".join(difflib.unified_diff(
             champ[comp].splitlines(), chall.get(comp, "").splitlines(),
             fromfile=f"{label} (champion)", tofile=f"{label} (challenger)", lineterm="")))
-    return {"skill": skill, "gepa": p["gepa"], "ab": p["ab"], "dataset": p["dataset"],
+    return {"skill": skill, "kind": p.get("kind", "quality"), "gepa": p.get("gepa"),
+            "ab": p.get("ab"), "routing": p.get("routing"), "dataset": p.get("dataset"),
             "gate": p.get("gate", {"promotable": True, "blocked": []}),
             "changed": [_label(c) for c in p.get("changed_components", [])], "diff": "\n\n".join(blocks)}
 

@@ -1,22 +1,23 @@
-# MCP skill-router server
-fastmcp>=3            # server (standalone FastMCP v3)
-mcp>=1.2.0            # client side, via langchain-mcp-adapters
-fastembed>=0.4.0
-pyyaml>=6.0
-numpy>=1.26
+# Ingot MCP server — upper bounds sit one major above the versions the image is tested with,
+# so a fresh `docker compose up --build` months from now can't silently jump an incompatible major.
+fastmcp>=3,<4         # server (standalone FastMCP v3)
+mcp>=1.2.0,<2         # client side, via langchain-mcp-adapters
+fastembed>=0.4.0,<1
+pyyaml>=6.0,<7
+numpy>=1.26,<3
 
 # LangGraph deep agent + MCP client
 deepagents>=0.6,<0.7
-langgraph>=0.2.60
-langchain-mcp-adapters>=0.1.0
-langchain-openai>=0.2.10
+langgraph>=0.2.60,<2
+langchain-mcp-adapters>=0.1.0,<1
+langchain-openai>=0.2.10,<2
 
 # Tracing + skill optimization (GEPA A/B) + approval UI
 langfuse>=4.14,<5
 gepa==0.1.1
-litellm>=1.60      # gepa's reflection LM plumbing (openrouter/... model strings)
-fastapi>=0.115
-uvicorn>=0.30
+litellm>=1.60,<2   # gepa's reflection LM plumbing (openrouter/... model strings)
+fastapi>=0.115,<1
+uvicorn>=0.30,<1
 
 # tests
-pytest>=8.0
+pytest>=8.0,<10

@@ -57,6 +57,7 @@ def render_markdown(evidence: dict) -> str:
     gate = evidence["gate"]
     state = "PASS" if gate.get("promotable") else "BLOCKED"
     blocked = "; ".join(gate.get("blocked", [])) or "none"
+    warnings = "; ".join(gate.get("warnings", [])) or "none"
     output_before = champion["tokens"].get("mean_output", 0)
     output_after = challenger["tokens"].get("mean_output", 0)
     lines = [
@@ -74,6 +75,7 @@ def render_markdown(evidence: dict) -> str:
         f"- Mean output tokens: {output_before:.0f} → {output_after:.0f}",
         f"- Changed components: {', '.join(evidence['changed_components']) or 'none'}",
         f"- Blocking reasons: {blocked}",
+        f"- Warnings: {warnings}",
         "",
         "## Cases",
         "",

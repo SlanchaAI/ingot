@@ -32,6 +32,24 @@ def test_fetch_traces_keeps_only_usable_task_output_pairs(monkeypatch):
     assert len(out) == 1 and out[0]["task"] == "do X" and out[0]["rubric"] == "r"
 
 
+def test_fetch_traces_parses_langgraph_agent_traces(monkeypatch):
+    lg = lambda task, answer: {"input": {"messages": [{"role": "user", "content": task}]},
+                               "output": {"messages": [{"type": "ai", "content": answer}]}, "tags": ["demo"]}
+    data = [
+        lg("fill the form", "here is the code"),                                   # keep
+        lg("rotate pages", ""),                                                    # empty answer -> drop
+        {"input": {"messages": []}, "output": {"messages": []}, "tags": []},       # empty messages -> drop
+        {"input": {"messages": [{"content": "blocks"}]},                           # content-block answer -> join
+         "output": {"messages": [{"content": [{"type": "text", "text": "part1"},
+                                              {"type": "text", "text": "part2"}]}]}, "tags": []},
+    ]
+    monkeypatch.setattr(mine.urllib.request, "urlopen", lambda req, timeout=60: _Resp(data))
+    out = mine.fetch_traces(50)
+    assert [t["task"] for t in out] == ["fill the form", "blocks"]
+    assert out[0]["answer"] == "here is the code" and out[0]["rubric"] == ""
+    assert out[1]["answer"] == "part1\npart2"
+
+
 def test_mine_aggregates_failure_dimensions_and_mines_weakest(monkeypatch):
     traces = [{"task": f"t{i}", "rubric": "r", "answer": "a", "tags": []} for i in range(3)]
     monkeypatch.setattr(mine, "fetch_traces", lambda limit: traces)

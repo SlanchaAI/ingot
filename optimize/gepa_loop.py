@@ -14,8 +14,6 @@ MODEL = os.environ.get("MODEL", "qwen/qwen3.6-27b")
 # GEPA's reflection LM (the skill *author*) — a stronger model than the serving agent, per the
 # teacher/student split: rollouts + judging stay on MODEL (the model the skill will serve).
 GEPA_MODEL = os.environ.get("GEPA_MODEL", "z-ai/glm-5.2")
-BASE_URL = os.environ.get("OPENROUTER_BASE_URL", "https://openrouter.ai/api/v1")
-API_KEY = os.environ.get("OPENROUTER_API_KEY", "")
 
 # Length penalty: the body re-enters context on every agent step, and a completeness-hungry judge
 # tempts GEPA to bloat it. Penalize only *past* a generous target so normal skills aren't touched.
@@ -32,6 +30,7 @@ bundled reference files) is provided below — follow it to complete the user's 
 
 {skill}"""
 
+from . import client_kwargs, is_openrouter, model_base_url, openrouter_extra_body, teacher_base_url  # noqa: E402
 from .judge import invoke_retry, judge  # noqa: E402
 from . import usage as usage_ledger  # noqa: E402
 
@@ -47,13 +46,15 @@ def assemble(candidate: dict[str, str]) -> str:
 
 
 class SkillAdapter:
-    """gepa.GEPAAdapter over the full-skill component dict {description, body, file:...}.
-    Batch items: {"task", "rubric"}."""
+    """gepa.GEPAAdapter over the skill component dict. Batch items: {"task", "rubric"}.
+    `frozen` components (e.g. the routing description when only the body is optimized) are
+    rendered into every rollout for fidelity but are invisible to GEPA's mutation."""
 
     propose_new_texts = None  # gepa probes this optional hook; None -> use its default reflection
 
-    def __init__(self):
-        self._llm = ChatOpenAI(model=MODEL, base_url=BASE_URL, api_key=API_KEY, temperature=0)
+    def __init__(self, frozen: dict[str, str] | None = None):
+        self._frozen = frozen or {}
+        self._llm = ChatOpenAI(model=MODEL, temperature=0, **client_kwargs(model_base_url()))
 
     def _rollout(self, system, ex):
         msg = invoke_retry(self._llm, [("system", system), ("user", ex["task"])])
@@ -64,7 +65,7 @@ class SkillAdapter:
                                     "feedback": j["feedback"], "dimensions": j["dimensions"]}
 
     def evaluate(self, batch, candidate, capture_traces=False):
-        system = ROLLOUT_SYSTEM.format(skill=assemble(candidate))
+        system = ROLLOUT_SYSTEM.format(skill=assemble({**self._frozen, **candidate}))
         # the hosted model is slow (~15-60s/call) — run the batch's rollout+judge pairs concurrently
         with ThreadPoolExecutor(max_workers=min(6, len(batch))) as pool:
             results = list(pool.map(lambda ex: self._rollout(system, ex), batch))
@@ -86,7 +87,13 @@ class SkillAdapter:
         diagnosis = ("Most common failure dimensions across these tasks: "
                      + (", ".join(f"{d} ({n})" for d, n in agg.most_common()) or "none")
                      + ". Make the smallest targeted change that fixes the dominant dimension; "
-                       "do not rewrite parts that already pass.")
+                       "do not rewrite parts that already pass. Deletions need evidence: do not "
+                       "remove guidance for operations these examples don't show failing — "
+                       "tighten or restructure it instead. Component roles are fixed: `description` "
+                       "is ONLY a routing trigger matched by embedding similarity against the user's "
+                       "task — keep it a concise 'Use this skill when…' summary of trigger phrases, "
+                       "never behavioral instructions. Every how-to-behave rule (e.g. 'always output "
+                       "complete runnable code in the final answer') belongs in `body`.")
         records = []
         for t in trajs:
             failed = failed_dimensions(t.get("dimensions", {}))
@@ -106,19 +113,38 @@ def _track_reflection(kwargs, response, start_time, end_time):  # litellm succes
                                         "output_tokens": getattr(u, "completion_tokens", 0)})
 
 
-def run_gepa(seed: dict[str, str], tasks: list[dict],
-             max_metric_calls: int = 60) -> tuple[dict[str, str], float, float]:
-    """Evolve the full skill (component dict) with GEPA.
-    Returns (best_components, seed_score, best_score) on the task set."""
+def make_reflection_lm():
+    """gepa LanguageModel protocol callable: (str | messages) -> str. Our own litellm call instead
+    of gepa's model-string plumbing, so the ZDR provider preference rides on every OpenRouter
+    reflection request — and a local OPENROUTER_BASE_URL (vLLM/Ollama) is honored via litellm's
+    generic openai provider. Shared by the body (quality) and description (routing) passes."""
     import litellm
-    litellm.success_callback = [_track_reflection]  # reflection goes through litellm inside gepa
+    litellm.success_callback = [_track_reflection]
+    base = teacher_base_url()
 
+    def reflection_lm(prompt) -> str:
+        messages = prompt if isinstance(prompt, list) else [{"role": "user", "content": prompt}]
+        if is_openrouter(base):
+            response = litellm.completion(model=f"openrouter/{GEPA_MODEL}", messages=messages,
+                                          extra_body=openrouter_extra_body())
+        else:
+            kwargs = client_kwargs(base)
+            response = litellm.completion(model=f"openai/{GEPA_MODEL}", messages=messages,
+                                          api_base=kwargs["base_url"], api_key=kwargs["api_key"])
+        return response.choices[0].message.content
+
+    return reflection_lm
+
+
+def run_gepa(seed: dict[str, str], tasks: list[dict], max_metric_calls: int = 60,
+             frozen: dict[str, str] | None = None) -> tuple[dict[str, str], float, float]:
+    """Evolve the seed components with GEPA; `frozen` components ride along in rollouts unmutated.
+    Returns (best_components, seed_score, best_score) on the task set."""
     result = gepa.optimize(
         seed_candidate=seed,
         trainset=tasks,
-        adapter=SkillAdapter(),
-        # litellm's native openrouter provider — reads OPENROUTER_API_KEY from env
-        reflection_lm=f"openrouter/{GEPA_MODEL}",
+        adapter=SkillAdapter(frozen),
+        reflection_lm=make_reflection_lm(),
         max_metric_calls=max_metric_calls,
         display_progress_bar=True,
         raise_on_exception=False,  # a transient provider error shouldn't kill a 30-min run

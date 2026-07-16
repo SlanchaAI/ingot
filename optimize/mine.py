@@ -24,7 +24,7 @@ LF_SK = os.environ.get("LANGFUSE_SECRET_KEY", "sk-lf-local-demo")
 
 
 def fetch_traces(limit: int) -> list[dict]:
-    """Recent traces with a {task,...} input and a non-empty answer output."""
+    """Recent traces with a recognizable task input and a non-empty answer output."""
     auth = base64.b64encode(f"{LF_PK}:{LF_SK}".encode()).decode()
     req = urllib.request.Request(f"{LF_URL}/api/public/traces?limit={limit}",
                                  headers={"Authorization": f"Basic {auth}"})
@@ -32,11 +32,29 @@ def fetch_traces(limit: int) -> list[dict]:
         data = json.loads(r.read())["data"]
     out = []
     for t in data:
-        inp, ans = t.get("input"), t.get("output")
-        if isinstance(inp, dict) and inp.get("task") and isinstance(ans, str) and ans.strip():
-            out.append({"task": inp["task"], "rubric": inp.get("rubric", ""), "answer": ans,
-                        "tags": t.get("tags", [])})
+        parsed = _task_answer(t.get("input"), t.get("output"))
+        if parsed:
+            task, rubric, answer = parsed
+            out.append({"task": task, "rubric": rubric, "answer": answer, "tags": t.get("tags", [])})
     return out
+
+
+def _task_answer(inp, ans):
+    """(task, rubric, answer) from either trace shape: eval runs log a {task, rubric} input and a
+    plain-string answer; live agent runs traced by the LangChain callback log LangGraph state —
+    {'messages': [...]} on both sides. Returns None for anything else (or an empty answer)."""
+    if isinstance(inp, dict) and inp.get("task") and isinstance(ans, str) and ans.strip():
+        return inp["task"], inp.get("rubric", ""), ans
+    try:
+        task = inp["messages"][0]["content"]
+        answer = ans["messages"][-1]["content"]
+    except (KeyError, IndexError, TypeError):
+        return None
+    if isinstance(answer, list):  # some models return content blocks, not a plain string
+        answer = "\n".join(b.get("text", "") if isinstance(b, dict) else str(b) for b in answer)
+    if isinstance(task, str) and task.strip() and isinstance(answer, str) and answer.strip():
+        return task, "", answer
+    return None
 
 
 def mine(skill: str, limit: int = 50, log=print) -> dict:
@@ -80,4 +98,6 @@ if __name__ == "__main__":
     ap.add_argument("skill")
     ap.add_argument("--limit", type=int, default=50)
     args = ap.parse_args()
+    from . import require_openrouter_key
+    require_openrouter_key()
     mine(args.skill, limit=args.limit)

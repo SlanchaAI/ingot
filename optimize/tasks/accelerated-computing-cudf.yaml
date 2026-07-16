@@ -1,0 +1,19 @@
+skill: accelerated-computing-cudf
+train:
+- task: Write the Python code to accelerate my existing pandas Jupyter notebook with minimal code changes, ensuring my matplotlib plotting code still works without errors.
+  rubric: Must recommend using `cudf.pandas` via `%load_ext cudf.pandas` in Jupyter. Must mention that it falls back silently for unsupported ops and that `.to_pandas()` or `.values` should be used for CPU-only libraries like matplotlib.
+- task: Write Python code using explicit cuDF to read 'sales.parquet' and 'products.parquet', left join them on 'product_id', and group by 'category' to sum revenue, keeping data on the GPU until final display.
+  rubric: Must use `import cudf`, `cudf.read_parquet`, `.merge(..., how='left')`, and `.groupby(...)`. Must explicitly mention keeping data on GPU and only using `.to_pandas()` at the very end for display.
+- task: Write a Python script using dask-cuDF to read 500GB of CSV files from S3, group by 'user_id', and sum 'clicks', handling the fact that my GPU only has 80GB of memory.
+  rubric: Must use `LocalCUDACluster` with `enable_cudf_spill=True`, `dask_cudf.read_csv`, and `.compute()`. Must explain that this path is for datasets exceeding GPU memory.
+- task: Write Python code to configure cuDF to avoid OOM errors by enabling spilling to host RAM and setting up an RMM pool allocator, ensuring these are initialized before any cuDF operations.
+  rubric: Must include `cudf.set_option("spill", True)` and `rmm.set_current_device_resource(rmm.mr.CudaAsyncMemoryResource())`. Must emphasize that these must be called BEFORE any cuDF operations.
+holdout:
+- task: Write Python code to optimize a 50,000 row float64 DataFrame for GPU processing, addressing both the data size and data type for maximum speed.
+  rubric: Must point out that 50,000 rows is below the 100K row sweet spot, so GPU transfer overhead might negate speedup. Must also recommend casting float64 to float32 early if precision allows, as float64 operations are slower in cuDF.
+- task: Write a Python validation script that compares a cuDF implementation of a null-heavy `fillna` and join operation against a pandas reference path to ensure exact parity.
+  rubric: Must compare shape, labels, null counts, ordering, and representative values between cuDF and pandas on representative slices. Must mention validating semantics before claiming parity.
+- task: Write cuDF code to replace a pandas `pivot_table` operation, ensuring the exact schema (index labels, column labels, fill_value) is preserved, and include a parity check.
+  rubric: Must preserve source schema (index labels, column labels, fill_value). Must include a small pandas-reference parity check for shape and labels before finalizing.
+- task: Write the Python setup code to use the cudf.pandas accelerator in a script that uses `multiprocessing.Pool`, ensuring all workers are GPU-backed.
+  rubric: Must call `cudf.pandas.install()` BEFORE importing pandas and BEFORE creating the `multiprocessing.Pool`.

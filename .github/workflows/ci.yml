@@ -1,0 +1,16 @@
+name: CI
+
+on:
+  push:
+    branches: [master]
+  pull_request:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build image
+        run: docker build -t ingot-mcp .
+      - name: Run tests
+        run: docker run --rm -v "$PWD:/app" -w /app ingot-mcp python -m pytest tests -q
