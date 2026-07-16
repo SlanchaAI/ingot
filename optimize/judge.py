@@ -21,8 +21,7 @@ from . import usage as usage_ledger
 # JUDGE_MODELS (comma-separated) runs an ensemble and averages — harder still to game.
 MODELS = [m.strip() for m in os.environ.get(
     "JUDGE_MODELS", os.environ.get("JUDGE_MODEL", "google/gemini-2.5-flash")).split(",") if m.strip()]
-BASE_URL = os.environ.get("OPENROUTER_BASE_URL", "https://openrouter.ai/api/v1")
-API_KEY = os.environ.get("OPENROUTER_API_KEY", "")
+from . import ZDR_PROVIDER, client_kwargs, teacher_base_url  # noqa: E402  (endpoint + ZDR policy)
 
 if os.environ.get("GEPA_MODEL", "z-ai/glm-5.2") in MODELS:
     print(f"[judge] WARNING: judge model {MODELS} includes the GEPA reflection model — this invites "
@@ -54,16 +53,39 @@ _llms: dict[str, ChatOpenAI] = {}
 
 def _get_llm(model: str):
     if model not in _llms:  # built once per model — reuses the HTTP pool across many judge calls
-        _llms[model] = ChatOpenAI(model=model, base_url=BASE_URL, api_key=API_KEY, temperature=0)
+        _llms[model] = ChatOpenAI(model=model, temperature=0, **client_kwargs(teacher_base_url()))
     return _llms[model]
 
 
+# OpenRouter phrasings that mean "your model/provider configuration can never work" — retrying
+# only burns time, so explain and stop instead.
+_PERMANENT = ("no allowed providers", "no providers are available", "not a valid model",
+              "no endpoints found", "is not available")
+
+
+def _config_error(exc: Exception) -> str | None:
+    text = str(exc).lower()
+    if any(marker in text for marker in _PERMANENT):
+        pins = os.environ.get("OPENROUTER_PROVIDERS", "")
+        hint = (f" You have OPENROUTER_PROVIDERS={pins} — the pinned provider may not serve this "
+                f"model, or may not be ZDR-qualified for it; unset the pin or change the model."
+                if pins else
+                " No ZDR-qualified endpoint may exist for this model; try another model.")
+        return f"OpenRouter cannot route this request: {exc}.{hint}"
+    return None
+
+
 def invoke_retry(llm, messages, tries: int = 3):
-    """Retry transient provider failures (corrupted responses, 5xx) with a short backoff."""
+    """Retry transient provider failures (corrupted responses, 5xx) with a short backoff.
+    Permanent configuration errors (model/provider mismatch) fail immediately with an explanation
+    instead of retrying."""
     for i in range(tries):
         try:
             return llm.invoke(messages)
-        except Exception:
+        except Exception as exc:
+            explained = _config_error(exc)
+            if explained:
+                raise SystemExit(explained) from exc
             if i == tries - 1:
                 raise
             time.sleep(5 * (i + 1))

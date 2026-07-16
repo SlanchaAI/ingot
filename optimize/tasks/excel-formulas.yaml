@@ -1,0 +1,42 @@
+skill: excel-formulas
+train:
+- task: Write an Excel formula to look up the price of a product ID located in cell A2 from a table in range D1:E50, where column D has the ID and column E has the price.
+  rubric: Must use VLOOKUP. Must reference A2 as the lookup value, D1:E50 as the table array, 2 as the column index, and FALSE (or 0) for exact match.
+- task: Write a Google Sheets formula for cell C2 that checks if the value in B2 is greater than or equal to 50. If true, return "Pass", otherwise return "Fail".
+  rubric: Must use the IF function. Must check B2>=50. Must return "Pass" for true and "Fail" for false.
+- task: Write an Excel formula to calculate the total sales from column B, but only for rows where column A contains the exact word "Electronics".
+  rubric: Must use SUMIF or SUMIFS. Must reference column A for criteria and column B for sum range. Must include "Electronics" as the criteria.
+- task: Write a Google Sheets formula to calculate the average of cells B2 through B10.
+  rubric: Must use the AVERAGE function. Must reference the range B2:B10.
+holdout:
+- task: Write an Excel formula that divides the value in A2 by the value in B2, but if B2 is zero or empty, it should return "Division Error" instead of an error code.
+  rubric: Must use the IFERROR function wrapping a division (A2/B2). Must specify "Division Error" as the fallback value.
+- task: Write an Excel formula to combine the first name in cell A2 and the last name in cell B2 into a single string separated by a space.
+  rubric: Must use a concatenation function like CONCATENATE, CONCAT, or the & operator. Must include a space between the two cell references (e.g., A2 & " " & B2).
+- task: Write a Google Sheets formula to calculate the number of days between a start date in cell A2 and an end date in cell B2.
+  rubric: Must use the DAYS function or simple subtraction (B2-A2). Must correctly reference A2 and B2 in the right order to yield a positive number.
+- task: Write an Excel formula to round the result of A2 divided by B2 to the nearest 2 decimal places. Use the appropriate built-in rounding function rather than manual truncation.
+  rubric: Must use the ROUND function. Must correctly divide A2 by B2 inside the function and specify 2 as the number of digits (e.g., ROUND(A2/B2, 2)).
+
+routing:
+  - task: "Write an Excel formula to sum sales in column B only where the region in column A is West."
+    expected: excel-formulas
+    harness: codex
+    parity: true
+  - task: "For each order in A2:D500, look up the customer tier in Sheet2 and return the matching discount rate — orders with no match should show 0 instead of an error."
+    expected: excel-formulas
+    harness: claude
+    parity: true
+  - task: "Why does my VLOOKUP return #N/A even though the value is clearly in the table?"
+    expected: excel-formulas
+    harness: codex
+  - task: "I need a formula that extracts the domain name from an email address in cell C2."
+    expected: excel-formulas
+    harness: codex
+  - task: "Convert this xlsx file to CSV and re-save it with openpyxl."
+    expected: null
+    harness: codex
+  - task: "Thanks, that solved it!"
+    expected: null
+    harness: codex
+    parity: true

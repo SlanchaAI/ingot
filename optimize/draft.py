@@ -10,11 +10,10 @@ import re
 import yaml
 from langchain_openai import ChatOpenAI
 
+from . import client_kwargs, teacher_base_url
 from . import usage as usage_ledger
 
 MODEL = os.environ.get("GEPA_MODEL", "z-ai/glm-5.2")  # the teacher authors evals, like it authors skills
-BASE_URL = os.environ.get("OPENROUTER_BASE_URL", "https://openrouter.ai/api/v1")
-API_KEY = os.environ.get("OPENROUTER_API_KEY", "")
 
 _PROMPT = """You are writing an evaluation set for an AI "skill" (reusable task instructions).
 
@@ -33,7 +32,7 @@ each covering a different operation/capability."""
 
 
 def _llm():
-    return ChatOpenAI(model=MODEL, base_url=BASE_URL, api_key=API_KEY, temperature=0.4)
+    return ChatOpenAI(model=MODEL, temperature=0.4, **client_kwargs(teacher_base_url()))
 
 
 def draft_tasks(name: str, description: str, body: str, n: int = 8) -> dict:

@@ -15,6 +15,10 @@ MIN_SCORE = float(os.environ.get("MIN_SCORE", "0.65"))
 RELATED_SCORE = float(os.environ.get("RELATED_SCORE", "0.45"))
 COLLISION_SCORE = float(os.environ.get("COLLISION_SCORE", "0.93"))
 PORT = int(os.environ.get("PORT", "8000"))
+# Loopback by default: the tools are unauthenticated, so a bare `python -m mcp_server.server` must
+# not listen on the network. The compose mcp service sets HOST=0.0.0.0 (required for Docker port
+# publishing); host access stays localhost-only via the 127.0.0.1 port mapping.
+HOST = os.environ.get("HOST", "127.0.0.1")
 
 
 class _State:
@@ -51,7 +55,7 @@ class _State:
 
 STATE = _State()
 STATE.reload()
-mcp = FastMCP("skill-router")
+mcp = FastMCP("ingot")
 
 
 @mcp.tool()
@@ -110,7 +114,7 @@ def create_skill(name: str, description: str, body: str) -> str:
     write_skill_md(destination / "SKILL.md",
                    {"name": slug, "description": description, "source": "agent"}, body)
     count = STATE.reload()
-    print(f"[skill-router] created skill '{slug}' ({count} skills total)", flush=True)
+    print(f"[ingot] created skill '{slug}' ({count} skills total)", flush=True)
     return f"Created skill '{slug}' and reloaded the router ({count} skills)."
 
 
@@ -118,7 +122,7 @@ def create_skill(name: str, description: str, body: str) -> str:
 def reload_skills() -> str:
     """Re-read skill roots and rebuild the router after a promotion."""
     count = STATE.reload()
-    print(f"[skill-router] reloaded: {count} skills", flush=True)
+    print(f"[ingot] reloaded: {count} skills", flush=True)
     return f"Reloaded {count} skills."
 
 
@@ -132,6 +136,6 @@ def route_and_load(task: str, harness: str, cwd: str, available_tools: list[str]
 
 
 if __name__ == "__main__":
-    print(f"[skill-router] {len(STATE.skills)} skills loaded; serving MCP on :{PORT}/mcp", flush=True)
-    mcp.run(transport="http", host="0.0.0.0", port=PORT, path="/mcp",
+    print(f"[ingot] {len(STATE.skills)} skills loaded; serving MCP on :{PORT}/mcp", flush=True)
+    mcp.run(transport="http", host=HOST, port=PORT, path="/mcp",
             allowed_hosts=["*"], allowed_origins=["*"])

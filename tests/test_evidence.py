@@ -60,3 +60,12 @@ def test_evidence_marks_leaky_split_and_structural_divergence():
     evidence = build_evidence(summary, "champ", "chall")
     assert evidence["split"]["leakage"] is True
     assert "structural" in render_markdown(evidence).lower()
+
+
+def test_markdown_surfaces_gate_warnings():
+    summary = {**SUMMARY, "gate": {"promotable": True, "blocked": [],
+                                   "warnings": ["challenger drops 90% of the champion body"]}}
+    md = render_markdown(build_evidence(summary, "c1", "c2"))
+    assert "- Warnings: challenger drops 90% of the champion body" in md
+    md_none = render_markdown(build_evidence(SUMMARY, "c1", "c2"))
+    assert "- Warnings: none" in md_none

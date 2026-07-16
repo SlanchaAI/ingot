@@ -1,16 +1,20 @@
-# MCP skill router demo: an MCP server that suggests + serves skills, a LangGraph deep agent
+# Ingot demo: an MCP server that suggests + serves skills, a LangGraph deep agent
 # that loads skills from it, a GEPA optimizer that A/B-tests skill improvements, an approval UI,
 # and a self-hosted Langfuse (v3) stack for traces / experiments.
 #
 # NOTE on "secrets" below: every credential in this file (postgres/redis/minio/clickhouse
 # passwords, the LANGFUSE_INIT_* API keys) is a LOCAL-DEMO LITERAL for the self-hosted stack on
 # your machine — not a real secret. Real keys (OPENROUTER_API_KEY) live only in .env (gitignored).
+name: ingot   # fixed project name so image names don't depend on the checkout dir
 services:
   mcp:
     build: .
     command: python -m mcp_server.server
+    environment:
+      HOST: 0.0.0.0                    # bind the container interface (needed for the port publish);
+                                       # host access stays localhost-only via the 127.0.0.1 mapping
     ports:
-      - "127.0.0.1:8000:8000"          # MCP streamable-HTTP
+      - "127.0.0.1:8000:8000"          # MCP streamable-HTTP — localhost only (see README: Network exposure)
     volumes:
       - ./skills:/app/skills # promoted skills must reach the running server (hot reload)
 
@@ -19,7 +23,8 @@ services:
     # entrypoint (not command) so `docker compose run --rm agent "your task"` appends the task
     entrypoint: ["python", "-m", "agent.run"]
     env_file:
-      - .env                 # OPENROUTER_API_KEY (see .env.example)
+      - path: .env           # OPENROUTER_API_KEY (see .env.example)
+        required: false      # a missing .env/key gets a friendly in-app message instead
     environment:
       MCP_URL: http://mcp:8000/mcp
       LANGFUSE_BASE_URL: http://langfuse-web:3000
@@ -36,7 +41,8 @@ services:
     build: .
     entrypoint: ["python", "-m", "optimize.ab"]
     env_file:
-      - .env
+      - path: .env
+        required: false
     environment:
       MCP_URL: http://mcp:8000/mcp
       LANGFUSE_BASE_URL: http://langfuse-web:3000
@@ -45,6 +51,7 @@ services:
     volumes:
       - ./skills:/app/skills
       - ./runs:/app/runs
+      - ./optimize/tasks:/app/optimize/tasks   # auto-drafted eval sets must survive the container
     depends_on:
       mcp:
         condition: service_started
@@ -57,7 +64,8 @@ services:
     build: .
     entrypoint: ["python", "-m", "optimize.mine"]
     env_file:
-      - .env
+      - path: .env
+        required: false
     environment:
       LANGFUSE_BASE_URL: http://langfuse-web:3000
       LANGFUSE_PUBLIC_KEY: ${LANGFUSE_PUBLIC_KEY:-pk-lf-local-demo}
@@ -74,7 +82,8 @@ services:
     build: .
     entrypoint: ["python", "-m", "optimize.loop"]
     env_file:
-      - .env
+      - path: .env
+        required: false
     environment:
       MCP_URL: http://mcp:8000/mcp
       LANGFUSE_BASE_URL: http://langfuse-web:3000
@@ -83,6 +92,7 @@ services:
     volumes:
       - ./skills:/app/skills
       - ./runs:/app/runs
+      - ./optimize/tasks:/app/optimize/tasks   # auto-drafted eval sets must survive the container
     depends_on:
       mcp:
         condition: service_started
@@ -95,7 +105,8 @@ services:
     build: .
     entrypoint: ["python", "-m", "optimize.canary"]
     env_file:
-      - .env
+      - path: .env
+        required: false
     environment:
       MCP_URL: http://mcp:8000/mcp
       LANGFUSE_BASE_URL: http://langfuse-web:3000
@@ -104,6 +115,7 @@ services:
     volumes:
       - ./skills:/app/skills
       - ./runs:/app/runs
+      - ./optimize/tasks:/app/optimize/tasks   # auto-drafted eval sets must survive the container
     depends_on:
       mcp:
         condition: service_started
@@ -118,7 +130,8 @@ services:
     ports:
       - "127.0.0.1:8080:8080"
     env_file:
-      - .env
+      - path: .env
+        required: false
     environment:
       MCP_URL: http://mcp:8000/mcp
       LANGFUSE_BASE_URL: http://langfuse-web:3000
@@ -128,6 +141,7 @@ services:
     volumes:
       - ./skills:/app/skills
       - ./runs:/app/runs
+      - ./optimize/tasks:/app/optimize/tasks   # auto-drafted eval sets must survive the container
     depends_on:
       mcp:
         condition: service_started
@@ -190,8 +204,8 @@ services:
       # These are local-demo literals, not secrets.
       LANGFUSE_INIT_ORG_ID: local
       LANGFUSE_INIT_ORG_NAME: Local
-      LANGFUSE_INIT_PROJECT_ID: skill-router
-      LANGFUSE_INIT_PROJECT_NAME: skill-router
+      LANGFUSE_INIT_PROJECT_ID: ingot
+      LANGFUSE_INIT_PROJECT_NAME: ingot
       LANGFUSE_INIT_PROJECT_PUBLIC_KEY: pk-lf-local-demo
       LANGFUSE_INIT_PROJECT_SECRET_KEY: sk-lf-local-demo
       LANGFUSE_INIT_USER_EMAIL: demo@local.dev

@@ -1,5 +1,5 @@
-"""Security / malicious-input tests for the skill-router write paths. Pure-function tests (no
-network, no LLM) — run in Docker: `docker run --rm -v $(pwd):/app skill-router-mcp python -m pytest tests -q`."""
+"""Security / malicious-input tests for the skill library's write paths. Pure-function tests (no
+network, no LLM) — run in Docker: `docker run --rm -v $(pwd):/app ingot-mcp python -m pytest tests -q`."""
 import os
 
 import pytest

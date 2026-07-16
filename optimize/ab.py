@@ -35,6 +35,50 @@ PROMOTE_MIN_MARGIN = float(os.environ.get("PROMOTE_MIN_MARGIN", "0.15"))   # mea
 PROMOTE_MIN_SAMPLES = int(os.environ.get("PROMOTE_MIN_SAMPLES", "3"))       # min held-out tasks
 PASS = float(os.environ.get("PROMOTE_PASS_SCORE", "0.5"))                   # a task "passes" at/above this
 COLLISION_SCORE = float(os.environ.get("COLLISION_SCORE", "0.93"))          # route-shadow cutoff
+RETENTION_WARN = float(os.environ.get("RETENTION_WARN", "0.5"))             # body-retention review warning
+# Which components GEPA may mutate. Default: body only — the description is a routing trigger
+# matched by embedding, not instructions the agent reads, so quality optimization has no business
+# there (bare rollouts can't tell the difference and will happily stuff behavior rules into it;
+# the full agent then never sees them). Widen with e.g. OPTIMIZE_COMPONENTS=body,file:reference.md
+# (bundled text files become mutable AND visible in rollouts) or description,body (the
+# routing-regression gate still applies). Caveat for file components: the A/B never executes or
+# serves them — review those diffs by eye, and keep scripts out unless you have execution-grounded
+# evals.
+OPTIMIZE_COMPONENTS = [c.strip() for c in os.environ.get("OPTIMIZE_COMPONENTS", "body").split(",")
+                       if c.strip()]
+
+
+def optimize_split(champion: dict[str, str]) -> tuple[dict[str, str], dict[str, str]]:
+    """(mutable seed, frozen context) per OPTIMIZE_COMPONENTS; unknown names fail loudly."""
+    unknown = [c for c in OPTIMIZE_COMPONENTS if c not in champion]
+    if unknown:
+        raise SystemExit(f"OPTIMIZE_COMPONENTS names unknown component(s) {unknown}; "
+                         f"skill has {sorted(champion)}")
+    seed = {k: v for k, v in champion.items() if k in OPTIMIZE_COMPONENTS}
+    frozen = {k: v for k, v in champion.items() if k not in OPTIMIZE_COMPONENTS}
+    return seed, frozen
+
+
+def body_retention(champion_body: str, challenger_body: str) -> float:
+    """Fraction of the champion body's non-blank lines that survive (stripped) in the challenger —
+    a crude but cheap deletion detector for the review warning."""
+    champ = [line.strip() for line in champion_body.splitlines() if line.strip()]
+    if not champ:
+        return 1.0
+    kept = {line.strip() for line in challenger_body.splitlines()}
+    return sum(1 for line in champ if line in kept) / len(champ)
+
+
+def retention_warnings(champion: dict, challenger: dict, changed: list[str], samples: int) -> list[str]:
+    """Non-blocking review warnings: a small holdout can't license a large deletion, so a challenger
+    that drops most of the champion body gets flagged for the human reviewer (never auto-blocked)."""
+    if "body" not in changed:
+        return []
+    kept = body_retention(champion["body"], challenger.get("body", ""))
+    if kept >= RETENTION_WARN:
+        return []
+    return [f"challenger drops {1 - kept:.0%} of the champion body, gated on only {samples} "
+            f"held-out task(s) — review the deletions carefully"]
 
 
 def _description_shadows(skill: str, new_description: str) -> tuple[str, float]:
@@ -91,11 +135,27 @@ def promotion_gate(skill: str, champ_scores: list[float], chall_scores: list[flo
                 reasons.append(f"cross-harness parity {parity['rate']:.3f} < 1.000")
     return (not reasons), reasons
 
-# Eval agents receive the same single read-only route contract as production.
+# The canary serves its assigned arm through the same route-shaped tool as production.
 EVAL_INSTRUCTIONS = """You are a deep agent with access to a read-only skill router over MCP.
 For every task, call `route_and_load` once with the full task, harness `codex`, current working
 directory, and available tools/MCPs. Follow `skill_body` when a match is returned. With no match,
-solve directly. Never request a skill catalog. Keep the final answer concise."""
+solve directly. Never request a skill catalog. Keep the final answer concise.
+Your final answer must contain the complete deliverable itself — e.g. full runnable code inline —
+never just a description of, or reference to, files you created in your workspace: the user cannot
+see your workspace."""
+
+# The quality A/B injects the variant body directly: the experiment compares BODIES, so serving
+# must be guaranteed — a model that skips the routing tool for easy-looking tasks would otherwise
+# silently turn both arms into identical no-skill baselines (observed: zero tool calls, both
+# variants' input tokens identical to the digit). Routing fidelity is the description pass's job.
+EVAL_SERVE_TEMPLATE = """You are a deep agent serving a user request. The following skill has been
+loaded for this task — follow its instructions. Keep the final answer concise.
+Your final answer must contain the complete deliverable itself — e.g. full runnable code inline —
+never just a description of, or reference to, files you created in your workspace: the user cannot
+see your workspace.
+
+# Loaded skill
+{body}"""
 
 
 def load_tasks(skill: str, log=print) -> tuple[list[dict], list[dict], dict]:
@@ -211,7 +271,14 @@ def run_ab(skill: str, promote_now: bool = False, budget: int = 60,
     skill_dir = SKILLS_DIR / skill
     if not (skill_dir / "SKILL.md").exists():
         raise SystemExit(f"No skill named '{skill}' in skills/.")
-    champion = optimizable_components(skill_dir)  # {description, body} — bundled files preserved on disk
+    # description + body always; bundled file components join only when OPTIMIZE_COMPONENTS names
+    # them (they then also render into rollouts). Everything else stays untouched on disk.
+    champion = optimizable_components(skill_dir)
+    file_components = [c for c in OPTIMIZE_COMPONENTS if c.startswith("file:")]
+    if file_components:
+        from mcp_server.registry import read_components
+        everything = read_components(skill_dir)
+        champion.update({k: everything[k] for k in file_components if k in everything})
 
     # 1) GEPA: evolve the full skill (all components) on the TRAIN tasks (judge feedback -> reflection).
     if challenger_file:  # resume: reuse a checkpointed GEPA result, skip straight to the A/B
@@ -221,10 +288,16 @@ def run_ab(skill: str, promote_now: bool = False, budget: int = 60,
     elif skip_gepa:  # debug path: A/B the champion against itself
         challenger, seed_score, best_score = champion, 0.0, 0.0
     else:
-        log(f"[gepa] optimizing '{skill}' ({len(champion)} components) on {len(train)} train tasks "
-            f"(budget {budget} metric calls)…")
+        seed, frozen = optimize_split(champion)
+        log(f"[gepa] optimizing '{skill}' (components: {sorted(seed)}; frozen: {sorted(frozen)}) "
+            f"on {len(train)} train tasks (budget {budget} metric calls)…")
         from .gepa_loop import run_gepa
-        challenger, seed_score, best_score = run_gepa(champion, train, max_metric_calls=budget)
+        # rollouts see the frozen description (get_skill serves it) but not frozen files — those
+        # are neither mutated nor measured, and pasting them in would only inflate rollout cost
+        rollout_frozen = {k: v for k, v in frozen.items() if k == "description"}
+        best, seed_score, best_score = run_gepa(seed, train, max_metric_calls=budget,
+                                                frozen=rollout_frozen)
+        challenger = {**champion, **best}
         log(f"[gepa] inner-loop score: seed {seed_score:.3f} -> best {best_score:.3f}")
         changed = [k for k in champion if challenger.get(k, "").strip() != champion[k].strip()]
         if not changed:
@@ -253,9 +326,9 @@ def run_ab(skill: str, promote_now: bool = False, budget: int = 60,
     for variant, comps in [("champion", champion), ("challenger", challenger)]:
         run_name = f"{variant}-{ts}"
         log(f"[ab] running variant '{run_name}' through the deep agent ({len(holdout)} held-out tasks)…")
-        # A/B serves the variant description and body through the same one-call routing shape.
-        agent = build_agent(_variant_tools(skill, comps["body"], comps["description"]),
-                            instructions=EVAL_INSTRUCTIONS)
+        # Guaranteed serving: the variant body is injected into the instructions (see
+        # EVAL_SERVE_TEMPLATE) instead of hoping the model fetches it through a tool call.
+        agent = build_agent([], instructions=EVAL_SERVE_TEMPLATE.format(body=comps["body"]))
         scores, usages, behaviors = _run_variant(dataset, run_name, agent, holdout)
         results[variant] = {
             "run": run_name, "scores": scores,
@@ -282,13 +355,14 @@ def run_ab(skill: str, promote_now: bool = False, budget: int = 60,
                                          results["challenger"]["scores"], changed, challenger,
                                          routing_failures=route_failures, leakage=split["leakage"],
                                          routing_metrics=route_metrics)
+    warnings = retention_warnings(champion, challenger, changed, len(results["challenger"]["scores"]))
     summary = {
         "skill": skill, "improved": wins, "created": ts,
         "gepa": {"seed_score": seed_score, "best_score": best_score, "budget": budget},
         "ab": {v: {"run": r["run"], "mean": r["mean"], "scores": r["scores"], "tokens": r["tokens"]}
                for v, r in results.items()},
         "dataset": ds_name,
-        "gate": {"promotable": promotable, "blocked": blocked},
+        "gate": {"promotable": promotable, "blocked": blocked, "warnings": warnings},
         "changed_components": changed,
         "champion_components": champion,
         "challenger_components": challenger,
@@ -327,6 +401,8 @@ def run_ab(skill: str, promote_now: bool = False, budget: int = 60,
     # Promotion gate: a mean win alone isn't enough — it must clear the anti-reward-hacking checks.
     if wins and not promotable:
         log(f"[ab] ⛔ challenger won the mean but the promotion gate BLOCKED it: {'; '.join(blocked)}.")
+    if warnings:
+        log(f"[ab] ⚠ {'; '.join(warnings)}")
     if not wins:
         log("[ab] champion holds — nothing to promote.")
     elif promote_now and promotable:
@@ -343,10 +419,30 @@ def run_ab(skill: str, promote_now: bool = False, budget: int = 60,
 if __name__ == "__main__":
     ap = argparse.ArgumentParser()
     ap.add_argument("skill")
+    passes = ap.add_mutually_exclusive_group()
+    passes.add_argument("--body", action="store_true",
+                        help="quality pass over the SKILL.md body (the default)")
+    passes.add_argument("--description", action="store_true",
+                        help="routing pass over the description (embedding-scored inner loop)")
+    passes.add_argument("--scripts", action="store_true",
+                        help="not yet supported — needs execution-grounded evals")
     ap.add_argument("--promote", action="store_true", help="promote immediately if challenger wins")
     ap.add_argument("--budget", type=int, default=60, help="GEPA max metric calls")
     ap.add_argument("--skip-gepa", action="store_true", help="debug: A/B champion vs itself")
     ap.add_argument("--challenger-file", help="reuse a checkpointed GEPA result, skip to the A/B")
     args = ap.parse_args()
-    run_ab(args.skill, promote_now=args.promote, budget=args.budget,
-           skip_gepa=args.skip_gepa, challenger_file=args.challenger_file)
+    if args.scripts:
+        raise SystemExit(
+            "--scripts is not supported yet: optimizing bundled scripts needs execution-grounded "
+            "evals (fixtures) so a rewrite can be measured, not guessed — see "
+            "docs/superpowers/specs/2026-07-15-component-pass-optimization.md. Bundled text docs "
+            "can be opted in today via OPTIMIZE_COMPONENTS=body,file:<path> (diffed for review, "
+            "never executed).")
+    from . import require_openrouter_key
+    require_openrouter_key()
+    if args.description:
+        from .routing import run_routing
+        run_routing(args.skill, budget=args.budget)
+    else:
+        run_ab(args.skill, promote_now=args.promote, budget=args.budget,
+               skip_gepa=args.skip_gepa, challenger_file=args.challenger_file)

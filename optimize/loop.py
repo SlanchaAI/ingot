@@ -51,4 +51,6 @@ if __name__ == "__main__":
     ap.add_argument("--force", action="store_true", help="optimize even skills that look healthy")
     ap.add_argument("--budget", type=int, default=60, help="GEPA max metric calls per skill")
     args = ap.parse_args()
+    from . import require_openrouter_key
+    require_openrouter_key()
     loop(args.skills or None, force=args.force, budget=args.budget)
