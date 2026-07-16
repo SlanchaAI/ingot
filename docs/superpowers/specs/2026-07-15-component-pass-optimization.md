@@ -58,8 +58,10 @@ One shared metric grades three roles; it can only measure one of them.
   serve them, scripts never execute, and a files-only rollout judge has the same blindness that
   broke the description.
 - Prerequisites, per file kind:
-  - `scripts/*`: execution-grounded eval — run the script against per-task fixtures inside the
-    disposable optimize container; score = did it produce the right artifact.
+  - `scripts/*`: execution-grounded eval — SHIPPED 2026-07-16 as per-task `check:` specs
+    (fixture + assert, run in a scratch dir inside the disposable optimize container; broken
+    fixtures are inconclusive, never held against the answer). Remaining gap: file-serving
+    rollouts so a rewritten script is exercised the way a consuming harness would use it.
   - docs (`reference.md`, `forms.md`): rollouts shaped like a file-reading harness (body
     instructs "read FORMS.md", rollout actually inlines it) so the judge can attribute quality
     to the file content.

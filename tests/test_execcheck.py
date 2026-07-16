@@ -52,3 +52,66 @@ def test_sandbox_treats_missing_fixture_as_inconclusive(monkeypatch):
     # a missing input file is the environment's fault, not the code's -> inconclusive, not punished
     monkeypatch.setattr(E, "EXEC_SANDBOX", True)
     assert E.check("```python\nopen('/no/such/fixture_zzz.pdf', 'rb')\n```")["status"] == "runtime_error"
+
+
+ANSWER_OK = """Here you go:
+```python
+text = open("input.txt").read()
+open("output.txt", "w").write(text.upper())
+```"""
+
+CHECK = {"fixture": 'open("input.txt", "w").write("hello")',
+         "assert": 'assert open("output.txt").read() == "HELLO", "wrong content"'}
+
+
+def test_fixture_check_passes_end_to_end():
+    r = E.check_with_fixture(ANSWER_OK, CHECK["fixture"], CHECK["assert"])
+    assert r["status"] == "passed"
+
+
+def test_fixture_check_fails_on_wrong_artifact():
+    wrong = ANSWER_OK.replace(".upper()", ".lower()")
+    r = E.check_with_fixture(wrong, CHECK["fixture"], CHECK["assert"])
+    assert r["status"] == "assert_failed" and "wrong content" in r["detail"]
+
+
+def test_fixture_check_exec_error_and_no_code():
+    boom = 'Broken:\n```python\nraise ValueError("kaput")\n```'
+    assert E.check_with_fixture(boom, "", "print(1)")["status"] == "exec_error"
+    assert E.check_with_fixture("no code here", "", "")["status"] == "no_code"
+
+
+def test_fixture_check_missing_dependency_is_inconclusive():
+    needs_lib = "```python\nimport nonexistent_pdf_lib\n```"
+    r = E.check_with_fixture(needs_lib, "", "print(1)")
+    assert r["status"] == "inconclusive"
+
+
+def test_broken_fixture_is_the_harness_fault():
+    r = E.check_with_fixture(ANSWER_OK, 'raise RuntimeError("bad fixture")', "print(1)")
+    assert r["status"] == "fixture_error"
+
+
+def test_judge_note_execution_verdicts():
+    note = E.judge_note(ANSWER_OK, "task", check_spec=CHECK)
+    assert "EXECUTION CHECK — PASSED" in note
+    wrong = ANSWER_OK.replace(".upper()", ".lower()")
+    note = E.judge_note(wrong, "task", check_spec=CHECK)
+    assert "EXECUTION CHECK — FAILED (assert_failed)" in note
+    # harness failures stay silent — never punish the answer for our broken fixture
+    assert E.judge_note(ANSWER_OK, "task",
+                                check_spec={"fixture": "raise RuntimeError()", "assert": ""}) == ""
+
+
+def test_judge_threads_check_spec_into_the_prompt(monkeypatch):
+    from optimize import judge as judge_mod
+    seen = {}
+    monkeypatch.setattr(judge_mod, "MODELS", ["m"])
+    def capture(model, prompt):
+        seen["prompt"] = prompt
+        return {"score": 1.0, "feedback": "f", "dimensions": {d: "pass" for d in judge_mod.DIMENSIONS}}
+    monkeypatch.setattr(judge_mod, "_judge_one", capture)
+    judge_mod.judge("t", "r", ANSWER_OK, check=CHECK)
+    assert "EXECUTION CHECK — PASSED" in seen["prompt"]
+    judge_mod.judge("t", "r", ANSWER_OK)                    # no check -> static path only
+    assert "EXECUTION CHECK" not in seen["prompt"]
