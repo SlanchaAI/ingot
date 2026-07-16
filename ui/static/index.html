@@ -79,24 +79,35 @@ async function showPending(skill) {
   currentPending = skill;
   $("#pending-section").hidden = false;
   $("#pending-skill").textContent = skill;
-  const c = p.ab.champion, ch = p.ab.challenger, win = ch.mean > c.mean;
-  let tok = "";
-  if (c.tokens && ch.tokens) {
-    const dOut = ch.tokens.mean_output - c.tokens.mean_output;
-    const dIn = ch.tokens.mean_input - c.tokens.mean_input;
-    const regress = dOut > 0.1 * c.tokens.mean_output;  // output tokens are the cost that matters
-    tok = `<br>output tokens/task: <b${regress ? ' style="color:#dc2626"' : ""}>` +
-      `${c.tokens.mean_output.toFixed(0)} → ${ch.tokens.mean_output.toFixed(0)} ` +
-      `(${dOut >= 0 ? "+" : ""}${dOut.toFixed(0)})${regress ? " ⚠" : ""}</b> · ` +
-      `input ${c.tokens.mean_input.toFixed(0)} → ${ch.tokens.mean_input.toFixed(0)} ` +
-      `(${dIn >= 0 ? "+" : ""}${dIn.toFixed(0)})`;
+  let headline;
+  if (p.ab) {  // quality pass: judge scores + token shift through the full agent
+    const c = p.ab.champion, ch = p.ab.challenger, win = ch.mean > c.mean;
+    let tok = "";
+    if (c.tokens && ch.tokens) {
+      const dOut = ch.tokens.mean_output - c.tokens.mean_output;
+      const dIn = ch.tokens.mean_input - c.tokens.mean_input;
+      const regress = dOut > 0.1 * c.tokens.mean_output;  // output tokens are the cost that matters
+      tok = `<br>output tokens/task: <b${regress ? ' style="color:#dc2626"' : ""}>` +
+        `${c.tokens.mean_output.toFixed(0)} → ${ch.tokens.mean_output.toFixed(0)} ` +
+        `(${dOut >= 0 ? "+" : ""}${dOut.toFixed(0)})${regress ? " ⚠" : ""}</b> · ` +
+        `input ${c.tokens.mean_input.toFixed(0)} → ${ch.tokens.mean_input.toFixed(0)} ` +
+        `(${dIn >= 0 ? "+" : ""}${dIn.toFixed(0)})`;
+    }
+    headline = `champion <b class="${win ? "lose" : "win"}">${c.mean.toFixed(3)}</b> vs ` +
+      `challenger <b class="${win ? "win" : "lose"}">${ch.mean.toFixed(3)}</b> ` +
+      `<span class="muted">(judge score, ${c.scores.length} tasks · GEPA inner loop ` +
+      `${p.gepa.seed_score.toFixed(2)}→${p.gepa.best_score.toFixed(2)} · ` +
+      `<a href="${langfuseUrl}" target="_blank">runs in Langfuse: ${p.dataset}</a>)${tok}`;
+  } else {     // routing pass: embedding-router metrics, no LLM involved
+    const c = p.routing.champion, ch = p.routing.challenger;
+    const cell = (a, b) => `${a.toFixed(3)} → <b class="${b > a ? "win" : (b < a ? "lose" : "")}">${b.toFixed(3)}</b>`;
+    headline = `routing pass (description) — top-1 ${cell(c.top1, ch.top1)} · ` +
+      `recall@3 ${cell(c.recall_at_3, ch.recall_at_3)} · ` +
+      `no-route precision ${cell(c.no_route_precision, ch.no_route_precision)} ` +
+      `<span class="muted">(embedding router · GEPA inner loop ` +
+      `${p.gepa.seed_score.toFixed(2)}→${p.gepa.best_score.toFixed(2)})`;
   }
-  $("#pending-scores").innerHTML =
-    `champion <b class="${win ? "lose" : "win"}">${c.mean.toFixed(3)}</b> vs ` +
-    `challenger <b class="${win ? "win" : "lose"}">${ch.mean.toFixed(3)}</b> ` +
-    `<span class="muted">(judge score, ${c.scores.length} tasks · GEPA inner loop ` +
-    `${p.gepa.seed_score.toFixed(2)}→${p.gepa.best_score.toFixed(2)} · ` +
-    `<a href="${langfuseUrl}" target="_blank">runs in Langfuse: ${p.dataset}</a>)${tok}` +
+  $("#pending-scores").innerHTML = headline +
     (p.changed && p.changed.length ? `<br>components changed: <b>${esc(p.changed.join(", "))}</b>` : "") +
     (p.gate && !p.gate.promotable
       ? `<br><b style="color:#dc2626">⛔ promotion gate: ${esc(p.gate.blocked.join("; "))}</b> — review carefully before overriding.`

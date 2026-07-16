@@ -110,3 +110,21 @@ def test_config_reports_langfuse_url(client, monkeypatch):
 
 def test_runs_empty_by_default(client):
     assert client.get("/api/runs").json() == {}
+
+
+def test_pending_routing_pass_renders_without_ab(client):
+    P.save_pending("pdf", {
+        "skill": "pdf", "kind": "routing", "dataset": "pdf-routing",
+        "gepa": {"seed_score": 0.6, "best_score": 1.0, "budget": 60},
+        "routing": {"champion": {"top1": 0.5, "recall_at_3": 0.5, "no_route_precision": 1.0},
+                    "challenger": {"top1": 1.0, "recall_at_3": 1.0, "no_route_precision": 1.0},
+                    "parity": {"rate": 1.0, "total": 2}},
+        "gate": {"promotable": True, "blocked": [], "warnings": []},
+        "changed_components": ["description"],
+        "champion_components": {"description": "old trigger", "body": "b"},
+        "challenger_components": {"description": "new trigger", "body": "b"},
+    })
+    p = client.get("/api/pending/pdf").json()
+    assert p["kind"] == "routing" and p["ab"] is None
+    assert p["routing"]["challenger"]["top1"] == 1.0
+    assert "-old trigger" in p["diff"] and "+new trigger" in p["diff"]

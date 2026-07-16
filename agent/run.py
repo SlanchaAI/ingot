@@ -48,12 +48,15 @@ def build_agent(tools, instructions: str = INSTRUCTIONS):
     return create_deep_agent(model=model, tools=tools, system_prompt=instructions)
 
 
-def langfuse_config(tags: list[str] | None = None) -> dict:
-    """ainvoke config with a Langfuse callback if keys are set, else empty."""
+def langfuse_config(tags: list[str] | None = None, trace_id: str | None = None) -> dict:
+    """ainvoke config with a Langfuse callback if keys are set, else empty. Pass `trace_id`
+    (from Langfuse.create_trace_id()) to pin the run to a known trace so callers can attach
+    scores to it afterwards (the canary does this per request)."""
     if not (os.environ.get("LANGFUSE_PUBLIC_KEY") and os.environ.get("LANGFUSE_SECRET_KEY")):
         return {}
     from langfuse.langchain import CallbackHandler
-    return {"callbacks": [CallbackHandler()], "metadata": {"langfuse_tags": tags or []}}
+    handler = CallbackHandler(trace_context={"trace_id": trace_id}) if trace_id else CallbackHandler()
+    return {"callbacks": [handler], "metadata": {"langfuse_tags": tags or []}}
 
 
 def behavior_events(messages) -> list[dict]:

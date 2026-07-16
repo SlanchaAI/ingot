@@ -115,26 +115,31 @@ def _track_reflection(kwargs, response, start_time, end_time):  # litellm succes
                                         "output_tokens": getattr(u, "completion_tokens", 0)})
 
 
-def run_gepa(seed: dict[str, str], tasks: list[dict], max_metric_calls: int = 60,
-             frozen: dict[str, str] | None = None) -> tuple[dict[str, str], float, float]:
-    """Evolve the seed components with GEPA; `frozen` components ride along in rollouts unmutated.
-    Returns (best_components, seed_score, best_score) on the task set."""
+def make_reflection_lm():
+    """gepa LanguageModel protocol callable: (str | messages) -> str. Our own litellm call instead
+    of gepa's model-string plumbing, so the ZDR provider preference rides on every reflection
+    request too. Shared by the body (quality) and description (routing) passes."""
     import litellm
-    litellm.success_callback = [_track_reflection]  # reflection goes through litellm below
+    litellm.success_callback = [_track_reflection]
 
-    def reflection_lm(prompt) -> str:  # gepa's LanguageModel protocol: (str | messages) -> str
-        # our own litellm call instead of gepa's model-string plumbing, so the ZDR provider
-        # preference rides on every reflection request too
+    def reflection_lm(prompt) -> str:
         messages = prompt if isinstance(prompt, list) else [{"role": "user", "content": prompt}]
         response = litellm.completion(model=f"openrouter/{GEPA_MODEL}", messages=messages,
                                       extra_body=ZDR_PROVIDER)
         return response.choices[0].message.content
 
+    return reflection_lm
+
+
+def run_gepa(seed: dict[str, str], tasks: list[dict], max_metric_calls: int = 60,
+             frozen: dict[str, str] | None = None) -> tuple[dict[str, str], float, float]:
+    """Evolve the seed components with GEPA; `frozen` components ride along in rollouts unmutated.
+    Returns (best_components, seed_score, best_score) on the task set."""
     result = gepa.optimize(
         seed_candidate=seed,
         trainset=tasks,
         adapter=SkillAdapter(frozen),
-        reflection_lm=reflection_lm,
+        reflection_lm=make_reflection_lm(),
         max_metric_calls=max_metric_calls,
         display_progress_bar=True,
         raise_on_exception=False,  # a transient provider error shouldn't kill a 30-min run

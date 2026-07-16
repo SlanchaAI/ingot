@@ -38,7 +38,7 @@ One shared metric grades three roles; it can only measure one of them.
 - Gate: full-agent A/B on holdout + margin/samples/regression checks + `RETENTION_WARN`.
 - Cost: ~$1 / ~30–40 min per run (budget 60).
 
-### Pass 2 — description (PROPOSED, not built)
+### Pass 2 — description (IMPLEMENTED: `optimize <skill> --description`)
 
 - Mutable: `description` only.
 - Objective: **the routing suite, not the quality judge** — score a candidate description by
@@ -85,10 +85,11 @@ GEPA does internally is exactly what let quality pressure leak into the descript
 - No Langfuse-managed judge for pass 2 (routing metrics are local and free).
 - No files pass at launch.
 
-## Open questions
+## Decisions (resolved 2026-07-15)
 
-1. Flag spelling for pass 2: `optimize pdf --routing` vs a separate entrypoint
-   (`optimize-routing pdf`)?
-2. Should pass 2's gate also require a minimum *improvement* (margin) or is
-   no-regression + collision + human approval enough, given it's nearly free to re-run?
-3. Auto-draft routing cases at pass-2 time for skills without them, or require curation?
+1. Flag spelling: component flags on the one `optimize` command — `--body` (default),
+   `--description`, `--scripts` (friendly refusal until execution-grounded evals exist).
+2. Pass-2 gate: no regression on any routing metric + at least one strict improvement +
+   collision check + human approval. No margin requirement — the pass is nearly free to re-run.
+3. Routing cases are required, not auto-drafted (friendly error names the file to edit);
+   auto-drafting them is a later extension of the task drafter.

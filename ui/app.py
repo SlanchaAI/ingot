@@ -109,7 +109,8 @@ def pending(skill: str):
         blocks.append("\n".join(difflib.unified_diff(
             champ[comp].splitlines(), chall.get(comp, "").splitlines(),
             fromfile=f"{label} (champion)", tofile=f"{label} (challenger)", lineterm="")))
-    return {"skill": skill, "gepa": p["gepa"], "ab": p["ab"], "dataset": p["dataset"],
+    return {"skill": skill, "kind": p.get("kind", "quality"), "gepa": p.get("gepa"),
+            "ab": p.get("ab"), "routing": p.get("routing"), "dataset": p.get("dataset"),
             "gate": p.get("gate", {"promotable": True, "blocked": []}),
             "changed": [_label(c) for c in p.get("changed_components", [])], "diff": "\n\n".join(blocks)}
 

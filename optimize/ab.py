@@ -403,12 +403,30 @@ def run_ab(skill: str, promote_now: bool = False, budget: int = 60,
 if __name__ == "__main__":
     ap = argparse.ArgumentParser()
     ap.add_argument("skill")
+    passes = ap.add_mutually_exclusive_group()
+    passes.add_argument("--body", action="store_true",
+                        help="quality pass over the SKILL.md body (the default)")
+    passes.add_argument("--description", action="store_true",
+                        help="routing pass over the description (embedding-scored inner loop)")
+    passes.add_argument("--scripts", action="store_true",
+                        help="not yet supported — needs execution-grounded evals")
     ap.add_argument("--promote", action="store_true", help="promote immediately if challenger wins")
     ap.add_argument("--budget", type=int, default=60, help="GEPA max metric calls")
     ap.add_argument("--skip-gepa", action="store_true", help="debug: A/B champion vs itself")
     ap.add_argument("--challenger-file", help="reuse a checkpointed GEPA result, skip to the A/B")
     args = ap.parse_args()
+    if args.scripts:
+        raise SystemExit(
+            "--scripts is not supported yet: optimizing bundled scripts needs execution-grounded "
+            "evals (fixtures) so a rewrite can be measured, not guessed — see "
+            "docs/superpowers/specs/2026-07-15-component-pass-optimization.md. Bundled text docs "
+            "can be opted in today via OPTIMIZE_COMPONENTS=body,file:<path> (diffed for review, "
+            "never executed).")
     from . import require_openrouter_key
     require_openrouter_key()
-    run_ab(args.skill, promote_now=args.promote, budget=args.budget,
-           skip_gepa=args.skip_gepa, challenger_file=args.challenger_file)
+    if args.description:
+        from .routing import run_routing
+        run_routing(args.skill, budget=args.budget)
+    else:
+        run_ab(args.skill, promote_now=args.promote, budget=args.budget,
+               skip_gepa=args.skip_gepa, challenger_file=args.challenger_file)

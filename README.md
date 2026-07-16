@@ -180,6 +180,20 @@ Output tokens are the cost that matters (they're generated on every future task)
 wins on quality but regresses output tokens >10% gets a ⚠ flag. A bigger SKILL.md (input tokens) is
 cheap context by comparison.
 
+**Optimization is greedy — one component per pass, each scored by its own role's metric:**
+
+| pass | command | inner-loop objective | cost |
+|------|---------|---------------------|------|
+| body (default) | `optimize pdf` | LLM judge on train tasks; full-agent A/B gate | ~$1 |
+| description | `optimize pdf --description` | the **routing suite**, scored by the real embedding router — no LLM rollouts (reflection only) | ~$0.05, minutes |
+| scripts | `optimize pdf --scripts` | refused for now: bundled scripts need execution-grounded evals before a rewrite can be measured | — |
+
+The description pass gates on **no regression on any routing metric, at least one strict
+improvement, and no collision** with another skill's description — then the same human approval UI.
+This split exists because a quality judge can't measure routing and a router can't measure quality;
+one shared metric let early runs "improve" the description in ways that either broke routing (the
+gate caught it) or never reached the serving agent.
+
 ### 6. Review and promote in the approval UI
 
 Open **http://localhost:8080**:
@@ -228,6 +242,11 @@ stops early to promote (P≥0.95) or reject (P≤0.05). In this run the challeng
 likely better, but under the conservative bar — so the canary kept the champion rather than flip
 production on borderline evidence. The gate is deliberately hard to trip. Add `--promote` to
 auto-promote on a win; otherwise a win is recorded as a recommendation for the UI.
+
+Every canary request is **first-class in Langfuse**: its trace is tagged with the arm and the exact
+skill revision (`canary=challenger`, `revision=<hash>`), and the judged outcome is written back as
+scores (`canary_judge`, `canary_success`) on that trace — so the per-arm evidence is auditable in
+the Langfuse UI and the posterior can be recomputed from stored scores at any time.
 
 ### 9. (Optional) Put it on autopilot
 
