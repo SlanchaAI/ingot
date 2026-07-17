@@ -93,5 +93,15 @@ GEPA does internally is exactly what let quality pressure leak into the descript
    `--description`, `--scripts` (friendly refusal until execution-grounded evals exist).
 2. Pass-2 gate: no regression on any routing metric + at least one strict improvement +
    collision check + human approval. No margin requirement — the pass is nearly free to re-run.
-3. Routing cases are required, not auto-drafted (friendly error names the file to edit);
-   auto-drafting them is a later extension of the task drafter.
+3. Routing cases auto-draft on first `--description` run (teacher-generated positives +
+   null negatives, persisted to the task YAML) — hand-curated suites take precedence.
+   (Originally required-not-drafted; extended 2026-07-16.)
+
+## Langfuse continuous judging (investigated 2026-07-16)
+
+Feasible without breaking the privacy posture: Langfuse's model-based evaluators accept custom
+OpenAI-compatible LLM connections, so the judge connection can point provider-direct (e.g.
+Fireworks, retention per that vendor's policy) or at a local endpoint — the OpenRouter-specific
+ZDR body isn't expressible there, but provider-direct/local is the same posture the generic
+BASE_URL support ships. Implementation (post-launch): configure an evaluator over incoming traces,
+then teach mine.py/loop.py to read precomputed scores instead of re-judging per tick.

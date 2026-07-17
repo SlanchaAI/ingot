@@ -231,9 +231,10 @@ restart**. **Reject** discards it.
 ### 7. Fix the routing with the description pass
 
 The body is better — but the router still under-triggers (step 3's lookup request never matched).
-That's a *routing* problem, so it gets the routing-objective pass: add `routing:` cases to
-`optimize/tasks/excel-formulas.yaml` (realistic positive phrasings plus `expected: null`
-negatives), then:
+That's a *routing* problem, so it gets the routing-objective pass. It optimizes against the
+`routing:` cases in `optimize/tasks/excel-formulas.yaml` — hand-write them (realistic positive
+phrasings plus `expected: null` negatives), or let the teacher **auto-draft and persist** a suite
+on first run:
 
 ```bash
 docker compose run --rm optimize excel-formulas --description
@@ -432,6 +433,7 @@ Set in `.env` (never committed):
 | `BODY_TARGET_CHARS` | `6000` | GEPA's length penalty starts past this body size |
 | `LENGTH_PENALTY` | `0.10` | max score subtracted for a very long body |
 | `LOOP_HEALTH_THRESHOLD` | `0.7` | continuous loop re-optimizes skills whose mined mean score is below this |
+| `LOOP_PASSES` | `body` | passes the loop runs per unhealthy skill, in order (e.g. `body,description`) |
 | `RETENTION_WARN` | `0.5` | ⚠ review warning when the challenger keeps less than this fraction of the champion body |
 | `OPTIMIZE_COMPONENTS` | `body` | what GEPA may rewrite; add `description` (routing gate applies) or `file:<path>` entries (diffed, never executed — avoid scripts) |
 | `SKILL_MAX_DESCRIPTION` | `1024` | `create_skill` description hard cap (Agent Skills spec) |
