@@ -11,6 +11,10 @@ from .ab import TASKS_DIR, run_ab
 from .mine import mine
 
 HEALTH_THRESHOLD = float(os.environ.get("LOOP_HEALTH_THRESHOLD", "0.7"))  # mine mean below this = optimize
+# Which passes an unhealthy skill gets, in order. "body" = quality GEPA + full-agent A/B;
+# "description" = the routing-objective pass (embedding-scored, ~free; routing cases auto-draft).
+PASSES = [p.strip() for p in os.environ.get("LOOP_PASSES", "body").split(",") if p.strip()]
+_KNOWN_PASSES = ("body", "description")
 
 
 def skills_with_tasksets() -> list[str]:
@@ -36,10 +40,22 @@ def loop(skills: list[str] | None = None, force: bool = False, budget: int = 60,
             results[skill] = {"optimized": False, "mean_score": mean}
             continue
         log(f"[loop] {skill}: below health bar (mean {mean if mean is not None else 'n/a'}) — optimizing…")
-        r = run_ab(skill, budget=budget, log=log)
-        results[skill] = {"optimized": True, "improved": r.get("improved"),
-                          "gate": r.get("gate"), "mean_score": mean}
-    queued = [s for s, r in results.items() if r.get("optimized") and r.get("gate", {}).get("promotable")]
+        unknown = [p for p in PASSES if p not in _KNOWN_PASSES]
+        if unknown:
+            raise SystemExit(f"LOOP_PASSES names unknown pass(es) {unknown}; known: {_KNOWN_PASSES}")
+        passes = {}
+        for pass_name in PASSES:
+            if pass_name == "body":
+                r = run_ab(skill, budget=budget, log=log)
+            else:
+                from .routing import run_routing
+                r = run_routing(skill, log=log)
+            passes[pass_name] = {"improved": r.get("improved"), "gate": r.get("gate")}
+        gate = next((p["gate"] for p in passes.values() if p.get("gate", {}) and p["gate"].get("promotable")),
+                    passes.get("body", {}).get("gate"))
+        results[skill] = {"optimized": True, "passes": passes, "gate": gate, "mean_score": mean,
+                          "improved": any(p.get("improved") for p in passes.values())}
+    queued = [s for s, r in results.items() if r.get("optimized") and (r.get("gate") or {}).get("promotable")]
     log(f"\n[loop] done. {len(queued)} challenger(s) passed the gate and are queued for review "
         f"at http://localhost:8080: {queued}")
     return results

@@ -106,12 +106,13 @@ def run_routing(skill: str, budget: int = 60, log=print) -> dict:
         raise SystemExit(f"No skill named '{skill}' in skills/.")
     tasks_path = TASKS_DIR / f"{skill}.yaml"
     cases = (yaml.safe_load(tasks_path.read_text()) or {}).get("routing") if tasks_path.exists() else None
-    if not cases:
-        raise SystemExit(
-            f"'{skill}' has no routing: cases in {tasks_path} — the description pass optimizes "
-            f"against them. Add cases (task + expected, plus expected: null negatives), then re-run.")
-
     champion = optimizable_components(skill_dir)
+    if not cases:
+        # auto-draft like the task drafter does — persisted, so re-runs use the same suite
+        from .draft import draft_and_append_routing
+        cases = draft_and_append_routing(skill, champion["description"], champion["body"],
+                                         TASKS_DIR, log=log)
+
     log(f"[routing] optimizing '{skill}' description against {len(cases)} routing cases "
         f"(budget {budget} metric calls; inner loop is embedding-only — no LLM rollouts)…")
     result = gepa.optimize(seed_candidate={"description": champion["description"]},
