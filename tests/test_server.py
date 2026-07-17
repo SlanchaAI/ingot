@@ -1,6 +1,18 @@
 import asyncio
 
-from mcp_server.server import STATE, mcp, route_and_load
+from mcp_server.server import STATE, get_skill, mcp, route_and_load
+
+
+def test_get_skill_header_carries_revision(tmp_path):
+    root = tmp_path / "skills"
+    skill = root / "pdf"
+    skill.mkdir(parents=True)
+    (skill / "SKILL.md").write_text("---\nname: pdf\ndescription: Merge PDF files.\n---\nbody\n")
+    STATE.reload([root])
+    loaded = get_skill("pdf")
+    header = loaded.split("\n", 1)[0]
+    assert header.startswith("# Skill: pdf@") and len(header) > len("# Skill: pdf@")
+    assert "No skill named" in get_skill("nope")
 
 
 def test_route_and_load_is_additive_to_existing_mcp_tools():

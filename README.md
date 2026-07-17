@@ -155,7 +155,9 @@ The skill helped with none of it. Both failures are now sitting in your traces.
 
 `optimize-mine` re-judges your logged traffic with a multi-dimensional LLM judge and aggregates
 which failure dimensions dominate — the [SkillForge paper's](https://arxiv.org/abs/2604.08618)
-"Failure Analyzer" applied to your own traces:
+"Failure Analyzer" applied to your own traces. Only traces relevant to the skill are counted:
+tagged with it, or ranking it in the embedding top-5 for the task text — so misrouted traffic
+still counts toward the skill that *should* have served it:
 
 ```bash
 docker compose run --rm optimize-mine excel-formulas
@@ -495,7 +497,9 @@ branch:
   routing failed, and the next similar request routes to the new skill on the weak model.
 
 That three-way branch is the weak/strong serving split; the bundled agent implements the same
-policy with `MODEL` (weak) and `STRONG_MODEL` (strong, defaults to `GEPA_MODEL`).
+policy with `MODEL` (weak) and `STRONG_MODEL` (strong, defaults to `GEPA_MODEL`). To keep the
+trace-mining loop fed from your own harness, see
+[Tracing from your own harness](#tracing-from-your-own-harness-mcp-only) at the end of this README.
 
 ### Optional shared skill roots
 
@@ -606,3 +610,44 @@ sensitive host paths** (this demo's `agent` service mounts nothing sensitive and
 `OPENROUTER_API_KEY`). For a real deployment, add per-tool sandboxing and treat `create_skill` output
 as untrusted until reviewed. Further reading:
 [OpenAI on prompt injection](https://openai.com/safety/prompt-injections/).
+
+## Tracing from your own harness (MCP only)
+
+The optimizer's traffic signal (`optimize-mine`, the autopilot loop's health check) reads traces
+from the self-hosted Langfuse over its public API — it does not care who wrote them. An MCP-only
+deployment gets full mining parity by logging one trace per request that follows two conventions:
+
+**1. A shape mine can parse** — either of:
+
+- explicit: trace `input = {"task": "<user request>"}` (optional `"rubric"`), `output` = the final
+  answer as a plain string;
+- LangChain/LangGraph: attach the Langfuse `CallbackHandler` to your invocation — the logged
+  `{"messages": [...]}` state on both sides is parsed as-is.
+
+**2. Attribution tags** (optional, recommended) — tag the trace with the plain name of the skill
+you served, plus `revision=<name>@<revision>` for exact-version attribution; tag `novel` when you
+escalated to your strong model instead. Both `route_and_load` (`match` + `revision` fields) and
+`get_skill` (header line `# Skill: <name>@<revision>`) hand you the identity. Mining counts a
+tagged trace toward that skill directly; untagged traces fall back to embedding relevance (the
+skill ranks in the top-5 for the task text — which still catches traffic a skill *should* have
+served but didn't route).
+
+A minimal sketch (Langfuse Python SDK v4 — the shape matters more than the SDK; on v3 the calls
+differ slightly):
+
+```python
+from langfuse import get_client
+
+lf = get_client()  # LANGFUSE_BASE_URL / _PUBLIC_KEY / _SECRET_KEY — same values as the compose stack
+r = route_and_load(task, harness="claude", cwd=cwd)             # via MCP
+tags = [r["match"], f"revision={r['match']}@{r['revision']}"] if r["match"] else ["novel"]
+with lf.propagate_attributes(tags=tags):
+    with lf.start_as_current_observation(name="serve", input={"task": task}) as span:
+        answer = my_agent(task, r["skill_body"])                # your harness, your models
+        span.update(output=answer)
+```
+
+With traces flowing, `docker compose run --rm optimize-mine <skill>` and the autopilot loop work
+unchanged. Two caveats: mining re-judges traffic with `JUDGE_MODEL` (on your API bill), and the
+optimizer's rollouts still execute on the bundled scaffold — set `MODEL` to your production
+serving model so what GEPA optimizes matches what you serve.
