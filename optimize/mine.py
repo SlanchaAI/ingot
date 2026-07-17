@@ -1,11 +1,13 @@
 """Success/failure mining — the SkillForge paper's Failure Analyzer over *our* real traces.
 
-Pulls logged agent runs from Langfuse, re-judges each outcome with the multi-dimensional judge, and
-aggregates which failure dimensions (correctness / completeness / instruction-following / efficiency)
-dominate — turning accumulated operational evidence into a diagnosis of where a skill is weak, plus
-the weakest real tasks as mined eval candidates. This is the signal that drives targeted optimization
-(the paper: Liu et al., "SkillForge: Forging Domain-Specific, Self-Evolving Agent Skills",
-arXiv:2604.08618).
+Pulls logged agent runs from Langfuse, keeps the ones attributable to the skill being mined
+(tagged with it, or ranking it in the embedding top-k for the task text — which also catches
+traffic the skill *should* have served but didn't route), re-judges each outcome with the
+multi-dimensional judge, and aggregates which failure dimensions (correctness / completeness /
+instruction-following / efficiency) dominate — turning accumulated operational evidence into a
+diagnosis of where a skill is weak, plus the weakest real tasks as mined eval candidates. This is
+the signal that drives targeted optimization (the paper: Liu et al., "SkillForge: Forging
+Domain-Specific, Self-Evolving Agent Skills", arXiv:2604.08618).
 
 Usage: python -m optimize.mine <skill> [--limit 50]
 """
@@ -57,11 +59,31 @@ def _task_answer(inp, ans):
     return None
 
 
+def relevant_traces(traces: list[dict], skill: str, k: int = 5) -> list[dict]:
+    """Traces attributable to `skill`: tagged with it (the canary and external harnesses tag the
+    routed skill), or ranking it in the embedding top-k for the task text. The rank check is what
+    catches traffic the skill *should* have served but didn't route — under-triggering, the common
+    routing failure — which a tag filter alone would attribute to the wrong skill."""
+    from mcp_server.registry import load_skills
+    from mcp_server.router import Router
+    router = Router(load_skills())
+    return [t for t in traces
+            if skill in t.get("tags", [])
+            or any(s["name"] == skill for s in router.suggest(t["task"], k=k, min_score=0.0))]
+
+
 def mine(skill: str, limit: int = 50, log=print) -> dict:
     log(f"[mine] pulling recent traces from Langfuse for '{skill}'…")
     traces = fetch_traces(limit)
     if not traces:
         raise SystemExit("No usable traces found — run the agent / optimizer first to generate some.")
+    total = len(traces)
+    traces = relevant_traces(traces, skill)
+    if not traces:
+        raise SystemExit(f"No traces relevant to '{skill}' among the last {total} — run the agent "
+                         "on matching traffic first (or check the skill name).")
+    log(f"[mine] {len(traces)}/{total} recent traces relevant to '{skill}' "
+        f"(tagged with it, or ranking it in the embedding top-5)")
 
     dim_failures = Counter()          # dimension -> how many traces failed it
     examples = defaultdict(list)      # dimension -> a few failing tasks

@@ -102,6 +102,14 @@ async def run_task(agent, task: str, config: dict | None = None, include_behavio
             if tc.get("name") == "get_skill":
                 loaded.append(tc.get("args", {}).get("name", "?"))
         content = getattr(m, "content", None)
+        if isinstance(content, list):  # MCP tool results arrive as content blocks
+            content = "\n".join(block.get("text", "") if isinstance(block, dict) else str(block)
+                                for block in content)
+        if isinstance(content, str) and content.startswith("# Skill: "):
+            # get_skill's header carries name@revision — upgrade the bare name from the tool call
+            identity = content.split("\n", 1)[0].removeprefix("# Skill: ").strip()
+            bare = identity.split("@", 1)[0]
+            loaded = [identity if item == bare else item for item in loaded]
         if isinstance(content, str) and content.lstrip().startswith("{"):
             try:
                 routed = json.loads(content)
@@ -146,10 +154,13 @@ async def main(task: str):
     print(f"TASK: {task}")
     print("=" * 64)
 
-    # 1) Proposed skills — one FastMCP client call; `.data` is the parsed list, no content-block plumbing.
+    # 1) Proposed skills — one FastMCP client session; `.data` is the parsed result, no
+    # content-block plumbing. route_and_load supplies the routed skill@revision for trace tags.
     from fastmcp import Client
     async with Client(MCP_URL) as client:
         proposals = (await client.call_tool("suggest_skills", {"task": task, "k": 5})).data
+        routed = (await client.call_tool(
+            "route_and_load", {"task": task, "harness": "claude", "cwd": "/app"})).data
     print("\nPROPOSED SKILLS (MCP suggest_skills):")
     for proposal in proposals:
         tag = " (related — compose/extend)" if proposal.get("related") else ""
@@ -172,7 +183,15 @@ async def main(task: str):
     else:
         print(f"\nSERVING MODEL: {MODEL}")
     agent = build_agent(await _connect(), strong=escalate)
-    final, loaded, usage = await run_task(agent, task, config=langfuse_config(tags=["demo"]))
+    # Trace tags: plain skill name feeds mine.py's relevance filter, revision=name@rev pins the
+    # exact version served, novel marks strong-model escalations — same convention as the canary
+    # and the one documented for external harnesses (README: Tracing from your own harness).
+    tags = ["demo", "novel"] if escalate else ["demo"]
+    if routed.get("match"):
+        tags.append(routed["match"])
+        if routed.get("revision"):
+            tags.append(f"revision={routed['match']}@{routed['revision']}")
+    final, loaded, usage = await run_task(agent, task, config=langfuse_config(tags=tags))
 
     print(f"\nLOADED SKILLS (MCP get_skill): {loaded or '(none)'}")
     print(f"TOKENS: {usage['input_tokens']} in / {usage['output_tokens']} out")

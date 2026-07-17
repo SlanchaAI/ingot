@@ -80,12 +80,15 @@ def suggest_skills(task: str, k: int = 5) -> list[dict]:
 
 @mcp.tool()
 def get_skill(name: str) -> str:
-    """Load one skill's instructions by exact name."""
+    """Load one skill's instructions by exact name. The header line carries the content-hash
+    revision (`# Skill: <name>@<revision>`) so harnesses can attribute traces to the exact
+    skill version they served."""
     STATE.refresh_if_changed()
     skill = STATE.by_name.get(name)
     if not skill:
         return f"No skill named '{name}'. Use suggest_skills or list_skills first."
-    return f"# Skill: {skill.name}\n{skill.description}\n\n{skill.body}"
+    identity = f"{skill.name}@{skill.revision}" if skill.revision else skill.name
+    return f"# Skill: {identity}\n{skill.description}\n\n{skill.body}"
 
 
 @mcp.tool()

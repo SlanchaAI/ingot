@@ -50,9 +50,38 @@ def test_fetch_traces_parses_langgraph_agent_traces(monkeypatch):
     assert out[1]["answer"] == "part1\npart2"
 
 
+def test_relevant_traces_keeps_tagged_or_embedding_ranked(monkeypatch):
+    class FakeRouter:
+        def __init__(self, skills):
+            pass
+
+        def suggest(self, task, k=5, min_score=0.0):
+            return [{"name": "excel"}] if "spreadsheet" in task else [{"name": "other"}]
+
+    monkeypatch.setattr("mcp_server.router.Router", FakeRouter)
+    monkeypatch.setattr("mcp_server.registry.load_skills", lambda: [])
+    traces = [
+        {"task": "spreadsheet lookup with discounts", "tags": []},   # ranked -> keep (misrouted traffic)
+        {"task": "rotate a pdf", "tags": ["excel"]},                 # tagged -> keep
+        {"task": "rotate a pdf", "tags": ["pdf"]},                   # neither -> drop
+    ]
+    assert mine.relevant_traces(traces, "excel") == traces[:2]
+
+
+def test_mine_exits_when_no_traces_are_relevant(monkeypatch):
+    import pytest
+    monkeypatch.setattr(mine, "fetch_traces",
+                        lambda limit: [{"task": "t", "rubric": "", "answer": "a", "tags": []}])
+    monkeypatch.setattr(mine, "relevant_traces", lambda traces, skill, k=5: [])
+    with pytest.raises(SystemExit) as exc:
+        mine.mine("pdf", log=lambda *a, **k: None)
+    assert "relevant to 'pdf'" in str(exc.value)
+
+
 def test_mine_aggregates_failure_dimensions_and_mines_weakest(monkeypatch):
     traces = [{"task": f"t{i}", "rubric": "r", "answer": "a", "tags": []} for i in range(3)]
     monkeypatch.setattr(mine, "fetch_traces", lambda limit: traces)
+    monkeypatch.setattr(mine, "relevant_traces", lambda t, skill, k=5: t)
     verdicts = iter([
         {"score": 0.1, "feedback": "f", "dimensions": {**{d: "pass" for d in DIMENSIONS}, "correctness": "wrong API"}},
         {"score": 0.2, "feedback": "f", "dimensions": {**{d: "pass" for d in DIMENSIONS}, "correctness": "also wrong"}},

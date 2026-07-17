@@ -53,6 +53,24 @@ def test_run_task_empty_messages_returns_blank():
     assert final == "" and loaded == [] and usage == {"input_tokens": 0, "output_tokens": 0}
 
 
+def test_run_task_upgrades_loaded_name_with_revision_from_get_skill_result():
+    msgs = [
+        _Msg(tool_calls=[{"name": "get_skill", "args": {"name": "pdf"}}]),
+        _Msg(content="# Skill: pdf@abc123\ndesc\n\nbody"),
+        _Msg(content="done"),
+    ]
+    final, loaded, _ = _run(msgs)
+    assert final == "done" and loaded == ["pdf@abc123"]
+    # MCP adapters deliver tool results as content blocks, not plain strings
+    msgs = [
+        _Msg(tool_calls=[{"name": "get_skill", "args": {"name": "pdf"}}]),
+        _Msg(content=[{"type": "text", "text": "# Skill: pdf@abc123\ndesc\n\nbody"}]),
+        _Msg(content="done"),
+    ]
+    _, loaded, _ = _run(msgs)
+    assert loaded == ["pdf@abc123"]
+
+
 def test_run_task_extracts_loaded_skill_from_route_and_load_result():
     msgs = [
         _Msg(tool_calls=[{"name": "route_and_load", "args": {"task": "merge PDFs"}}]),
