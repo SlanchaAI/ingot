@@ -142,6 +142,24 @@ def test_preflight_reports_every_conflicting_role(monkeypatch):
     assert "MODEL=" in text and "GEPA_MODEL=" in text and "JUDGE_MODEL" not in text
 
 
+def test_preflight_checks_strong_model_only_when_explicitly_set(monkeypatch):
+    import pytest
+    import optimize
+    monkeypatch.setenv("OPENROUTER_PROVIDERS", "fireworks")
+    monkeypatch.delenv("MODEL_BASE_URL", raising=False)
+    monkeypatch.delenv("OPENROUTER_BASE_URL", raising=False)
+    monkeypatch.setattr(optimize, "provider_conflict",
+                        lambda model, pins: f"nope for {model}")
+    monkeypatch.delenv("STRONG_MODEL", raising=False)
+    with pytest.raises(SystemExit) as exc:
+        optimize.preflight_provider_pins()
+    assert "STRONG_MODEL" not in str(exc.value)     # default = GEPA_MODEL, already checked
+    monkeypatch.setenv("STRONG_MODEL", "z-ai/glm-5.2-max")
+    with pytest.raises(SystemExit) as exc:
+        optimize.preflight_provider_pins()
+    assert "STRONG_MODEL=z-ai/glm-5.2-max" in str(exc.value)
+
+
 def test_preflight_skips_roles_on_local_endpoints(monkeypatch):
     import optimize
     monkeypatch.setenv("OPENROUTER_PROVIDERS", "fireworks")

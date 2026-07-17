@@ -3,7 +3,8 @@ loads the best skill's instructions, and follows them to solve the task. Prints 
 task -> proposed skills -> loaded skills -> result.
 
 Env: OPENROUTER_API_KEY (required unless MODEL_BASE_URL points at a local endpoint), MODEL,
-MODEL_BASE_URL (optional local vLLM/Ollama OpenAI-compatible endpoint), MCP_URL,
+MODEL_BASE_URL (optional local vLLM/Ollama OpenAI-compatible endpoint), STRONG_MODEL (serves
+novel no-skill tasks and authors the new skill; defaults to GEPA_MODEL), MCP_URL,
 LANGFUSE_PUBLIC_KEY / LANGFUSE_SECRET_KEY / LANGFUSE_BASE_URL (optional tracing).
 """
 import os
@@ -19,7 +20,13 @@ MODEL = os.environ.get("MODEL", "qwen/qwen3.6-27b")
 # Endpoint + ZDR handling is shared with the optimizer (single source of truth): OpenRouter
 # endpoints get the hardcoded zero-data-retention provider preference; MODEL_BASE_URL points this
 # serving role at a local vLLM/Ollama server instead (README: Privacy).
-from optimize import ZDR_PROVIDER, client_kwargs, model_api_key, model_base_url  # noqa: E402
+from optimize import ZDR_PROVIDER, api_key, client_kwargs, model_api_key, model_base_url, teacher_base_url  # noqa: E402
+
+
+def strong_model() -> str:
+    """Serving-time skill author: serves a request when no skill matches at all, so the new skill
+    is distilled from a strong solution. Defaults to the offline teacher (the GEPA skill author)."""
+    return os.environ.get("STRONG_MODEL") or os.environ.get("GEPA_MODEL", "z-ai/glm-5.2")
 
 INSTRUCTIONS = """You are a deep agent with access to a skill router over MCP.
 For every task, first call `suggest_skills`, then decide from what it returns. Only ever call
@@ -40,13 +47,19 @@ never just a description of, or reference to, files you created in your workspac
 see your workspace."""
 
 
-def build_agent(tools, instructions: str = INSTRUCTIONS):
-    """The deep agent, wired to the given tools. Reused by the A/B optimizer."""
+def build_agent(tools, instructions: str = INSTRUCTIONS, strong: bool = False):
+    """The deep agent, wired to the given tools. Reused by the A/B optimizer and GEPA rollouts,
+    which must stay on the weak MODEL (skills are optimized for the model that serves them) —
+    only the serving entrypoint passes strong=True, for novel tasks with no skill to load."""
     from langchain_openai import ChatOpenAI
     from deepagents import create_deep_agent
 
-    model = ChatOpenAI(model=MODEL, temperature=0,
-                       **client_kwargs(model_base_url(), key=model_api_key()))
+    if strong:
+        model = ChatOpenAI(model=strong_model(), temperature=0,
+                           **client_kwargs(teacher_base_url(), key=api_key()))
+    else:
+        model = ChatOpenAI(model=MODEL, temperature=0,
+                           **client_kwargs(model_base_url(), key=model_api_key()))
     return create_deep_agent(model=model, tools=tools, system_prompt=instructions)
 
 
@@ -150,8 +163,15 @@ async def main(task: str):
         print("        MODEL_BASE_URL at a local vLLM/Ollama endpoint — no key needed).")
         return
 
-    # 2) Deep agent autonomously loads a skill via get_skill and solves.
-    agent = build_agent(await _connect())
+    # 2) Deep agent autonomously loads a skill via get_skill and solves. No proposals at all
+    # (not even related) means the agent will author a new skill — escalate to the strong model
+    # so the persisted skill is distilled from a strong solution.
+    escalate = not proposals
+    if escalate:
+        print(f"\nSERVING MODEL: {strong_model()} (strong — no skill matched, will author one)")
+    else:
+        print(f"\nSERVING MODEL: {MODEL}")
+    agent = build_agent(await _connect(), strong=escalate)
     final, loaded, usage = await run_task(agent, task, config=langfuse_config(tags=["demo"]))
 
     print(f"\nLOADED SKILLS (MCP get_skill): {loaded or '(none)'}")

@@ -74,6 +74,50 @@ def test_behavior_events_capture_tool_order_and_hash_final_output():
     assert "sensitive final answer" not in str(events)
 
 
+def test_build_agent_strong_flag_selects_model_and_endpoint(monkeypatch):
+    # weak (default): MODEL on the serving endpoint; strong: strong_model() on the teacher
+    # endpoint — the weak/strong split must never leak the wrong key or base_url across roles
+    import agent.run as run_mod
+    import deepagents
+    import langchain_openai
+
+    captured = {}
+
+    class FakeChat:
+        def __init__(self, model, temperature, base_url, api_key, extra_body):
+            captured.update(model=model, base_url=base_url, api_key=api_key)
+
+    monkeypatch.setattr(langchain_openai, "ChatOpenAI", FakeChat)
+    monkeypatch.setattr(deepagents, "create_deep_agent",
+                        lambda model, tools, system_prompt: {"prompt": system_prompt})
+    monkeypatch.setenv("BASE_URL", "http://teacher:9000/v1")
+    monkeypatch.setenv("API_KEY", "teacher-key")
+    monkeypatch.setenv("MODEL_BASE_URL", "http://weak:8000/v1")
+    monkeypatch.setenv("MODEL_API_KEY", "weak-key")
+    monkeypatch.setenv("STRONG_MODEL", "strong/model")
+
+    agent = run_mod.build_agent([])
+    assert agent == {"prompt": run_mod.INSTRUCTIONS}
+    assert captured == {"model": run_mod.MODEL, "base_url": "http://weak:8000/v1",
+                        "api_key": "weak-key"}
+
+    run_mod.build_agent([], strong=True)
+    assert captured == {"model": "strong/model", "base_url": "http://teacher:9000/v1",
+                        "api_key": "teacher-key"}
+
+
+def test_strong_model_resolution(monkeypatch):
+    # STRONG_MODEL wins; falls back to GEPA_MODEL (the offline teacher), then the literal default
+    from agent.run import strong_model
+    monkeypatch.delenv("STRONG_MODEL", raising=False)
+    monkeypatch.delenv("GEPA_MODEL", raising=False)
+    assert strong_model() == "z-ai/glm-5.2"
+    monkeypatch.setenv("GEPA_MODEL", "teacher/model")
+    assert strong_model() == "teacher/model"
+    monkeypatch.setenv("STRONG_MODEL", "big/model")
+    assert strong_model() == "big/model"
+
+
 def test_serving_contract_requires_inline_deliverables():
     # the scaffold habit of writing code to its scratch FS and describing it must be countered in
     # BOTH serving contracts, symmetrically — production agent and A/B eval agent

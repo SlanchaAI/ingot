@@ -85,14 +85,19 @@ class Router:
         return True
 
     def route(self, task: str, harness: str, cwd: str, available_tools=(), available_mcps=(),
-              platform: str | None = None, min_score: float = 0.65) -> dict:
-        """Filter compatible skills, rank them locally, and return at most one instruction body."""
+              platform: str | None = None, min_score: float = 0.65,
+              related_score: float = 0.45) -> dict:
+        """Filter compatible skills, rank them locally, and return at most one instruction body.
+        `novel` is the escalation signal for the calling harness: True when nothing compatible is
+        even related (best score below `related_score`) — the case where a weak/strong setup should
+        serve with the strong model and persist its solution via create_skill."""
         eligible = [s for s in self.skills if self._compatible(
             s, harness.lower(), cwd, set(available_tools), set(available_mcps), self._platform(platform)
         )]
         empty = {
             "match": None, "score": 0.0, "reason": "no compatible skill candidates",
             "skill_body": "", "skill_root": None, "revision": None, "alternatives": [],
+            "novel": True,
         }
         if not eligible:
             return empty
@@ -121,7 +126,7 @@ class Router:
         if score < min_score:
             return {**empty, "score": round(score, 3),
                     "reason": f"best compatible score {score:.3f} below threshold {min_score:.3f}",
-                    "alternatives": alternatives}
+                    "alternatives": alternatives, "novel": score < related_score}
         return {
             "match": top.name,
             "score": round(score, 3),
@@ -130,4 +135,5 @@ class Router:
             "skill_root": top.root or str(os.path.dirname(top.path)),
             "revision": top.revision or None,
             "alternatives": alternatives,
+            "novel": False,
         }
