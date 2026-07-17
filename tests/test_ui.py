@@ -105,7 +105,9 @@ def test_cross_origin_promote_and_reject_refused(client):
 
 def test_config_reports_langfuse_url(client, monkeypatch):
     monkeypatch.setenv("LANGFUSE_PUBLIC_URL", "http://example.test:3100")
-    assert client.get("/api/config").json() == {"langfuse_url": "http://example.test:3100"}
+    monkeypatch.delenv("CARN_DIR", raising=False)
+    assert client.get("/api/config").json() == {"langfuse_url": "http://example.test:3100",
+                                                "carn_enabled": False}
 
 
 def test_runs_empty_by_default(client):
