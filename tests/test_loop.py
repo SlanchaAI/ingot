@@ -31,3 +31,28 @@ def test_loop_optimizes_when_no_trace_signal(monkeypatch):
     monkeypatch.setattr(L, "run_ab", lambda skill, **k: {"improved": True, "gate": {"promotable": True}})
     res = L.loop(["pdf"])
     assert res["pdf"]["optimized"] is True   # no signal -> optimize rather than assume healthy
+
+
+def test_loop_runs_description_pass_when_configured(monkeypatch):
+    monkeypatch.setattr(L, "mine", lambda skill, log=print: {"mean_score": 0.3, "traces": 5})
+    order = []
+    monkeypatch.setattr(L, "PASSES", ["body", "description"])
+    monkeypatch.setattr(L, "run_ab",
+                        lambda skill, **k: order.append("body") or {"improved": False,
+                                                                    "gate": {"promotable": False}})
+    import optimize.routing as routing_mod
+    monkeypatch.setattr(routing_mod, "run_routing",
+                        lambda skill, **k: order.append("description") or {"improved": True,
+                                                                           "gate": {"promotable": True}})
+    res = L.loop(["pdf"])
+    assert order == ["body", "description"]                      # greedy, in order
+    assert res["pdf"]["gate"]["promotable"] is True              # the promotable pass surfaces
+    assert res["pdf"]["improved"] is True
+
+
+def test_loop_rejects_unknown_pass(monkeypatch):
+    import pytest
+    monkeypatch.setattr(L, "mine", lambda skill, log=print: {"mean_score": 0.1, "traces": 5})
+    monkeypatch.setattr(L, "PASSES", ["body", "bodyy"])
+    with pytest.raises(SystemExit, match="bodyy"):
+        L.loop(["pdf"])
