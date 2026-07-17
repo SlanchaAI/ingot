@@ -10,7 +10,7 @@ def test_missing_key_exits_with_setup_help(monkeypatch, capsys):
         require_openrouter_key()
     assert exc.value.code == 1
     err = capsys.readouterr().err
-    assert "OPENROUTER_API_KEY" in err
+    assert "API key" in err and "BASE_URL" in err
     assert ".env.example" in err
     assert "openrouter.ai/keys" in err
 
@@ -184,3 +184,38 @@ def test_invoke_retry_still_retries_transient_errors(monkeypatch):
             return "answer"
     assert judge_mod.invoke_retry(Flaky(), []) == "answer"
     assert Flaky.calls == 3
+
+
+def test_generic_base_url_and_api_key_win_with_legacy_fallback(monkeypatch):
+    from optimize import api_key, model_api_key, teacher_base_url
+    monkeypatch.delenv("BASE_URL", raising=False)
+    monkeypatch.delenv("OPENROUTER_BASE_URL", raising=False)
+    monkeypatch.setenv("OPENROUTER_API_KEY", "sk-or-legacy")
+    monkeypatch.delenv("API_KEY", raising=False)
+    monkeypatch.delenv("MODEL_API_KEY", raising=False)
+    assert api_key() == "sk-or-legacy"                      # legacy fallback
+    monkeypatch.setenv("API_KEY", "fw_generic")
+    assert api_key() == "fw_generic"                        # generic wins
+    assert model_api_key() == "fw_generic"                  # serving role falls back to shared
+    monkeypatch.setenv("MODEL_API_KEY", "fw_model_role")
+    assert model_api_key() == "fw_model_role"
+    monkeypatch.setenv("BASE_URL", "https://api.fireworks.ai/inference/v1")
+    assert teacher_base_url() == "https://api.fireworks.ai/inference/v1"
+
+
+def test_hosted_https_endpoint_requires_a_key(monkeypatch):
+    from optimize import openrouter_key_missing
+    for var in ("API_KEY", "OPENROUTER_API_KEY", "MODEL_API_KEY", "MODEL_BASE_URL"):
+        monkeypatch.delenv(var, raising=False)
+    monkeypatch.setenv("BASE_URL", "https://api.fireworks.ai/inference/v1")
+    assert openrouter_key_missing() is True                 # hosted endpoint, no key
+    monkeypatch.setenv("API_KEY", "fw_x")
+    assert openrouter_key_missing() is False
+
+
+def test_fireworks_direct_gets_clean_openai_request(monkeypatch):
+    from optimize import client_kwargs
+    monkeypatch.setenv("API_KEY", "fw_x")
+    kw = client_kwargs("https://api.fireworks.ai/inference/v1")
+    assert kw == {"base_url": "https://api.fireworks.ai/inference/v1", "api_key": "fw_x",
+                  "extra_body": {}}                          # no OpenRouter provider prefs

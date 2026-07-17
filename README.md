@@ -32,23 +32,27 @@ challenger through the full agent** on held-out tasks; you review the diff and s
 - **Localhost only.** No service is reachable off the machine
   (see [Network exposure](#network-exposure)).
 
-The only data that leaves your machine is the LLM traffic itself, under ZDR — and you can remove
-even that: point `MODEL_BASE_URL` (the serving model: agent runs, A/B eval agents, GEPA rollouts)
-or `OPENROUTER_BASE_URL` (everything, including the teacher and judge) at any local
-OpenAI-compatible endpoint — vLLM, Ollama, llama.cpp:
+The only data that leaves your machine is the LLM traffic itself, under ZDR — and the endpoint is
+yours to choose: `BASE_URL` + `API_KEY` point everything at **any OpenAI-compatible provider**
+(`MODEL_BASE_URL`/`MODEL_API_KEY` override just the serving role for hybrid setups):
 
 ```bash
-# agent runs on your local vLLM; teacher/judge stay on OpenRouter under ZDR
-MODEL_BASE_URL=http://localhost:8000/v1  MODEL=Qwen/Qwen3-32B  docker compose run --rm agent "…"
+# provider-direct, e.g. Fireworks (zero data retention per Fireworks' serverless policy):
+BASE_URL=https://api.fireworks.ai/inference/v1
+API_KEY=fw_...
+MODEL=accounts/fireworks/models/qwen3p7-plus
+GEPA_MODEL=accounts/fireworks/models/glm-5p2
+JUDGE_MODEL=accounts/fireworks/models/deepseek-v4-pro
 
-# fully local (no OpenRouter key needed at all): everything on Ollama
-OPENROUTER_BASE_URL=http://localhost:11434/v1  MODEL=qwen3:32b  GEPA_MODEL=qwen3:32b \
-  JUDGE_MODEL=llama3.3:70b  docker compose run --rm optimize excel-formulas
+# fully local (no key needed at all): everything on Ollama / vLLM
+BASE_URL=http://172.17.0.1:11434/v1  MODEL=qwen3:32b  GEPA_MODEL=qwen3:32b  JUDGE_MODEL=llama3.3:70b
 ```
 
-Local endpoints get no OpenRouter provider preferences attached (they wouldn't understand them),
-and no API key is required when nothing points at OpenRouter. From inside the compose containers,
-"localhost" is the container — use your host's LAN IP (or `172.17.0.1` on Linux) in the URL.
+The hardcoded ZDR provider preference applies to OpenRouter endpoints; provider-direct endpoints
+get a clean OpenAI-compatible request under that vendor's own retention policy, and local
+endpoints are the strongest privacy of all. No API key is required when nothing points at a hosted
+endpoint. From inside the compose containers, "localhost" is the container — use your host's LAN
+IP (or `172.17.0.1` on Linux).
 
 ## Tutorial
 
@@ -416,8 +420,9 @@ Set in `.env` (never committed):
 |-----|---------|-------|
 | `OPENROUTER_API_KEY` | — | required ([get one](https://openrouter.ai/keys)) |
 | `MODEL` | `qwen/qwen3.6-27b` | the agent — everything that *executes* skills, incl. GEPA rollouts |
-| `MODEL_BASE_URL` | `OPENROUTER_BASE_URL` | point the serving-model role at a local OpenAI-compatible endpoint (vLLM/Ollama) |
-| `OPENROUTER_BASE_URL` | `https://openrouter.ai/api/v1` | endpoint for everything else (teacher, judge); set to a local URL to go fully local — no key needed |
+| `BASE_URL` | `https://openrouter.ai/api/v1` | endpoint for everything — any OpenAI-compatible provider (Fireworks/Together direct, local vLLM/Ollama); `OPENROUTER_BASE_URL` is the legacy alias |
+| `API_KEY` | — | bearer token for `BASE_URL`; `OPENROUTER_API_KEY` is the legacy alias. Local `http://` endpoints need no key |
+| `MODEL_BASE_URL` / `MODEL_API_KEY` | `BASE_URL` / `API_KEY` | serving-role-only overrides (agent runs, A/B agents, GEPA rollouts) for hybrid setups |
 | `OPENROUTER_PROVIDERS` | — | optional provider allowlist (e.g. `fireworks,deepinfra` → `provider.only`) — composes with ZDR, trades pool resilience for vendor predictability; pin/model conflicts are caught at startup with the list of providers that do serve each model |
 | `GEPA_MODEL` | `z-ai/glm-5.2` | GEPA's reflection LM (the skill author) |
 | `JUDGE_MODEL` | `google/gemini-2.5-flash` | the LLM judge — must differ from `GEPA_MODEL` (anti reward-hacking) |
