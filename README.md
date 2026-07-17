@@ -89,6 +89,8 @@ docker compose run --rm agent "How do I merge several PDFs into one and add page
 PROPOSED SKILLS (MCP suggest_skills):
     0.74  pdf — Use this skill whenever the user wants to do anything with PDF files...
 
+SERVING MODEL: qwen/qwen3.6-27b
+
 LOADED SKILLS (MCP get_skill): ['pdf']
 TOKENS: 23233 in / 698 out
 
@@ -98,6 +100,8 @@ RESULT:
 ```
 
 The agent asked the router (`suggest_skills`), loaded the top match (`get_skill`), and followed it.
+The `SERVING MODEL` line is the weak/strong split at work: a routed task runs on the cheap `MODEL`
+because the skill carries the method — only truly novel tasks escalate to `STRONG_MODEL` (step 11).
 Open **http://localhost:3100** (login `demo@local.dev` / `localdemo123` — local demo literals baked
 into the compose file, not secrets) to see the full trace: every tool call, LLM call, and token count.
 
@@ -134,6 +138,8 @@ docker compose run --rm agent "For each order in A2:D500, look up the customer t
 ```
 PROPOSED SKILLS (MCP suggest_skills):
     0.62  api-rate-limiting-helper (related — compose/extend) — Designs rate limiting strategies...
+
+SERVING MODEL: qwen/qwen3.6-27b
 
 LOADED SKILLS (MCP get_skill): (none)
 TOKENS: 46428 in / 3512 out
@@ -346,14 +352,22 @@ trigger — write it "pushy", starting with "Use this skill when…", since unde
 common failure; and as step 7 showed, the description pass can fix it for you afterwards).
 
 **Let the agent write one** — when `suggest_skills` returns an empty list (nothing even related),
-the agent solves the task itself and persists what it learned via the `create_skill` MCP tool:
+the request escalates to `STRONG_MODEL` (defaults to `GEPA_MODEL`, the same teacher that rewrites
+skills offline): it solves the task and persists what it learned via the `create_skill` MCP tool.
+The new skill is distilled from a strong solution, and the next similar request routes to it on the
+cheap `MODEL`:
 
 ```bash
 docker compose run --rm agent "Plan a strict low-FODMAP weekly dinner menu for two people"
 # PROPOSED SKILLS (MCP suggest_skills):            <- empty: no skill covers this
+# SERVING MODEL: z-ai/glm-5.2 (strong — no skill matched, will author one)
 # ... solves the task ...
 # mcp log: [ingot] created skill 'low-fodmap-meal-planning' — live immediately
 ```
+
+How often this fires is governed by `RELATED_SCORE`: the nearest-skill similarity floor rises with
+library size (with ~70 skills even unrelated tasks score ≈0.5 against their closest neighbor), so
+raise it if truly novel tasks keep landing in the related band instead of escalating.
 
 **Compose instead of sprawl** — if a skill is merely *related* (similarity in a band below the
 routing threshold), `suggest_skills` returns it flagged `related: true` and the agent is told to
@@ -430,9 +444,10 @@ Set in `.env` (never committed):
 | `MODEL_BASE_URL` / `MODEL_API_KEY` | `BASE_URL` / `API_KEY` | serving-role-only overrides (agent runs, A/B agents, GEPA rollouts) for hybrid setups |
 | `OPENROUTER_PROVIDERS` | — | optional provider allowlist (e.g. `fireworks,deepinfra` → `provider.only`) — composes with ZDR, trades pool resilience for vendor predictability; pin/model conflicts are caught at startup with the list of providers that do serve each model |
 | `GEPA_MODEL` | `z-ai/glm-5.2` | GEPA's reflection LM (the skill author) |
+| `STRONG_MODEL` | `GEPA_MODEL` | serves novel requests: when the router finds no skill at all, the agent runs on this model instead of `MODEL` (weak/strong split at serving time), solves the task, and authors the new skill — so persisted skills are distilled from a strong solution. Uses the `BASE_URL` endpoint |
 | `JUDGE_MODEL` | `google/gemini-2.5-flash` | the LLM judge — must differ from `GEPA_MODEL` (anti reward-hacking) |
 | `MIN_SCORE` | `0.65` | at/above → routable match; below → `related` band or novel |
-| `RELATED_SCORE` | `0.45` | floor of the `related` (compose/extend) band below `MIN_SCORE` |
+| `RELATED_SCORE` | `0.45` | floor of the `related` (compose/extend) band below `MIN_SCORE`; below it a task is *novel* (weak/strong escalation) |
 | `EMBED_MODEL` | `BAAI/bge-small-en-v1.5` | router embedding model — keep in sync with the Dockerfile's `EMBED_MODEL` build arg |
 | `BODY_TARGET_CHARS` | `6000` | GEPA's length penalty starts past this body size |
 | `LENGTH_PENALTY` | `0.10` | max score subtracted for a very long body |
@@ -458,11 +473,29 @@ the A/B always run on the model the skills will actually serve.
   - `create_skill(name, description, body)` — persist a new agent-authored skill (never overwrites)
   - `reload_skills()` — hot reload after promotion/creation (or `docker compose restart mcp`)
   - `route_and_load(task, harness, cwd, available_tools, available_mcps)` — optional one-round-trip
-    selection for external clients; returns one compatible skill body or no match
-- **`agent/run.py`** — [deepagents](https://github.com/langchain-ai/deepagents) LangGraph agent wired to those tools via `langchain-mcp-adapters`, traced to Langfuse.
+    selection for external clients; returns one compatible skill body or no match, plus a `novel`
+    flag — the weak/strong escalation signal (see [Bring your own agent](#bring-your-own-agent-mcp-only))
+- **`agent/run.py`** — [deepagents](https://github.com/langchain-ai/deepagents) LangGraph agent wired to those tools via `langchain-mcp-adapters`, traced to Langfuse. Serves routed tasks on the weak `MODEL` and escalates truly novel tasks (empty `suggest_skills`) to `STRONG_MODEL`, which authors the new skill.
 - **`skills/<name>/SKILL.md`** — YAML `description` is the routing key; the body is what the agent loads.
 - **`optimize/`** — success/failure mining over real traces (`mine.py`), multi-dimensional LLM judge (`judge.py`), GEPA loop over the skill description/body with diagnose→minimal-edit reflection (`gepa_loop.py`), A/B + revisioned evidence (`ab.py`), live **canary** promotion (`canary.py`), snapshot/staged promotion with rollback (`promote.py`), per-role token ledger (`usage.py`). A/B agents get mutation tools stripped, so evals can't alter the library. Promotion records the exact skill revisions plus `evidence.json`/`EVIDENCE.md`, and refuses stale or mismatched revisions. The mining + categorized-failure ideas are borrowed from [SkillForge (Liu et al., arXiv:2604.08618)](https://arxiv.org/abs/2604.08618).
 - **`ui/`** — FastAPI approval UI (one HTML page, no build step).
+
+### Bring your own agent (MCP only)
+
+Most deployments use just the MCP server with their own harness (Claude Code, Codex, a custom
+agent) — the bundled `agent/run.py` is a reference client, not a requirement. Point your harness at
+`http://localhost:8000/mcp` and call `route_and_load` once per request; its result is a three-way
+branch:
+
+- **`match`** — follow `skill_body`; a weak/cheap model suffices, the skill carries the method.
+- **no match, `novel: false`** — related skills exist: call `suggest_skills` and compose or extend
+  the closest instead of authoring a duplicate.
+- **`novel: true`** — nothing even related. Serve the request with your strong model and have it
+  persist its solution as a reusable skill via `create_skill` — the library grows exactly where
+  routing failed, and the next similar request routes to the new skill on the weak model.
+
+That three-way branch is the weak/strong serving split; the bundled agent implements the same
+policy with `MODEL` (weak) and `STRONG_MODEL` (strong, defaults to `GEPA_MODEL`).
 
 ### Optional shared skill roots
 

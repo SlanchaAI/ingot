@@ -129,10 +129,14 @@ def reload_skills() -> str:
 @mcp.tool()
 def route_and_load(task: str, harness: str, cwd: str, available_tools: list[str] | None = None,
                    available_mcps: list[str] | None = None) -> dict:
-    """Select one compatible skill for a task and return its instructions, or return no match."""
+    """Select one compatible skill for a task and return its instructions, or return no match.
+    The result's `novel` flag is the weak/strong routing signal for the calling harness:
+    a `match` -> follow `skill_body` (a weak/cheap model suffices); no match with `novel` false ->
+    related skills exist (see suggest_skills) to compose or extend; `novel` true -> nothing even
+    related, so serve with your strong model and persist its solution via create_skill."""
     STATE.refresh_if_changed()
     return STATE.router.route(task, harness, cwd, available_tools or [], available_mcps or [],
-                              min_score=MIN_SCORE)
+                              min_score=MIN_SCORE, related_score=RELATED_SCORE)
 
 
 if __name__ == "__main__":

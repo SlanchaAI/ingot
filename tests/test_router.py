@@ -76,6 +76,21 @@ def test_route_returns_clean_no_match_below_threshold():
     assert "threshold" in result["reason"]
 
 
+def test_route_novel_flag_signals_weak_strong_escalation():
+    router = Router([_skill("pdf", "Merge and edit PDF documents.")])
+    assert router.route("merge PDF files", "codex", "/tmp", min_score=0.0)["novel"] is False
+    # no match but still related -> compose/extend territory, weak model keeps serving
+    related = router.route("split a PDF into chapters", "codex", "/tmp",
+                           min_score=0.99, related_score=0.0)
+    assert related["match"] is None and related["novel"] is False
+    # nothing even related -> the harness should escalate to its strong model + create_skill
+    novel = router.route("photosynthesis in plants", "codex", "/tmp",
+                         min_score=0.99, related_score=0.98)
+    assert novel["match"] is None and novel["novel"] is True
+    # an empty/incompatible candidate set is also novel
+    assert Router([]).route("anything", "codex", "/tmp")["novel"] is True
+
+
 @pytest.mark.parametrize("skill_metadata,context", [
     ({"harnesses": ["claude"]}, {"harness": "codex"}),
     ({"platforms": ["linux"]}, {"platform": "macos"}),
