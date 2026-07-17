@@ -30,7 +30,8 @@ bundled reference files) is provided below — follow it to complete the user's 
 
 {skill}"""
 
-from . import client_kwargs, is_openrouter, model_base_url, openrouter_extra_body, teacher_base_url  # noqa: E402
+from . import (client_kwargs, is_openrouter, model_api_key, model_base_url,  # noqa: E402
+               openrouter_extra_body, teacher_base_url)
 from .judge import invoke_retry, judge  # noqa: E402
 from . import usage as usage_ledger  # noqa: E402
 
@@ -54,7 +55,8 @@ class SkillAdapter:
 
     def __init__(self, frozen: dict[str, str] | None = None):
         self._frozen = frozen or {}
-        self._llm = ChatOpenAI(model=MODEL, temperature=0, **client_kwargs(model_base_url()))
+        self._llm = ChatOpenAI(model=MODEL, temperature=0,
+                               **client_kwargs(model_base_url(), key=model_api_key()))
 
     def _rollout(self, system, ex):
         msg = invoke_retry(self._llm, [("system", system), ("user", ex["task"])])
