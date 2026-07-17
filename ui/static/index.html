@@ -172,6 +172,25 @@
   .empty code { font-family: var(--mono); background: var(--paper-3); color: var(--ink);
     padding: .05rem .35rem; border-radius: 4px; }
 
+  /* tracked-but-not-yet-optimizable inventory — the router's real roster, muted */
+  .subhead { display: flex; align-items: baseline; justify-content: space-between; gap: 1rem;
+    margin-top: 2.2rem; padding-top: .5rem; border-top: 1px solid var(--line);
+    font-family: var(--mono); font-size: .68rem; letter-spacing: .1em; text-transform: uppercase; color: var(--ink-2); }
+  .subhead .side { color: var(--ink-3); }
+  .subnote { font-size: .82rem; color: var(--ink-3); margin: .5rem 0 0; max-width: 46rem; text-wrap: pretty; }
+  .subnote code { font-family: var(--mono); background: var(--paper-3); color: var(--ink-2);
+    padding: .05rem .35rem; border-radius: 4px; }
+  .skilllist.tracked { margin-top: .8rem; border-top: 1px solid var(--line); }
+  .srow.muted { padding: .62rem .45rem; }
+  .srow.muted .sname { color: var(--ink-2); font-weight: 500; }
+  .srow.muted .sdesc { -webkit-line-clamp: 1; }
+  .srow.muted:hover { background: var(--paper-2); }
+  .srow.muted .hint { font-family: var(--mono); font-size: .68rem; color: var(--ink-3);
+    margin-left: auto; white-space: nowrap; align-self: center; }
+  .srow.muted .hint code { background: var(--paper-2); color: var(--ink-2); padding: .05rem .35rem;
+    border-radius: 4px; }
+  @media (max-width: 620px) { .srow.muted .hint { margin-left: 0; flex-basis: 100%; white-space: normal; } }
+
   /* ---- optimizer log ---- */
   .log { font-family: var(--mono); font-size: .74rem; line-height: 1.6; margin-top: 1.1rem;
     background: var(--paper-2); border: 1px solid var(--line); border-radius: 9px;
@@ -303,6 +322,15 @@
     <p class="sub">Each row is a skill that has an eval task set. Optimize runs GEPA + A/B; a scored
       challenger surfaces here for review before it can be promoted.</p>
     <div class="skilllist" id="skills-list"></div>
+
+    <div id="untracked-wrap" hidden>
+      <div class="subhead"><span>Tracked · not yet optimizable</span>
+        <span class="side" id="untracked-count"></span></div>
+      <p class="subnote">These skills are registered in the router but have no eval task set, so they
+        can't be optimized yet. Add <code>optimize/tasks/&lt;skill&gt;.yaml</code> for any of them and it
+        moves up to the list above, ready to optimize.</p>
+      <div class="skilllist tracked" id="untracked-list"></div>
+    </div>
   </section>
 
   <section class="band" id="run-section" hidden>
@@ -396,8 +424,8 @@ function renderBoard(skills, withTasks) {
   if (pending) alerts.push(alert("act", "REVIEW",
     `${pending} scored challenger${pending > 1 ? "s" : ""} awaiting your decision — see Review below.`));
   if (running) alerts.push(alert("info", "RUNNING", "an optimization is in progress — watch the log."));
-  if (!withTasks.length) alerts.push(alert("warn", "NO TASK SETS",
-    "no skills have eval task sets yet; add optimize/tasks/&lt;skill&gt;.yaml to make one optimizable."));
+  if (!withTasks.length) alerts.push(alert("info", "GET STARTED",
+    `${skills.length} skill${skills.length === 1 ? "" : "s"} tracked, none optimizable yet — add an eval task set to a skill below to begin.`));
   else if (!pending && !running) alerts.push(alert("ok", "IDLE",
     "every evaluated skill is at its champion; nothing awaiting review."));
   $("#attention").innerHTML = alerts.join("");
@@ -408,34 +436,54 @@ function renderBoard(skills, withTasks) {
   else { pill.className = "pill idle"; pill.textContent = "idle"; }
 }
 
-function renderSkills(withTasks) {
+function renderSkills(skills, withTasks) {
   if (!withTasks.length) {
     $("#skills-list").innerHTML =
-      `<div class="empty"><div class="et">No eval task sets yet.</div>
-       <div class="ed">A skill becomes optimizable once it has an eval task set. Add
-       <code>optimize/tasks/&lt;skill&gt;.yaml</code> and it will appear here to optimize.</div></div>`;
-    return;
+      `<div class="empty"><div class="et">No skill has an eval task set yet.</div>
+       <div class="ed">Optimization needs a scoring rubric to A/B against. Add
+       <code>optimize/tasks/&lt;skill&gt;.yaml</code> for any skill below and it moves up here, ready to optimize.</div></div>`;
+  } else {
+    $("#skills-list").innerHTML = withTasks.map(s => `
+      <div class="srow${s.pending ? " pend" : ""}">
+        <div class="main">
+          <div class="nameline"><span class="sname">${esc(s.name)}</span>${statusChip(s)}</div>
+          <p class="sdesc">${esc(s.description)}</p>
+        </div>
+        <div class="sactions">
+          <button class="btn" onclick="optimize('${esc(s.name)}')" ${s.status === "running" ? "disabled" : ""}>
+            ${s.status === "running" ? "optimizing…" : "Optimize"}</button>
+          ${s.pending ? `<button class="btn primary" onclick="showPending('${esc(s.name)}')">Review challenger</button>` : ""}
+        </div>
+      </div>`).join("");
   }
-  $("#skills-list").innerHTML = withTasks.map(s => `
-    <div class="srow${s.pending ? " pend" : ""}">
-      <div class="main">
-        <div class="nameline"><span class="sname">${esc(s.name)}</span>${statusChip(s)}</div>
-        <p class="sdesc">${esc(s.description)}</p>
-      </div>
-      <div class="sactions">
-        <button class="btn" onclick="optimize('${esc(s.name)}')" ${s.status === "running" ? "disabled" : ""}>
-          ${s.status === "running" ? "optimizing…" : "Optimize"}</button>
-        ${s.pending ? `<button class="btn primary" onclick="showPending('${esc(s.name)}')">Review challenger</button>` : ""}
-      </div>
-    </div>`).join("");
+
+  // the rest of the router's roster: registered, but no eval set yet — real inventory, not a blank
+  const untracked = skills.filter(s => !s.has_tasks);
+  const wrap = $("#untracked-wrap");
+  wrap.hidden = !untracked.length;
+  if (untracked.length) {
+    $("#untracked-count").textContent = `${untracked.length} skill${untracked.length > 1 ? "s" : ""}`;
+    $("#untracked-list").innerHTML = untracked.map(s => `
+      <div class="srow muted">
+        <div class="main">
+          <div class="nameline"><span class="sname">${esc(s.name)}</span></div>
+          <p class="sdesc">${esc(s.description)}</p>
+        </div>
+        <span class="hint">add <code>optimize/tasks/${esc(s.name)}.yaml</code></span>
+      </div>`).join("");
+  }
 }
 
 async function refresh() {
   const [skills, runs] = await Promise.all([j("/api/skills"), j("/api/runs")]);
   const withTasks = skills.filter(s => s.has_tasks);
   renderBoard(skills, withTasks);
-  renderSkills(withTasks);
-  if (!booted) { staggerIn("#attention .alert"); staggerIn("#skills-list .srow"); booted = true; }
+  renderSkills(skills, withTasks);
+  if (!booted) {
+    staggerIn("#attention .alert");
+    staggerIn(withTasks.length ? "#skills-list .srow" : "#untracked-list .srow");
+    booted = true;
+  }
 
   const active = Object.entries(runs).filter(([, r]) => r.log.length);
   if (active.length) {
