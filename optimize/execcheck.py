@@ -1,19 +1,34 @@
 """Execution-based code validation — an *objective* signal that grounds the LLM judge so it can't be
 talked into rating broken code highly (the judge reads code; it doesn't run it).
 
-Static by default (safe): extract python blocks and `ast.parse` them — catches "described code but
-wrote none" and syntax errors. Opt-in `EXEC_SANDBOX=1` additionally *runs* the code in a subprocess
-with a timeout and classifies the failure: a SyntaxError/NameError/ImportError means the code is
+Always static first: extract python blocks and `ast.parse` them — catches "described code but
+wrote none" and syntax errors. Execution is sandboxed by default and fails closed:
+
+- `EXEC_SANDBOX=docker` (the default) runs the code in a throwaway locked-down container — no
+  network, no mounts, dropped capabilities, nobody user, memory/pid limits (`SANDBOX_RUNTIME=runsc`
+  upgrades to gVisor kernel isolation once installed). If docker is unreachable the check is
+  inconclusive; there is never a silent fallback to bare execution.
+- `EXEC_SANDBOX=1` (legacy) runs it as a bare subprocess with only a stripped env and a timeout —
+  same user, same filesystem, same network. Only use inside a disposable container you trust the
+  judged code to roam.
+- `EXEC_SANDBOX=off` disables execution entirely: static checks only, `check:` specs inconclusive.
+
+Either way the failure is classified: a SyntaxError/NameError/ImportError means the code is
 broken regardless of inputs, while a FileNotFoundError-style error is inconclusive (a missing test
 fixture, not a code defect) and is NOT held against the answer."""
 import ast
+import json
 import os
 import re
 import subprocess
 import sys
 import tempfile
+import uuid
 
-EXEC_SANDBOX = os.environ.get("EXEC_SANDBOX", "") == "1"
+EXEC_MODE = os.environ.get("EXEC_SANDBOX", "docker")  # "docker" (default) | "1" (bare) | off
+EXEC_SANDBOX = EXEC_MODE == "1"                       # the legacy bare-subprocess opt-in
+SANDBOX_IMAGE = os.environ.get("SANDBOX_IMAGE", "ingot-optimize")
+SANDBOX_RUNTIME = os.environ.get("SANDBOX_RUNTIME", "")     # e.g. runsc (gVisor), if installed
 _CODE = re.compile(r"```(?:python|py)?\s*\n(.*?)```", re.DOTALL)
 _CODE_KEYWORDS = ("code", "script", "python", "function", "def ", "pypdf", "runnable")
 # runtime errors that mean "missing fixture / environment", not "the code is wrong"
@@ -33,6 +48,50 @@ def _python_blocks(answer: str) -> list[str]:
     return [b for b in _CODE.findall(answer) if any(k in b for k in markers)]
 
 
+def _failure(stderr: str, error_status: str, inconclusive_status: str, note: str) -> dict:
+    """Classify a nonzero-exit stderr: environment-shaped errors are inconclusive, the rest are
+    genuine code defects."""
+    last = (stderr.strip().splitlines() or ["nonzero exit"])[-1]
+    if any(k in stderr for k in _INCONCLUSIVE):
+        return {"status": inconclusive_status, "detail": f"{last[:100]} ({note})"}
+    return {"status": error_status, "detail": last[:120]}
+
+
+def _sandbox(spec: dict, timeout: int) -> dict | None:
+    """Run {fixture, code, assertion} through sandbox_driver in a throwaway locked-down container.
+    Returns the driver's verdict dict, or None when the sandbox itself is unavailable or broke —
+    the caller reports inconclusive (fail closed); there is never a bare-subprocess fallback.
+    The flags are the containment: no network, no mounts, read-only rootfs with tmpfs scratch,
+    nobody user, dropped capabilities, memory/pid/cpu limits. SANDBOX_RUNTIME=runsc swaps in
+    gVisor's userspace kernel for true syscall isolation once it's installed on the host."""
+    name = f"ingot-sandbox-{uuid.uuid4().hex[:12]}"
+    cmd = ["docker", "run", "--rm", "-i", "--name", name,
+           "--network", "none", "--read-only",
+           "--tmpfs", "/work:rw,size=64m,uid=65534,gid=65534",
+           "--tmpfs", "/tmp:rw,size=16m,uid=65534,gid=65534",
+           "--workdir", "/work", "--user", "65534:65534",
+           "--cap-drop", "ALL", "--security-opt", "no-new-privileges",
+           "--memory", "512m", "--memory-swap", "512m", "--pids-limit", "128", "--cpus", "1",
+           "--env", "PYTHONPATH=/app"]
+    if SANDBOX_RUNTIME:
+        cmd += ["--runtime", SANDBOX_RUNTIME]
+    cmd += [SANDBOX_IMAGE, "python", "-m", "optimize.sandbox_driver"]
+    try:
+        run = subprocess.run(cmd, input=json.dumps({**spec, "timeout": timeout}),
+                             capture_output=True, text=True, timeout=timeout * 3 + 30)
+    except FileNotFoundError:
+        return None                                   # no docker CLI in this environment
+    except subprocess.TimeoutExpired:
+        subprocess.run(["docker", "kill", name], capture_output=True)
+        return {"phase": "sandbox", "returncode": -1, "stderr": "", "timeout": True}
+    if run.returncode != 0:
+        return None                                   # docker infra failure (no socket, no image)
+    try:
+        return json.loads(run.stdout.strip().splitlines()[-1])
+    except (ValueError, IndexError):
+        return None
+
+
 def check(answer: str) -> dict:
     """{status, detail}: no_code | syntax_error | code_error | runtime_error (inconclusive) | ok."""
     blocks = _python_blocks(answer)
@@ -43,8 +102,19 @@ def check(answer: str) -> dict:
         ast.parse(code)
     except SyntaxError as e:
         return {"status": "syntax_error", "detail": f"{e.msg} (line {e.lineno})"}
+    if EXEC_MODE == "docker":
+        verdict = _sandbox({"code": code}, timeout=10)
+        if verdict is None:
+            return {"status": "runtime_error", "detail": "sandbox unavailable (docker unreachable) — inconclusive"}
+        if verdict.get("ok"):
+            return {"status": "ok", "detail": "runs cleanly (sandboxed)"}
+        if verdict.get("timeout"):
+            return {"status": "runtime_error", "detail": "timed out (>10s) — inconclusive"}
+        return _failure(verdict.get("stderr", ""), "code_error", "runtime_error",
+                        "inconclusive — likely a missing input fixture")
     if not EXEC_SANDBOX:
-        return {"status": "ok", "detail": "code parses (static check; set EXEC_SANDBOX=1 to actually run it)"}
+        return {"status": "ok", "detail": "code parses (static check only — execution is off; "
+                                          "EXEC_SANDBOX=docker enables the sandbox)"}
     with tempfile.NamedTemporaryFile("w", suffix=".py", delete=False) as f:
         f.write(code)
         path = f.name
@@ -77,10 +147,10 @@ def _run(code: str, cwd: str, timeout: int) -> subprocess.CompletedProcess:
 def check_with_fixture(answer: str, fixture: str = "", assertion: str = "", timeout: int = 15) -> dict:
     """Execution-grounded verdict for a task that ships a `check:` spec: seed a scratch directory
     with `fixture` (python), run the answer's code there, then run `assertion` (python; raising or
-    exiting nonzero = fail) against whatever artifacts the code produced. A task author writing
-    `check:` explicitly opts into execution — run this only inside the disposable optimize
-    container. Statuses: no_code | syntax_error | fixture_error | exec_error | inconclusive |
-    assert_failed | passed."""
+    exiting nonzero = fail) against whatever artifacts the code produced. Executes only when
+    EXEC_SANDBOX is set — `docker` (sandboxed, recommended) or `1` (bare subprocess, legacy; only
+    inside a disposable container) — and is inconclusive otherwise (fail closed). Statuses:
+    no_code | syntax_error | fixture_error | exec_error | inconclusive | assert_failed | passed."""
     blocks = _python_blocks(answer)
     if not blocks:
         return {"status": "no_code", "detail": "the answer contains no runnable python code block"}
@@ -89,6 +159,28 @@ def check_with_fixture(answer: str, fixture: str = "", assertion: str = "", time
         ast.parse(code)
     except SyntaxError as e:
         return {"status": "syntax_error", "detail": f"{e.msg} (line {e.lineno})"}
+    if EXEC_MODE == "docker":
+        verdict = _sandbox({"fixture": fixture, "code": code, "assertion": assertion}, timeout)
+        if verdict is None:
+            return {"status": "inconclusive", "detail": "sandbox unavailable (docker unreachable)"}
+        if verdict.get("ok"):
+            return {"status": "passed", "detail": "code ran against the fixture and the assertion held"}
+        phase = verdict.get("phase", "code")
+        if verdict.get("timeout"):
+            if phase == "fixture":
+                return {"status": "fixture_error", "detail": "fixture timed out — inconclusive"}
+            return {"status": "inconclusive", "detail": f"{phase} timed out (>{timeout}s)"}
+        stderr = verdict.get("stderr", "")
+        if phase == "fixture":
+            last = (stderr.strip().splitlines() or ["fixture failed"])[-1]
+            return {"status": "fixture_error", "detail": f"fixture failed: {last[:100]} — inconclusive"}
+        if phase == "assertion":
+            return _failure(stderr, "assert_failed", "inconclusive", "assertion could not run")
+        return _failure(stderr, "exec_error", "inconclusive", "likely a missing dependency")
+    if not EXEC_SANDBOX:
+        return {"status": "inconclusive",
+                "detail": "execution disabled — set EXEC_SANDBOX=docker (sandboxed, the default) "
+                          "or EXEC_SANDBOX=1 (bare, legacy) to run check: specs"}
     with tempfile.TemporaryDirectory() as cwd:
         if fixture:
             try:
