@@ -21,6 +21,13 @@ OpenAI-compatible endpoint — no key is required then.)
 """
 
 
+def agent_model() -> str:
+    """The serving/agent model — everything that *executes* skills (agent runs, A/B eval agents,
+    GEPA rollouts). AGENT_MODEL wins; MODEL is the legacy alias so existing .env files keep
+    working."""
+    return os.environ.get("AGENT_MODEL") or os.environ.get("MODEL") or "qwen/qwen3.6-27b"
+
+
 def model_base_url() -> str:
     """Endpoint for the serving-model role (agent runs, A/B eval agents, GEPA rollouts).
     MODEL_BASE_URL lets this role run against a different provider (local vLLM/Ollama, or e.g.
@@ -128,7 +135,7 @@ def preflight_provider_pins() -> None:
         return
     roles = {}
     if is_openrouter(model_base_url()):
-        roles["MODEL"] = os.environ.get("MODEL", "qwen/qwen3.6-27b")
+        roles["AGENT_MODEL"] = agent_model()
     if is_openrouter(teacher_base_url()):
         roles["GEPA_MODEL"] = os.environ.get("GEPA_MODEL", "z-ai/glm-5.2")
         if os.environ.get("STRONG_MODEL"):  # default is GEPA_MODEL, already checked above

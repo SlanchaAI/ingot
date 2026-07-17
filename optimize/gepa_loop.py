@@ -10,9 +10,11 @@ import gepa
 from gepa import EvaluationBatch
 from langchain_openai import ChatOpenAI
 
-MODEL = os.environ.get("MODEL", "qwen/qwen3.6-27b")
+from . import agent_model
+
+MODEL = agent_model()
 # GEPA's reflection LM (the skill *author*) — a stronger model than the serving agent, per the
-# teacher/student split: rollouts + judging stay on MODEL (the model the skill will serve).
+# teacher/student split: rollouts + judging stay on AGENT_MODEL (the model the skill will serve).
 GEPA_MODEL = os.environ.get("GEPA_MODEL", "z-ai/glm-5.2")
 
 # Length penalty: the body re-enters context on every agent step, and a completeness-hungry judge

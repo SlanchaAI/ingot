@@ -139,7 +139,33 @@ def test_preflight_reports_every_conflicting_role(monkeypatch):
     with pytest.raises(SystemExit) as exc:
         optimize.preflight_provider_pins()
     text = str(exc.value)
-    assert "MODEL=" in text and "GEPA_MODEL=" in text and "JUDGE_MODEL" not in text
+    assert "AGENT_MODEL=" in text and "GEPA_MODEL=" in text and "JUDGE_MODEL" not in text
+
+
+def test_preflight_reports_agent_model_alias_value(monkeypatch):
+    # the pin check must validate the model the agent will actually use, whichever alias set it
+    import optimize
+    monkeypatch.setenv("OPENROUTER_PROVIDERS", "fireworks")
+    for var in ("MODEL_BASE_URL", "BASE_URL", "OPENROUTER_BASE_URL", "MODEL"):
+        monkeypatch.delenv(var, raising=False)
+    monkeypatch.setenv("AGENT_MODEL", "brand/new-model")
+    monkeypatch.setattr(optimize, "provider_conflict",
+                        lambda model, pins: f"nope for {model}")
+    with pytest.raises(SystemExit) as exc:
+        optimize.preflight_provider_pins()
+    assert "AGENT_MODEL=brand/new-model" in str(exc.value)
+
+
+def test_agent_model_resolution(monkeypatch):
+    # AGENT_MODEL wins; MODEL is the legacy alias; then the literal default
+    from optimize import agent_model
+    monkeypatch.delenv("AGENT_MODEL", raising=False)
+    monkeypatch.delenv("MODEL", raising=False)
+    assert agent_model() == "qwen/qwen3.6-27b"
+    monkeypatch.setenv("MODEL", "legacy/model")
+    assert agent_model() == "legacy/model"
+    monkeypatch.setenv("AGENT_MODEL", "new/model")
+    assert agent_model() == "new/model"
 
 
 def test_preflight_checks_strong_model_only_when_explicitly_set(monkeypatch):

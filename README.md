@@ -17,8 +17,13 @@ challenger through the full agent** on held-out tasks; you review the diff and s
 
 **Privacy focused throughout** — three properties, all defaults, none optional:
 
-- **Zero data retention LLM calls.** Every OpenRouter request — agent runs, GEPA rollouts and
-  reflection, the judge, task drafting — carries a hardcoded provider preference:
+- **Zero data retention LLM calls.** The default provider is **Fireworks AI**, which is
+  [zero-data-retention by default](https://docs.fireworks.ai/guides/security_compliance/data_handling)
+  for open models on serverless — "Fireworks does not log or store prompt or generation data for
+  any open models, without explicit user opt-in" (prompts exist only in volatile memory; see also
+  their [privacy policy](https://fireworks.ai/privacy-policy)). Point `BASE_URL` at **OpenRouter**
+  instead and every request — agent runs, GEPA rollouts and reflection, the judge, task
+  drafting — carries a hardcoded provider preference:
 
   ```json
   {"provider": {"zdr": true, "data_collection": "deny"}}
@@ -37,20 +42,20 @@ yours to choose: `BASE_URL` + `API_KEY` point everything at **any OpenAI-compati
 (`MODEL_BASE_URL`/`MODEL_API_KEY` override just the serving role for hybrid setups):
 
 ```bash
-# provider-direct, e.g. Fireworks (zero data retention per Fireworks' serverless policy):
+# the default (.env.example): Fireworks AI direct — ZDR for open models on serverless
 BASE_URL=https://api.fireworks.ai/inference/v1
 API_KEY=fw_...
-MODEL=accounts/fireworks/models/qwen3p7-plus
+AGENT_MODEL=accounts/fireworks/models/qwen3p7-plus
 GEPA_MODEL=accounts/fireworks/models/glm-5p2
 JUDGE_MODEL=accounts/fireworks/models/deepseek-v4-pro
 
 # fully local (no key needed at all): everything on Ollama / vLLM
-BASE_URL=http://172.17.0.1:11434/v1  MODEL=qwen3:32b  GEPA_MODEL=qwen3:32b  JUDGE_MODEL=llama3.3:70b
+BASE_URL=http://172.17.0.1:11434/v1  AGENT_MODEL=qwen3:32b  GEPA_MODEL=qwen3:32b  JUDGE_MODEL=llama3.3:70b
 ```
 
 The hardcoded ZDR provider preference applies to OpenRouter endpoints; provider-direct endpoints
-get a clean OpenAI-compatible request under that vendor's own retention policy, and local
-endpoints are the strongest privacy of all. No API key is required when nothing points at a hosted
+get a clean OpenAI-compatible request under that vendor's own retention policy (Fireworks: ZDR by
+default, as above), and local endpoints are the strongest privacy of all. No API key is required when nothing points at a hosted
 endpoint. From inside the compose containers, "localhost" is the container — use your host's LAN
 IP (or `172.17.0.1` on Linux).
 
@@ -66,7 +71,7 @@ below comes from a real run; nothing is mocked.
 
 ```bash
 git clone https://github.com/SlanchaAI/ingot.git && cd ingot
-cp .env.example .env               # put your OpenRouter key in it (https://openrouter.ai/keys)
+cp .env.example .env               # put your Fireworks key in it (https://fireworks.ai/account/api-keys)
 scripts/fetch_skills.sh all        # fetch ~70 real skills into ./skills (see Skill sources)
 docker compose up --build
 ```
@@ -75,8 +80,8 @@ This brings up the MCP server (`localhost:8000`), Langfuse (`localhost:3100`), t
 (`localhost:8080`) — and runs the agent once on a demo task so you have something to look at.
 
 No skills are committed to this repo — `fetch_skills.sh` clones each source, copies its skills in,
-and deletes the clone, so everything stays under its own upstream license. Without an OpenRouter
-key everything still starts and the router still prints suggestions (the embedding router needs no
+and deletes the clone, so everything stays under its own upstream license. Without an API key
+everything still starts and the router still prints suggestions (the embedding router needs no
 LLM); the agent and optimizer will tell you what to set and exit cleanly.
 
 ### 2. The agent routes to a skill and uses it
@@ -89,9 +94,9 @@ docker compose run --rm agent "How do I merge several PDFs into one and add page
 PROPOSED SKILLS (MCP suggest_skills):
     0.74  pdf — Use this skill whenever the user wants to do anything with PDF files...
 
-SERVING MODEL: qwen/qwen3.6-27b
+SERVING MODEL: accounts/fireworks/models/qwen3p7-plus
 
-LOADED SKILLS (MCP get_skill): ['pdf']
+LOADED SKILLS (MCP get_skill): ['pdf@83a75cf1f9b5…']
 TOKENS: 23233 in / 698 out
 
 RESULT:
@@ -99,9 +104,11 @@ RESULT:
 [agent] trace sent to Langfuse (http://localhost:3100)
 ```
 
-The agent asked the router (`suggest_skills`), loaded the top match (`get_skill`), and followed it.
-The `SERVING MODEL` line is the weak/strong split at work: a routed task runs on the cheap `MODEL`
-because the skill carries the method — only truly novel tasks escalate to `STRONG_MODEL` (step 11).
+The agent asked the router (`suggest_skills`), loaded the top match (`get_skill` — the `@…` suffix
+is the skill's content-hash revision, which also lands on the trace as a tag), and followed it.
+The `SERVING MODEL` line is the weak/strong split at work: a routed task runs on the cheap
+`AGENT_MODEL` because the skill carries the method — only truly novel tasks escalate to
+`STRONG_MODEL` (step 11).
 Open **http://localhost:3100** (login `demo@local.dev` / `localdemo123` — local demo literals baked
 into the compose file, not secrets) to see the full trace: every tool call, LLM call, and token count.
 
@@ -139,7 +146,7 @@ docker compose run --rm agent "For each order in A2:D500, look up the customer t
 PROPOSED SKILLS (MCP suggest_skills):
     0.62  api-rate-limiting-helper (related — compose/extend) — Designs rate limiting strategies...
 
-SERVING MODEL: qwen/qwen3.6-27b
+SERVING MODEL: accounts/fireworks/models/qwen3p7-plus
 
 LOADED SKILLS (MCP get_skill): (none)
 TOKENS: 46428 in / 3512 out
@@ -187,11 +194,11 @@ docker compose run --rm optimize excel-formulas
 The skill has no eval set yet, so the teacher model **auto-drafts one** (train/holdout, persisted
 to `optimize/tasks/excel-formulas.yaml`), then GEPA evolves the body on the train tasks and the
 champion and challenger are A/B-ed through the full agent on the held-out tasks (~$1–1.5 of
-OpenRouter credit; the serving-side A/B injects each variant body, so the comparison is exactly
+API credit; the serving-side A/B injects each variant body, so the comparison is exactly
 body vs body):
 
 ```
-[draft] no eval set for 'excel-formulas' — teacher (z-ai/glm-5.2) drafting 8 train/holdout tasks…
+[draft] no eval set for 'excel-formulas' — teacher (accounts/fireworks/models/glm-5p2) drafting 8 train/holdout tasks…
 [gepa] optimizing 'excel-formulas' (components: ['body']; frozen: ['description']) on 4 train tasks…
 [gepa] inner-loop score: seed 0.250 -> best 0.675
 [gepa] components changed: ['body']
@@ -357,12 +364,12 @@ common failure; and as step 7 showed, the description pass can fix it for you af
 the request escalates to `STRONG_MODEL` (defaults to `GEPA_MODEL`, the same teacher that rewrites
 skills offline): it solves the task and persists what it learned via the `create_skill` MCP tool.
 The new skill is distilled from a strong solution, and the next similar request routes to it on the
-cheap `MODEL`:
+cheap `AGENT_MODEL`:
 
 ```bash
 docker compose run --rm agent "Plan a strict low-FODMAP weekly dinner menu for two people"
 # PROPOSED SKILLS (MCP suggest_skills):            <- empty: no skill covers this
-# SERVING MODEL: z-ai/glm-5.2 (strong — no skill matched, will author one)
+# SERVING MODEL: accounts/fireworks/models/glm-5p2 (strong — no skill matched, will author one)
 # ... solves the task ...
 # mcp log: [ingot] created skill 'low-fodmap-meal-planning' — live immediately
 ```
@@ -439,14 +446,13 @@ Set in `.env` (never committed):
 
 | var | default | notes |
 |-----|---------|-------|
-| `OPENROUTER_API_KEY` | — | required ([get one](https://openrouter.ai/keys)) |
-| `MODEL` | `qwen/qwen3.6-27b` | the agent — everything that *executes* skills, incl. GEPA rollouts |
-| `BASE_URL` | `https://openrouter.ai/api/v1` | endpoint for everything — any OpenAI-compatible provider (Fireworks/Together direct, local vLLM/Ollama); `OPENROUTER_BASE_URL` is the legacy alias |
-| `API_KEY` | — | bearer token for `BASE_URL`; `OPENROUTER_API_KEY` is the legacy alias. Local `http://` endpoints need no key |
+| `BASE_URL` | `https://openrouter.ai/api/v1` | endpoint for everything — any OpenAI-compatible provider; the `.env` template pins **Fireworks** (`https://api.fireworks.ai/inference/v1`). `OPENROUTER_BASE_URL` is the legacy alias |
+| `API_KEY` | — | required — bearer token for `BASE_URL` ([Fireworks keys](https://fireworks.ai/account/api-keys)); `OPENROUTER_API_KEY` is the legacy alias. Local `http://` endpoints need no key |
+| `AGENT_MODEL` | `qwen/qwen3.6-27b` | the agent — everything that *executes* skills, incl. GEPA rollouts; `MODEL` is the legacy alias. The `.env` template pins `accounts/fireworks/models/qwen3p7-plus` |
 | `MODEL_BASE_URL` / `MODEL_API_KEY` | `BASE_URL` / `API_KEY` | serving-role-only overrides (agent runs, A/B agents, GEPA rollouts) for hybrid setups |
-| `OPENROUTER_PROVIDERS` | — | optional provider allowlist (e.g. `fireworks,deepinfra` → `provider.only`) — composes with ZDR, trades pool resilience for vendor predictability; pin/model conflicts are caught at startup with the list of providers that do serve each model |
+| `OPENROUTER_PROVIDERS` | — | OpenRouter only: optional provider allowlist (e.g. `fireworks,deepinfra` → `provider.only`) — composes with ZDR, trades pool resilience for vendor predictability; pin/model conflicts are caught at startup with the list of providers that do serve each model |
 | `GEPA_MODEL` | `z-ai/glm-5.2` | GEPA's reflection LM (the skill author) |
-| `STRONG_MODEL` | `GEPA_MODEL` | serves novel requests: when the router finds no skill at all, the agent runs on this model instead of `MODEL` (weak/strong split at serving time), solves the task, and authors the new skill — so persisted skills are distilled from a strong solution. Uses the `BASE_URL` endpoint |
+| `STRONG_MODEL` | `GEPA_MODEL` | serves novel requests: when the router finds no skill at all, the agent runs on this model instead of `AGENT_MODEL` (weak/strong split at serving time), solves the task, and authors the new skill — so persisted skills are distilled from a strong solution. Uses the `BASE_URL` endpoint |
 | `JUDGE_MODEL` | `google/gemini-2.5-flash` | the LLM judge — must differ from `GEPA_MODEL` (anti reward-hacking) |
 | `MIN_SCORE` | `0.65` | at/above → routable match; below → `related` band or novel |
 | `RELATED_SCORE` | `0.45` | floor of the `related` (compose/extend) band below `MIN_SCORE`; below it a task is *novel* (weak/strong escalation) |
@@ -471,13 +477,14 @@ the A/B always run on the model the skills will actually serve.
 
 - **`mcp_server/`** — [FastMCP](https://github.com/jlowin/fastmcp) v3 server (HTTP transport), six tools:
   - `suggest_skills(task, k)` — routable matches by embedding similarity (CPU [fastembed](https://github.com/qdrant/fastembed), no GPU); if none, returns near-misses flagged `related` (compose-awareness); empty = truly novel. (`list_skills()` exists for debug/UI but is kept out of the agent's toolset — the agent routes, it doesn't scan.)
-  - `get_skill(name)` — the full SKILL.md to load
+  - `get_skill(name)` — the full SKILL.md to load; the header line carries the content-hash
+    revision (`# Skill: <name>@<revision>`) for trace attribution
   - `create_skill(name, description, body)` — persist a new agent-authored skill (never overwrites)
   - `reload_skills()` — hot reload after promotion/creation (or `docker compose restart mcp`)
   - `route_and_load(task, harness, cwd, available_tools, available_mcps)` — optional one-round-trip
     selection for external clients; returns one compatible skill body or no match, plus a `novel`
     flag — the weak/strong escalation signal (see [Bring your own agent](#bring-your-own-agent-mcp-only))
-- **`agent/run.py`** — [deepagents](https://github.com/langchain-ai/deepagents) LangGraph agent wired to those tools via `langchain-mcp-adapters`, traced to Langfuse. Serves routed tasks on the weak `MODEL` and escalates truly novel tasks (empty `suggest_skills`) to `STRONG_MODEL`, which authors the new skill.
+- **`agent/run.py`** — [deepagents](https://github.com/langchain-ai/deepagents) LangGraph agent wired to those tools via `langchain-mcp-adapters`, traced to Langfuse (tagged with the routed skill and `revision=<name>@<rev>`). Serves routed tasks on the weak `AGENT_MODEL` and escalates truly novel tasks (empty `suggest_skills`) to `STRONG_MODEL`, which authors the new skill.
 - **`skills/<name>/SKILL.md`** — YAML `description` is the routing key; the body is what the agent loads.
 - **`optimize/`** — success/failure mining over real traces (`mine.py`), multi-dimensional LLM judge (`judge.py`), GEPA loop over the skill description/body with diagnose→minimal-edit reflection (`gepa_loop.py`), A/B + revisioned evidence (`ab.py`), live **canary** promotion (`canary.py`), snapshot/staged promotion with rollback (`promote.py`), per-role token ledger (`usage.py`). A/B agents get mutation tools stripped, so evals can't alter the library. Promotion records the exact skill revisions plus `evidence.json`/`EVIDENCE.md`, and refuses stale or mismatched revisions. The mining + categorized-failure ideas are borrowed from [SkillForge (Liu et al., arXiv:2604.08618)](https://arxiv.org/abs/2604.08618).
 - **`ui/`** — FastAPI approval UI (one HTML page, no build step).
@@ -497,7 +504,7 @@ branch:
   routing failed, and the next similar request routes to the new skill on the weak model.
 
 That three-way branch is the weak/strong serving split; the bundled agent implements the same
-policy with `MODEL` (weak) and `STRONG_MODEL` (strong, defaults to `GEPA_MODEL`). To keep the
+policy with `AGENT_MODEL` (weak) and `STRONG_MODEL` (strong, defaults to `GEPA_MODEL`). To keep the
 trace-mining loop fed from your own harness, see
 [Tracing from your own harness](#tracing-from-your-own-harness-mcp-only) at the end of this README.
 
@@ -600,14 +607,14 @@ To make a service reachable from other machines on your network, change its port
 `docker-compose.yml` from `"127.0.0.1:8000:8000"` to `"8000:8000"` (or bind a specific interface,
 e.g. `"192.168.1.20:8000:8000"`) — same for the UI's `8080`. Do this knowingly: anyone who can reach
 those ports can create skills, promote challengers, and start optimization runs that spend your
-OpenRouter budget. For anything beyond a trusted LAN, put an authenticating reverse proxy in front.
+API budget. For anything beyond a trusted LAN, put an authenticating reverse proxy in front.
 
 What is deliberately **not** done (and why): we do **not** denylist shell commands, `.env`/credential
 mentions, or `curl … | sh` in skill bodies — legitimate skills routinely contain code, install steps,
 and secret-handling guidance, so scanning for those produces constant false positives. The residual
 risk is contained operationally instead: **run the agent in a container without real secrets or
 sensitive host paths** (this demo's `agent` service mounts nothing sensitive and needs only
-`OPENROUTER_API_KEY`). For a real deployment, add per-tool sandboxing and treat `create_skill` output
+`API_KEY`). For a real deployment, add per-tool sandboxing and treat `create_skill` output
 as untrusted until reviewed. Further reading:
 [OpenAI on prompt injection](https://openai.com/safety/prompt-injections/).
 
@@ -649,5 +656,5 @@ with lf.propagate_attributes(tags=tags):
 
 With traces flowing, `docker compose run --rm optimize-mine <skill>` and the autopilot loop work
 unchanged. Two caveats: mining re-judges traffic with `JUDGE_MODEL` (on your API bill), and the
-optimizer's rollouts still execute on the bundled scaffold — set `MODEL` to your production
+optimizer's rollouts still execute on the bundled scaffold — set `AGENT_MODEL` to your production
 serving model so what GEPA optimizes matches what you serve.

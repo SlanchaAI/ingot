@@ -2,10 +2,11 @@
 loads the best skill's instructions, and follows them to solve the task. Prints the whole flow:
 task -> proposed skills -> loaded skills -> result.
 
-Env: OPENROUTER_API_KEY (required unless MODEL_BASE_URL points at a local endpoint), MODEL,
-MODEL_BASE_URL (optional local vLLM/Ollama OpenAI-compatible endpoint), STRONG_MODEL (serves
-novel no-skill tasks and authors the new skill; defaults to GEPA_MODEL), MCP_URL,
-LANGFUSE_PUBLIC_KEY / LANGFUSE_SECRET_KEY / LANGFUSE_BASE_URL (optional tracing).
+Env: API_KEY for the configured OpenAI-compatible endpoint (required unless MODEL_BASE_URL points
+at a local endpoint), AGENT_MODEL (legacy alias MODEL), MODEL_BASE_URL (optional local vLLM/Ollama
+OpenAI-compatible endpoint), STRONG_MODEL (serves novel no-skill tasks and authors the new skill;
+defaults to GEPA_MODEL), MCP_URL, LANGFUSE_PUBLIC_KEY / LANGFUSE_SECRET_KEY / LANGFUSE_BASE_URL
+(optional tracing).
 """
 import os
 import sys
@@ -16,11 +17,13 @@ import hashlib
 from langchain_mcp_adapters.client import MultiServerMCPClient
 
 MCP_URL = os.environ.get("MCP_URL", "http://mcp:8000/mcp")
-MODEL = os.environ.get("MODEL", "qwen/qwen3.6-27b")
 # Endpoint + ZDR handling is shared with the optimizer (single source of truth): OpenRouter
 # endpoints get the hardcoded zero-data-retention provider preference; MODEL_BASE_URL points this
 # serving role at a local vLLM/Ollama server instead (README: Privacy).
-from optimize import ZDR_PROVIDER, api_key, client_kwargs, model_api_key, model_base_url, teacher_base_url  # noqa: E402
+from optimize import (ZDR_PROVIDER, agent_model, api_key, client_kwargs, model_api_key,  # noqa: E402
+                      model_base_url, teacher_base_url)
+
+MODEL = agent_model()
 
 
 def strong_model() -> str:

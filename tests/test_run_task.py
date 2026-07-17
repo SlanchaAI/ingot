@@ -136,6 +136,20 @@ def test_strong_model_resolution(monkeypatch):
     assert strong_model() == "big/model"
 
 
+def test_langfuse_config_carries_tags_only_when_keys_are_set(monkeypatch):
+    # the skill/revision trace tags ride on langfuse_tags metadata — and tracing must stay a
+    # clean no-op when Langfuse isn't configured
+    from agent.run import langfuse_config
+    monkeypatch.delenv("LANGFUSE_PUBLIC_KEY", raising=False)
+    monkeypatch.delenv("LANGFUSE_SECRET_KEY", raising=False)
+    assert langfuse_config(tags=["pdf"]) == {}
+    monkeypatch.setenv("LANGFUSE_PUBLIC_KEY", "pk-test")
+    monkeypatch.setenv("LANGFUSE_SECRET_KEY", "sk-test")
+    cfg = langfuse_config(tags=["demo", "pdf", "revision=pdf@r1"])
+    assert cfg["metadata"]["langfuse_tags"] == ["demo", "pdf", "revision=pdf@r1"]
+    assert cfg["callbacks"]
+
+
 def test_serving_contract_requires_inline_deliverables():
     # the scaffold habit of writing code to its scratch FS and describing it must be countered in
     # BOTH serving contracts, symmetrically — production agent and A/B eval agent

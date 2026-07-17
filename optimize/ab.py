@@ -21,6 +21,7 @@ from langchain_core.tools import tool
 from agent.run import build_agent, langfuse_config, run_task
 from mcp_server.registry import SKILLS_DIR, load_skills, optimizable_components, skill_revision
 
+from . import agent_model
 from . import usage as usage_ledger
 from .judge import judge
 from .promote import promote, save_pending
@@ -362,7 +363,7 @@ def run_ab(skill: str, promote_now: bool = False, budget: int = 60,
         "champion_components": champion,
         "challenger_components": challenger,
         "harness": "codex",
-        "model": os.environ.get("MODEL", "unknown"),
+        "model": agent_model(),
         "behavior": {variant: result["behavior"] for variant, result in results.items()},
         "routing_failures": route_failures,
         "routing": route_metrics,
