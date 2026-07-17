@@ -3,42 +3,313 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>ingot — optimize &amp; promote</title>
+<title>ingot · optimize &amp; promote</title>
 <style>
-  :root { color-scheme: light dark; font-family: ui-sans-serif, system-ui, sans-serif; }
-  body { max-width: 960px; margin: 2rem auto; padding: 0 1rem; line-height: 1.45; }
-  h1 { font-size: 1.3rem; } h2 { font-size: 1.05rem; margin-top: 2rem; }
-  table { border-collapse: collapse; width: 100%; }
-  td, th { text-align: left; padding: .35rem .6rem; border-bottom: 1px solid #8884; vertical-align: top; }
-  button { cursor: pointer; padding: .25rem .7rem; border-radius: 6px; border: 1px solid #8886; background: transparent; color: inherit; }
-  button.primary { background: #2563eb; border-color: #2563eb; color: #fff; }
-  button:disabled { opacity: .4; cursor: default; }
-  pre { background: #8881; padding: .8rem; border-radius: 8px; overflow-x: auto; font-size: .8rem; max-height: 24rem; }
-  .muted { opacity: .65; font-size: .85rem; }
-  .score { font-variant-numeric: tabular-nums; }
-  .win { color: #16a34a; font-weight: 600; } .lose { opacity: .7; }
-  #log { max-height: 12rem; }
-  a { color: #2563eb; }
+  /* Slancha identity (seed teaser), shared with /carn: paper cream, warm ink,
+     terracotta chrome, display serif + humanist sans + mono data. App-UI register:
+     summary before detail, state as chips/severity, the decision surface up front.
+     champion/challenger keep a green/red status pair, always carried by a ✓/✕/⛔ glyph. */
+  :root {
+    color-scheme: light dark;
+    --paper: #F4F1EA; --paper-2: #ECE7DB; --paper-3: #E4DECF;
+    --ink: #211E19; --ink-2: #5C554A; --ink-3: #8A8275;
+    --line: #D9D2C2; --line-2: #C8C0AD;
+    --rust: #A8482A; --rust-2: #8F3D22; --rust-bg: #EFE3D6;
+    --pass: #2F6B45; --pass-bg: #E4EBE0;
+    --fail: #9E3A2C; --fail-bg: #F1E1DB;
+    --warn: #8A6A18; --warn-bg: #F0E7CF;
+    --serif: "Hoefler Text", "Playfair Display", Didot, "Bodoni 72", "Bodoni MT", Georgia, serif;
+    --sans: system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", sans-serif;
+    --mono: ui-monospace, "SF Mono", "SFMono-Regular", Menlo, "Cascadia Code", Consolas, monospace;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --paper: #191713; --paper-2: #221F19; --paper-3: #2B271F;
+      --ink: #EEE8DA; --ink-2: #A69E8E; --ink-3: #756E60;
+      --line: #322D24; --line-2: #423C31;
+      --rust: #D2814F; --rust-2: #E0946A; --rust-bg: #2C2216;
+      --pass: #63B487; --pass-bg: #1B2C22;
+      --fail: #DB7365; --fail-bg: #32201C;
+      --warn: #D2AC55; --warn-bg: #2A2413;
+    }
+  }
+  :root[data-theme="light"] { color-scheme: light;
+    --paper: #F4F1EA; --paper-2: #ECE7DB; --paper-3: #E4DECF;
+    --ink: #211E19; --ink-2: #5C554A; --ink-3: #8A8275;
+    --line: #D9D2C2; --line-2: #C8C0AD;
+    --rust: #A8482A; --rust-2: #8F3D22; --rust-bg: #EFE3D6;
+    --pass: #2F6B45; --pass-bg: #E4EBE0; --fail: #9E3A2C; --fail-bg: #F1E1DB;
+    --warn: #8A6A18; --warn-bg: #F0E7CF; }
+  :root[data-theme="dark"] { color-scheme: dark;
+    --paper: #191713; --paper-2: #221F19; --paper-3: #2B271F;
+    --ink: #EEE8DA; --ink-2: #A69E8E; --ink-3: #756E60;
+    --line: #322D24; --line-2: #423C31;
+    --rust: #D2814F; --rust-2: #E0946A; --rust-bg: #2C2216;
+    --pass: #63B487; --pass-bg: #1B2C22; --fail: #DB7365; --fail-bg: #32201C;
+    --warn: #D2AC55; --warn-bg: #2A2413; }
+
+  * { box-sizing: border-box; }
+  html { scroll-behavior: smooth; }
+  body { margin: 0; background: var(--paper); color: var(--ink);
+    font-family: var(--sans); font-size: 15px; line-height: 1.5; -webkit-font-smoothing: antialiased; }
+  a { color: inherit; }
+  ::selection { background: var(--rust); color: var(--paper); }
+
+  /* ---- top bar ---- */
+  .topbar { position: sticky; top: 0; z-index: 50; display: flex; align-items: center;
+    justify-content: space-between; gap: 1rem; padding: .5rem 1.4rem;
+    background: color-mix(in srgb, var(--paper) 88%, transparent);
+    backdrop-filter: saturate(1.2) blur(8px); border-bottom: 1px solid var(--line); }
+  .brand { display: flex; align-items: baseline; gap: .55rem; text-decoration: none; }
+  .brand .mark { width: 19px; height: 19px; color: var(--rust); align-self: center; }
+  .brand .wm { font-family: var(--serif); font-size: 1.12rem; letter-spacing: -.01em; }
+  .brand .tag { font-family: var(--mono); font-size: .66rem; color: var(--ink-2);
+    letter-spacing: .06em; text-transform: uppercase; }
+  .topnav { display: flex; align-items: center; gap: 1rem; }
+  .topnav .lnk { font-family: var(--mono); font-size: .68rem; letter-spacing: .09em;
+    text-transform: uppercase; color: var(--ink-2); text-decoration: none; transition: color .15s; }
+  .topnav .lnk:hover { color: var(--rust); }
+  .topnav .lnk.ext::after { content: " ↗"; color: var(--ink-3); }
+  @media (max-width: 760px) { .topnav .lnk { display: none; } .topnav .pill { display: inline-block; } }
+  .pill { font-family: var(--mono); font-size: .64rem; letter-spacing: .07em; text-transform: uppercase;
+    font-weight: 700; padding: .18rem .55rem; border-radius: 999px; white-space: nowrap; }
+  .pill.idle { color: var(--ink-2); background: var(--paper-2); }
+  .pill.run { color: var(--warn); background: var(--warn-bg); }
+  .pill.act { color: var(--rust); background: var(--rust-bg); }
+
+  .page { max-width: 74rem; margin: 0 auto; padding: 0 1.4rem 4rem; }
+
+  /* ---- board head ---- */
+  .board-head { padding: 2rem 0 .3rem; }
+  .board-head .eyebrow { display: flex; align-items: baseline; justify-content: space-between; gap: 1rem;
+    font-family: var(--mono); font-size: .72rem; letter-spacing: .12em; text-transform: uppercase; }
+  .board-head .eyebrow .n { color: var(--rust); }
+  .board-head .eyebrow .side { color: var(--ink-3); }
+  .board-title { font-family: var(--serif); font-weight: 600; letter-spacing: -.015em;
+    font-size: clamp(1.9rem, 4vw, 2.7rem); margin: .5rem 0 0; text-wrap: balance; }
+  .board-sub { color: var(--ink-2); font-size: .96rem; margin: .6rem 0 0; max-width: 48rem; text-wrap: pretty; }
+  .board-sub a { color: var(--rust); text-decoration: none; white-space: nowrap; }
+  .board-sub a:hover { text-decoration: underline; }
+
+  /* ---- KPI strip ---- */
+  .kpis { display: grid; grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+    margin-top: 1.6rem; border: 1px solid var(--line); border-radius: 9px; overflow: hidden;
+    background: var(--paper-2); }
+  .kpi { padding: .95rem 1.05rem 1.05rem; border-left: 1px solid var(--line); border-top: 1px solid var(--line);
+    display: flex; flex-direction: column; gap: .12rem; }
+  .kpi:first-child { border-left: 0; }
+  .kpi .l { font-family: var(--mono); font-size: .64rem; letter-spacing: .09em; text-transform: uppercase;
+    color: var(--ink-3); }
+  .kpi .n { font-family: var(--mono); font-weight: 600; font-size: 1.85rem; line-height: 1.05;
+    font-variant-numeric: tabular-nums; letter-spacing: -.01em; }
+  .kpi .d { font-family: var(--mono); font-size: .66rem; color: var(--ink-2); margin-top: .1rem; }
+  .kpi.act .n { color: var(--rust); }
+  .kpi.act { background: var(--rust-bg); }
+  @media (min-width: 1090px) { .kpi { border-top: 0; } }
+
+  /* ---- attention band ---- */
+  .attention { margin-top: 1rem; display: flex; flex-direction: column; }
+  .alert { display: flex; align-items: baseline; gap: .7rem; padding: .55rem .2rem;
+    border-bottom: 1px solid var(--line); }
+  .alert:last-child { border-bottom: 0; }
+  .alert::before { content: ""; width: 8px; height: 8px; border-radius: 50%; flex: none;
+    align-self: center; background: var(--ink-3); }
+  .alert.act::before { background: var(--rust); }
+  .alert.warn::before { background: var(--warn); }
+  .alert.ok::before { background: var(--pass); }
+  .alert.info::before { background: var(--ink-3); }
+  .alert .atag { font-family: var(--mono); font-size: .74rem; font-weight: 700; letter-spacing: .02em;
+    white-space: nowrap; }
+  .alert.act .atag { color: var(--rust); } .alert.warn .atag { color: var(--warn); }
+  .alert.ok .atag { color: var(--pass); }
+  .alert .atxt { font-size: .84rem; color: var(--ink-2); }
+
+  /* ---- section scaffold ---- */
+  .band { padding-top: 2.6rem; }
+  .band-head { display: flex; align-items: baseline; justify-content: space-between; gap: 1rem;
+    border-top: 1px solid var(--ink); padding-top: .55rem;
+    font-family: var(--mono); font-size: .72rem; letter-spacing: .12em; text-transform: uppercase; }
+  .band-head .n { color: var(--rust); }
+  .band-head .side { color: var(--ink-3); }
+  h2.head { font-family: var(--serif); font-weight: 600; letter-spacing: -.015em; line-height: 1.05;
+    font-size: clamp(1.5rem, 3.5vw, 2.1rem); margin: .8rem 0 0; text-wrap: balance; }
+  .sub { font-size: .9rem; color: var(--ink-2); margin: .5rem 0 0; max-width: 48rem; text-wrap: pretty; }
+
+  .chip { font-family: var(--mono); font-size: .66rem; letter-spacing: .05em; padding: .12rem .5rem;
+    border-radius: 3px; white-space: nowrap; text-transform: uppercase; font-weight: 600; }
+  .chip.pass { color: var(--pass); background: var(--pass-bg); }
+  .chip.fail { color: var(--fail); background: var(--fail-bg); }
+  .chip.rust { color: var(--rust); background: var(--rust-bg); }
+  .chip.warn { color: var(--warn); background: var(--warn-bg); }
+  .chip.mute { color: var(--ink-2); background: var(--paper-2); border: 1px dashed var(--line-2); }
+
+  /* ---- buttons ---- */
+  .btn { cursor: pointer; font: 600 .7rem/1 var(--mono); letter-spacing: .05em; text-transform: uppercase;
+    padding: .48rem .9rem; border-radius: 6px; border: 1px solid var(--line-2); background: transparent;
+    color: var(--ink-2); transition: background .15s, color .15s, border-color .15s; white-space: nowrap; }
+  .btn:hover:not(:disabled) { border-color: var(--rust); color: var(--rust); }
+  .btn.primary { border-color: var(--rust); background: var(--rust); color: var(--paper); }
+  .btn.primary:hover:not(:disabled) { background: var(--rust-2); border-color: var(--rust-2); color: var(--paper); }
+  .btn:disabled { opacity: .45; cursor: default; }
+
+  /* ---- skills list ---- */
+  .skilllist { margin-top: 1.1rem; border-top: 1px solid var(--line); }
+  .srow { display: flex; flex-wrap: wrap; align-items: baseline; gap: .5rem 1rem;
+    padding: .9rem .45rem; border-bottom: 1px solid var(--line); transition: background .15s ease-out; }
+  .srow.pend { background: var(--rust-bg); box-shadow: inset 2px 0 0 var(--rust); }
+  .srow:hover { background: var(--paper-2); }
+  .srow.pend:hover { background: var(--rust-bg); }
+  .srow .main { flex: 1 1 26rem; min-width: 0; }
+  .srow .nameline { display: flex; align-items: baseline; gap: .6rem; flex-wrap: wrap; }
+  .srow .sname { font-family: var(--mono); font-size: .86rem; font-weight: 600; color: var(--ink); }
+  .srow .sdesc { font-size: .82rem; color: var(--ink-2); margin: .28rem 0 0; text-wrap: pretty;
+    display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
+  .srow .sactions { flex: 0 0 auto; display: flex; gap: .5rem; align-items: center; margin-left: auto; }
+  .empty { margin-top: 1.1rem; padding: 1.4rem 1.3rem; border: 1px dashed var(--line-2); border-radius: 9px;
+    background: var(--paper-2); }
+  .empty .et { font-family: var(--serif); font-size: 1.05rem; color: var(--ink); }
+  .empty .ed { font-family: var(--mono); font-size: .76rem; color: var(--ink-2); margin-top: .45rem; line-height: 1.7; }
+  .empty code { font-family: var(--mono); background: var(--paper-3); color: var(--ink);
+    padding: .05rem .35rem; border-radius: 4px; }
+
+  /* ---- optimizer log ---- */
+  .log { font-family: var(--mono); font-size: .74rem; line-height: 1.6; margin-top: 1.1rem;
+    background: var(--paper-2); border: 1px solid var(--line); border-radius: 9px;
+    padding: .85rem 1rem; overflow: auto; max-height: 22rem; white-space: pre-wrap; color: var(--ink-2); }
+
+  /* ---- review: champion vs challenger ---- */
+  .duel { display: grid; grid-template-columns: 1fr auto 1fr; gap: 1rem; align-items: stretch; margin-top: 1.3rem; }
+  .cand { border: 1px solid var(--line); border-radius: 10px; padding: 1.05rem 1.15rem; background: var(--paper-2);
+    display: flex; flex-direction: column; gap: .3rem; }
+  .cand .role { font-family: var(--mono); font-size: .64rem; letter-spacing: .09em; text-transform: uppercase;
+    color: var(--ink-3); }
+  .cand .score { font-family: var(--mono); font-weight: 600; font-size: 2.1rem; line-height: 1;
+    font-variant-numeric: tabular-nums; letter-spacing: -.01em; }
+  .cand .foot { font-family: var(--mono); font-size: .66rem; color: var(--ink-3); }
+  .cand.win { background: var(--pass-bg); border-color: var(--pass); }
+  .cand.win .score { color: var(--pass); }
+  .cand.win .role::after { content: " ✓"; font-weight: 700; }
+  .cand.lose { opacity: .72; }
+  .versus { align-self: center; font-family: var(--serif); font-style: italic; color: var(--ink-3);
+    font-size: 1.05rem; }
+  @media (max-width: 620px) {
+    .duel { grid-template-columns: 1fr; }
+    .versus { padding: .1rem 0; }
+  }
+  .metaline { font-family: var(--mono); font-size: .74rem; color: var(--ink-3); margin-top: .9rem; line-height: 1.75;
+    font-variant-numeric: tabular-nums; }
+  .metaline b { color: var(--ink-2); }
+  .metaline a { color: var(--rust); text-decoration: none; } .metaline a:hover { text-decoration: underline; }
+  .tokline { font-family: var(--mono); font-size: .78rem; color: var(--ink-2); margin-top: .5rem;
+    font-variant-numeric: tabular-nums; }
+  .tokline b { color: var(--ink); } .tokline .reg { color: var(--fail); font-weight: 600; }
+  .changed { margin-top: .85rem; display: flex; flex-wrap: wrap; align-items: baseline; gap: .4rem; }
+  .changed .cl { font-family: var(--mono); font-size: .66rem; letter-spacing: .06em; text-transform: uppercase;
+    color: var(--ink-3); }
+  .gate { font-family: var(--mono); font-size: .78rem; padding: .55rem .8rem; border-radius: 7px; margin-top: 1rem;
+    text-wrap: pretty; line-height: 1.6; }
+  .gate.ok { color: var(--pass); background: var(--pass-bg); }
+  .gate.block { color: var(--fail); background: var(--fail-bg); font-weight: 600; }
+  .gate.warn { color: var(--warn); background: var(--warn-bg); }
+  .metaline b.win { color: var(--pass); } .metaline b.lose { color: var(--fail); }
+  .review-actions { display: flex; align-items: center; gap: .7rem; margin-top: 1.2rem; flex-wrap: wrap; }
+  .review-actions .msg { font-family: var(--mono); font-size: .74rem; color: var(--pass); }
+  .difflabel { font-family: var(--mono); font-size: .66rem; letter-spacing: .09em; text-transform: uppercase;
+    color: var(--rust); margin: 1.4rem 0 .4rem; }
+  pre.diff { font-family: var(--mono); font-size: .72rem; line-height: 1.55; margin: 0;
+    background: var(--paper-2); border: 1px solid var(--line); border-radius: 9px; padding: .8rem .95rem;
+    overflow: auto; max-height: 28rem; white-space: pre; color: var(--ink-2); }
+  pre.diff .add { color: var(--pass); } pre.diff .del { color: var(--fail); }
+  pre.diff .hunk { color: var(--rust); } pre.diff .meta { color: var(--ink-3); }
+
+  .footer { display: flex; align-items: baseline; justify-content: space-between; gap: 1rem; margin-top: 3rem;
+    padding-top: .6rem; border-top: 1px solid var(--ink); font-family: var(--mono); font-size: .68rem;
+    letter-spacing: .12em; text-transform: uppercase; color: var(--ink-3); flex-wrap: wrap; }
+  .footer .k { color: var(--rust); }
+  .footer a { color: var(--ink-3); text-decoration: none; } .footer a:hover { color: var(--rust); }
+
+  .js .reveal { opacity: 0; transform: translateY(12px); }
+  .js .reveal.in { opacity: 1; transform: none; transition: opacity .6s ease-out, transform .6s cubic-bezier(.16,1,.3,1); }
+  button:focus-visible, .btn:focus-visible, input:focus-visible, a:focus-visible {
+    outline: 2px solid var(--rust); outline-offset: 2px; border-radius: 2px; }
+  @media (prefers-reduced-motion: reduce) {
+    html { scroll-behavior: auto; } * { transition: none !important; }
+    .js .reveal { opacity: 1; transform: none; }
+  }
 </style>
 </head>
 <body>
-<h1>ingot — optimize &amp; promote</h1>
-<p class="muted">GEPA evolves a skill's SKILL.md, champion vs challenger are A/B-evaluated through the
-full agent, and approving here promotes the winner + hot-reloads the MCP server.
-Deep traces: <a id="lf" href="#" target="_blank">Langfuse</a>.</p>
+<script>document.documentElement.classList.add("js");</script>
 
-<h2>Skills with eval task sets</h2>
-<table id="skills"><thead><tr><th>skill</th><th>description</th><th></th></tr></thead><tbody></tbody></table>
+<nav class="topbar">
+  <a class="brand" href="/">
+    <svg class="mark" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"
+         stroke-linecap="round" aria-hidden="true">
+      <circle cx="5" cy="5" r="2.3"/><circle cx="5" cy="19" r="2.3"/><circle cx="19" cy="12" r="2.3"/>
+      <path d="M7.2 6.1 C 12 8.4, 12.8 10.4, 16.8 11.4"/>
+      <path d="M7.2 17.9 C 12 15.6, 12.8 13.6, 16.8 12.6"/>
+    </svg>
+    <span class="wm">ingot</span><span class="tag">skill optimizer</span>
+  </a>
+  <div class="topnav">
+    <a class="lnk" href="#skills">Skills</a>
+    <a class="lnk" href="#run-section">Activity</a>
+    <a class="lnk" href="#pending-section">Review</a>
+    <a class="lnk" id="carn-link" href="/carn" hidden>carn</a>
+    <a class="lnk ext" id="lf" href="#" target="_blank" rel="noopener">Langfuse</a>
+    <span class="pill idle" id="status-pill">…</span>
+  </div>
+</nav>
 
-<div id="run-section" hidden><h2>Optimizer log</h2><pre id="log"></pre></div>
+<div class="page">
+  <header class="board-head reveal">
+    <div class="eyebrow"><span><span class="n">/</span> OPTIMIZER</span>
+      <span class="side" id="head-side">ingot</span></div>
+    <h1 class="board-title">Skill optimization</h1>
+    <p class="board-sub">GEPA evolves each skill's SKILL.md; champion and challenger are A/B-scored through the
+      full agent; approving promotes the winner and hot-reloads the MCP server.
+      Deep traces in <a id="lf2" href="#" target="_blank" rel="noopener">Langfuse ↗</a>.</p>
+    <div class="kpis" id="kpis"><div class="kpi"><span class="n">…</span><span class="l">loading</span></div></div>
+    <div class="attention" id="attention"></div>
+  </header>
 
-<div id="pending-section" hidden>
-  <h2>Pending challenger: <span id="pending-skill"></span></h2>
-  <p id="pending-scores" class="score"></p>
-  <p><button class="primary" id="approve">Approve &amp; promote (hot reload)</button>
-     <button id="reject">Reject</button>
-     <span id="pending-msg" class="muted"></span></p>
-  <pre id="diff"></pre>
+  <section class="band reveal" id="skills">
+    <div class="band-head"><span><span class="n">/</span> SKILLS</span>
+      <span class="side" id="skills-side"></span></div>
+    <h2 class="head">Skills with eval task sets</h2>
+    <p class="sub">Each row is a skill that has an eval task set. Optimize runs GEPA + A/B; a scored
+      challenger surfaces here for review before it can be promoted.</p>
+    <div class="skilllist" id="skills-list"></div>
+  </section>
+
+  <section class="band" id="run-section" hidden>
+    <div class="band-head"><span><span class="n">/</span> ACTIVITY</span>
+      <span class="side">optimizer log</span></div>
+    <h2 class="head">Optimizer log</h2>
+    <p class="sub">Live output from the running GEPA + A/B evaluation. One optimization runs at a time.</p>
+    <pre class="log" id="log"></pre>
+  </section>
+
+  <section class="band" id="pending-section" hidden>
+    <div class="band-head"><span><span class="n">/</span> REVIEW</span>
+      <span class="side">champion vs challenger</span></div>
+    <h2 class="head">Pending challenger: <span id="pending-skill"></span></h2>
+    <p class="sub">The challenger's evolved SKILL.md was scored against the champion through the full agent.
+      Promote only a clear, gate-passing win.</p>
+    <div id="pending-detail"></div>
+    <div class="difflabel">SKILL.md diff · champion → challenger</div>
+    <pre class="diff" id="diff"></pre>
+    <div class="review-actions">
+      <button class="btn primary" id="approve">Approve &amp; promote</button>
+      <button class="btn" id="reject">Reject</button>
+      <span class="msg" id="pending-msg"></span>
+    </div>
+  </section>
+
+  <div class="footer">
+    <span><span class="k">ingot</span> · optimize &amp; promote · human-gated promotion</span>
+    <span>hot-reload on approve</span>
+  </div>
 </div>
 
 <script>
@@ -49,17 +320,69 @@ const esc = t => { const d = document.createElement("div"); d.textContent = t; r
 
 async function j(url, opts) { const r = await fetch(url, opts); if (!r.ok) throw new Error(await r.text()); return r.json(); }
 
+const kpi = (cls, n, l, d) =>
+  `<div class="kpi ${cls}"><span class="n">${n}</span><span class="l">${l}</span>${d ? `<span class="d">${d}</span>` : ""}</div>`;
+const alert = (cls, tag, txt) =>
+  `<div class="alert ${cls}"><span class="atag">${tag}</span><span class="atxt">${txt}</span></div>`;
+const statusChip = s => s.pending ? `<span class="chip rust">challenger ready</span>`
+  : s.status === "running" ? `<span class="chip warn">optimizing</span>`
+  : `<span class="chip mute">at champion</span>`;
+
+function renderBoard(skills, withTasks) {
+  const pending = withTasks.filter(s => s.pending).length;
+  const running = skills.filter(s => s.status === "running").length;
+  $("#kpis").innerHTML =
+    kpi("", withTasks.length, "task sets", "skills with evals") +
+    kpi(pending ? "act" : "", pending, pending === 1 ? "awaiting review" : "awaiting review",
+        pending ? "challenger scored" : "none pending") +
+    kpi("", running, "optimizing", running ? "GEPA + A/B running" : "idle") +
+    kpi("", skills.length, "skills tracked", "registered in the router");
+  $("#skills-side").textContent = `${withTasks.length} of ${skills.length}`;
+  $("#head-side").textContent = pending ? `${pending} to review` : "ingot";
+
+  const alerts = [];
+  if (pending) alerts.push(alert("act", "REVIEW",
+    `${pending} scored challenger${pending > 1 ? "s" : ""} awaiting your decision — see Review below.`));
+  if (running) alerts.push(alert("info", "RUNNING", "an optimization is in progress — watch the log."));
+  if (!withTasks.length) alerts.push(alert("warn", "NO TASK SETS",
+    "no skills have eval task sets yet; add optimize/tasks/&lt;skill&gt;.yaml to make one optimizable."));
+  else if (!pending && !running) alerts.push(alert("ok", "IDLE",
+    "every evaluated skill is at its champion; nothing awaiting review."));
+  $("#attention").innerHTML = alerts.join("");
+
+  const pill = $("#status-pill");
+  if (pending) { pill.className = "pill act"; pill.textContent = `${pending} to review`; }
+  else if (running) { pill.className = "pill run"; pill.textContent = "optimizing"; }
+  else { pill.className = "pill idle"; pill.textContent = "idle"; }
+}
+
+function renderSkills(withTasks) {
+  if (!withTasks.length) {
+    $("#skills-list").innerHTML =
+      `<div class="empty"><div class="et">No eval task sets yet.</div>
+       <div class="ed">A skill becomes optimizable once it has an eval task set. Add
+       <code>optimize/tasks/&lt;skill&gt;.yaml</code> and it will appear here to optimize.</div></div>`;
+    return;
+  }
+  $("#skills-list").innerHTML = withTasks.map(s => `
+    <div class="srow${s.pending ? " pend" : ""}">
+      <div class="main">
+        <div class="nameline"><span class="sname">${esc(s.name)}</span>${statusChip(s)}</div>
+        <p class="sdesc">${esc(s.description)}</p>
+      </div>
+      <div class="sactions">
+        <button class="btn" onclick="optimize('${esc(s.name)}')" ${s.status === "running" ? "disabled" : ""}>
+          ${s.status === "running" ? "optimizing…" : "Optimize"}</button>
+        ${s.pending ? `<button class="btn primary" onclick="showPending('${esc(s.name)}')">Review challenger</button>` : ""}
+      </div>
+    </div>`).join("");
+}
+
 async function refresh() {
   const [skills, runs] = await Promise.all([j("/api/skills"), j("/api/runs")]);
   const withTasks = skills.filter(s => s.has_tasks);
-  $("#skills tbody").innerHTML = withTasks.map(s => `
-    <tr><td><b>${esc(s.name)}</b>${s.pending ? " ⏳" : ""}</td>
-        <td class="muted">${esc(s.description.slice(0, 110))}…</td>
-        <td>
-          <button onclick="optimize('${esc(s.name)}')" ${s.status === "running" ? "disabled" : ""}>
-            ${s.status === "running" ? "optimizing…" : "Optimize"}</button>
-          ${s.pending ? `<button class="primary" onclick="showPending('${esc(s.name)}')">Review</button>` : ""}
-        </td></tr>`).join("");
+  renderBoard(skills, withTasks);
+  renderSkills(withTasks);
 
   const active = Object.entries(runs).filter(([, r]) => r.log.length);
   if (active.length) {
@@ -74,49 +397,73 @@ async function refresh() {
 
 async function optimize(skill) { await j(`/api/optimize/${skill}`, {method: "POST"}); refresh(); }
 
+function colorizeDiff(diff) {
+  if (!diff) return "(no textual diff)";
+  return diff.split("\n").map(l => {
+    const e = esc(l);
+    if (l.startsWith("+++") || l.startsWith("---") || l.startsWith("diff")) return `<span class="meta">${e}</span>`;
+    if (l.startsWith("@@")) return `<span class="hunk">${e}</span>`;
+    if (l.startsWith("+")) return `<span class="add">${e}</span>`;
+    if (l.startsWith("-")) return `<span class="del">${e}</span>`;
+    return e;
+  }).join("\n");
+}
+
 async function showPending(skill) {
   const p = await j(`/api/pending/${skill}`);
   currentPending = skill;
   $("#pending-section").hidden = false;
   $("#pending-skill").textContent = skill;
-  let headline;
+  let detail;
   if (p.ab) {  // quality pass: judge scores + token shift through the full agent
-    const c = p.ab.champion, ch = p.ab.challenger, win = ch.mean > c.mean;
+    const c = p.ab.champion, ch = p.ab.challenger, chalWins = ch.mean > c.mean;
+
+    const cand = (role, o, win) =>
+      `<div class="cand ${win ? "win" : "lose"}"><span class="role">${role}</span>
+       <span class="score">${o.mean.toFixed(3)}</span>
+       <span class="foot">judge score · ${o.scores.length} tasks</span></div>`;
+    const duel = `<div class="duel">${cand("champion", c, !chalWins)}
+      <span class="versus">vs</span>${cand("challenger", ch, chalWins)}</div>`;
+
+    const meta = `<div class="metaline">GEPA inner loop <b>${p.gepa.seed_score.toFixed(2)} → ${p.gepa.best_score.toFixed(2)}</b>
+      · <a href="${langfuseUrl}" target="_blank" rel="noopener">runs in Langfuse: ${esc(p.dataset)} ↗</a></div>`;
+
     let tok = "";
     if (c.tokens && ch.tokens) {
       const dOut = ch.tokens.mean_output - c.tokens.mean_output;
       const dIn = ch.tokens.mean_input - c.tokens.mean_input;
       const regress = dOut > 0.1 * c.tokens.mean_output;  // output tokens are the cost that matters
-      tok = `<br>output tokens/task: <b${regress ? ' style="color:#dc2626"' : ""}>` +
+      tok = `<div class="tokline">output tokens/task <b${regress ? ' class="reg"' : ""}>` +
         `${c.tokens.mean_output.toFixed(0)} → ${ch.tokens.mean_output.toFixed(0)} ` +
-        `(${dOut >= 0 ? "+" : ""}${dOut.toFixed(0)})${regress ? " ⚠" : ""}</b> · ` +
-        `input ${c.tokens.mean_input.toFixed(0)} → ${ch.tokens.mean_input.toFixed(0)} ` +
-        `(${dIn >= 0 ? "+" : ""}${dIn.toFixed(0)})`;
+        `(${dOut >= 0 ? "+" : ""}${dOut.toFixed(0)})${regress ? " ⚠ regression" : ""}</b>` +
+        ` · input ${c.tokens.mean_input.toFixed(0)} → ${ch.tokens.mean_input.toFixed(0)} ` +
+        `(${dIn >= 0 ? "+" : ""}${dIn.toFixed(0)})</div>`;
     }
-    headline = `champion <b class="${win ? "lose" : "win"}">${c.mean.toFixed(3)}</b> vs ` +
-      `challenger <b class="${win ? "win" : "lose"}">${ch.mean.toFixed(3)}</b> ` +
-      `<span class="muted">(judge score, ${c.scores.length} tasks · GEPA inner loop ` +
-      `${p.gepa.seed_score.toFixed(2)}→${p.gepa.best_score.toFixed(2)} · ` +
-      `<a href="${langfuseUrl}" target="_blank">runs in Langfuse: ${p.dataset}</a>)${tok}`;
+    detail = duel + meta + tok;
   } else {     // routing pass: embedding-router metrics, no LLM involved
     const c = p.routing.champion, ch = p.routing.challenger;
     const cell = (a, b) => `${a.toFixed(3)} → <b class="${b > a ? "win" : (b < a ? "lose" : "")}">${b.toFixed(3)}</b>`;
-    headline = `routing pass (description) — top-1 ${cell(c.top1, ch.top1)} · ` +
+    detail = `<div class="metaline">routing pass (description) — top-1 ${cell(c.top1, ch.top1)} · ` +
       `recall@3 ${cell(c.recall_at_3, ch.recall_at_3)} · ` +
-      `no-route precision ${cell(c.no_route_precision, ch.no_route_precision)} ` +
-      `<span class="muted">(embedding router · GEPA inner loop ` +
-      `${p.gepa.seed_score.toFixed(2)}→${p.gepa.best_score.toFixed(2)})`;
+      `no-route precision ${cell(c.no_route_precision, ch.no_route_precision)}</div>` +
+      `<div class="metaline">embedding router · GEPA inner loop <b>${p.gepa.seed_score.toFixed(2)} → ${p.gepa.best_score.toFixed(2)}</b></div>`;
   }
-  $("#pending-scores").innerHTML = headline +
-    (p.changed && p.changed.length ? `<br>components changed: <b>${esc(p.changed.join(", "))}</b>` : "") +
-    (p.gate && !p.gate.promotable
-      ? `<br><b style="color:#dc2626">⛔ promotion gate: ${esc(p.gate.blocked.join("; "))}</b> — review carefully before overriding.`
-      : (p.gate ? `<br><span style="color:#16a34a">✓ passes promotion gate</span>` : "")) +
-    (p.gate && p.gate.warnings && p.gate.warnings.length
-      ? `<br><b style="color:#d97706">⚠ ${esc(p.gate.warnings.join("; "))}</b>`
-      : "") +
-    `</span>`;
-  $("#diff").textContent = p.diff || "(no textual diff)";
+
+  const changed = (p.changed && p.changed.length)
+    ? `<div class="changed"><span class="cl">components changed</span>` +
+      p.changed.map(x => `<span class="chip rust">${esc(x)}</span>`).join("") + `</div>`
+    : "";
+
+  const gate = p.gate && !p.gate.promotable
+    ? `<div class="gate block">⛔ Promotion gate: ${esc(p.gate.blocked.join("; "))} — review carefully before overriding.</div>`
+    : (p.gate ? `<div class="gate ok">✓ Passes promotion gate</div>` : "");
+
+  const warn = (p.gate && p.gate.warnings && p.gate.warnings.length)
+    ? `<div class="gate warn">⚠ ${esc(p.gate.warnings.join("; "))}</div>`
+    : "";
+
+  $("#pending-detail").innerHTML = detail + changed + gate + warn;
+  $("#diff").innerHTML = colorizeDiff(p.diff);
   $("#pending-msg").textContent = "";
 }
 
@@ -129,8 +476,22 @@ $("#reject").onclick = async () => {
   $("#pending-msg").textContent = r.result; refresh();
 };
 
-j("/api/config").then(c => { langfuseUrl = c.langfuse_url; $("#lf").href = c.langfuse_url; });
+j("/api/config").then(c => {
+  langfuseUrl = c.langfuse_url;
+  $("#lf").href = c.langfuse_url; $("#lf2").href = c.langfuse_url;
+  $("#carn-link").hidden = !c.carn_enabled;
+});
 refresh(); setInterval(refresh, 3000);
+
+// scroll-reveal: enhance already-visible scaffold only (reduced-motion honored via CSS)
+if (!matchMedia("(prefers-reduced-motion: reduce)").matches) {
+  const io = new IntersectionObserver((es, o) => es.forEach(e => {
+    if (e.isIntersecting) { e.target.classList.add("in"); o.unobserve(e.target); }
+  }), {rootMargin: "0px 0px -8% 0px"});
+  document.querySelectorAll(".reveal").forEach(el => io.observe(el));
+} else {
+  document.querySelectorAll(".reveal").forEach(el => el.classList.add("in"));
+}
 </script>
 </body>
 </html>
