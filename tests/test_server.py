@@ -27,6 +27,26 @@ def test_route_refreshes_after_external_skill_promotion(tmp_path, monkeypatch):
     assert first["revision"] != second["revision"]
 
 
+def test_route_and_load_novel_flag_uses_server_thresholds(tmp_path, monkeypatch):
+    root = tmp_path / "skills"
+    skill = root / "pdf"
+    skill.mkdir(parents=True)
+    (skill / "SKILL.md").write_text("---\nname: pdf\ndescription: Merge PDF files.\n---\nbody\n")
+    STATE.reload([root])
+    # match -> weak model serves the skill
+    monkeypatch.setattr("mcp_server.server.MIN_SCORE", 0.0)
+    assert route_and_load("merge PDF", "codex", str(tmp_path))["novel"] is False
+    # no match but within the related band -> compose/extend, still not novel
+    monkeypatch.setattr("mcp_server.server.MIN_SCORE", 0.99)
+    monkeypatch.setattr("mcp_server.server.RELATED_SCORE", 0.0)
+    related = route_and_load("merge PDF", "codex", str(tmp_path))
+    assert related["match"] is None and related["novel"] is False
+    # nothing even related -> the harness should escalate to its strong model
+    monkeypatch.setattr("mcp_server.server.RELATED_SCORE", 0.99)
+    novel = route_and_load("merge PDF", "codex", str(tmp_path))
+    assert novel["match"] is None and novel["novel"] is True
+
+
 def test_route_refreshes_revision_after_bundled_file_change(tmp_path, monkeypatch):
     root = tmp_path / "skills"
     skill = root / "pdf"

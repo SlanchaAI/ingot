@@ -131,6 +131,8 @@ def preflight_provider_pins() -> None:
         roles["MODEL"] = os.environ.get("MODEL", "qwen/qwen3.6-27b")
     if is_openrouter(teacher_base_url()):
         roles["GEPA_MODEL"] = os.environ.get("GEPA_MODEL", "z-ai/glm-5.2")
+        if os.environ.get("STRONG_MODEL"):  # default is GEPA_MODEL, already checked above
+            roles["STRONG_MODEL"] = os.environ["STRONG_MODEL"]
         judges = os.environ.get("JUDGE_MODELS", os.environ.get("JUDGE_MODEL", "google/gemini-2.5-flash"))
         for i, judge in enumerate(m.strip() for m in judges.split(",") if m.strip()):
             roles[f"JUDGE_MODEL[{i}]"] = judge
