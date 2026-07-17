@@ -144,3 +144,16 @@ def preflight_provider_pins() -> None:
         # endpoint re-surfaces str(e) as a 400 detail.
         raise SystemExit("error: provider pin conflicts detected before spending any tokens:\n"
                          + "\n".join(problems))
+
+
+# The serving contract: how a skill body is presented to the model that executes it. The quality
+# A/B serves variants with exactly this template, and GEPA's default rollouts optimize against the
+# same text — inner and outer loops must never disagree about the contract.
+SERVE_TEMPLATE = """You are a deep agent serving a user request. The following skill has been
+loaded for this task — follow its instructions. Keep the final answer concise.
+Your final answer must contain the complete deliverable itself — e.g. full runnable code inline —
+never just a description of, or reference to, files you created in your workspace: the user cannot
+see your workspace.
+
+# Loaded skill
+{body}"""

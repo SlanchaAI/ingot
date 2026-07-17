@@ -212,6 +212,10 @@ reviewing the diff decides.
 This split exists because a quality judge can't measure routing and a router can't measure quality;
 letting one metric grade both components teaches the optimizer to hide behavioral rules in the
 routing description (the routing-regression gate catches it, but better to make it impossible).
+The body pass's rollouts serve each candidate under the **exact contract the A/B serves**, so the
+inner loop can't optimize against different instructions than the outer loop measures — and
+`GEPA_ROLLOUTS=agent` runs every rollout through the full agent scaffold when the failures you're
+chasing live there (e.g. code written to a scratch file instead of the answer).
 
 ### 6. Review and promote in the approval UI
 
@@ -434,6 +438,7 @@ Set in `.env` (never committed):
 | `LENGTH_PENALTY` | `0.10` | max score subtracted for a very long body |
 | `LOOP_HEALTH_THRESHOLD` | `0.7` | continuous loop re-optimizes skills whose mined mean score is below this |
 | `LOOP_PASSES` | `body` | passes the loop runs per unhealthy skill, in order (e.g. `body,description`) |
+| `GEPA_ROLLOUTS` | `direct` | body-pass rollout mode: `direct` (one call under the serving contract) or `agent` (full scaffold per rollout — sees scaffold-driven failures, ~10× cost) |
 | `RETENTION_WARN` | `0.5` | ⚠ review warning when the challenger keeps less than this fraction of the champion body |
 | `OPTIMIZE_COMPONENTS` | `body` | what GEPA may rewrite; add `description` (routing gate applies) or `file:<path>` entries (diffed, never executed — avoid scripts) |
 | `SKILL_MAX_DESCRIPTION` | `1024` | `create_skill` description hard cap (Agent Skills spec) |

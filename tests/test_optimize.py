@@ -248,3 +248,48 @@ def test_eval_serve_template_injects_body_and_contract():
     assert "THE SKILL BODY" in text
     assert "final answer must contain the complete deliverable" in text
     assert "# Loaded skill" in text
+
+
+def test_rollouts_serve_the_exact_serving_contract(monkeypatch):
+    from optimize import SERVE_TEMPLATE
+    from optimize import gepa_loop as G
+    captured = {}
+
+    class FakeLLM:
+        def invoke(self, messages):
+            captured["system"] = messages[0][1]
+            class Msg:
+                content = "an answer"
+                usage_metadata = None
+            return Msg()
+    adapter = G.SkillAdapter(frozen={"description": "trigger words"})
+    adapter._llm = FakeLLM()
+    monkeypatch.setattr(G, "judge",
+                        lambda t, r, a, reference="", check=None:
+                        {"score": 1.0, "feedback": "f", "dimensions": {}})
+    batch = adapter.evaluate([{"task": "t", "rubric": "r"}], {"body": "the rules"})
+    assert batch.scores == [1.0]
+    # inner loop and outer A/B must serve the identical contract text
+    assert captured["system"] == SERVE_TEMPLATE.format(
+        body=G.assemble({"description": "trigger words", "body": "the rules"}))
+    assert "complete deliverable" in captured["system"]
+
+
+def test_agent_rollout_mode_routes_through_the_scaffold(monkeypatch):
+    from optimize import gepa_loop as G
+    monkeypatch.setattr(G, "GEPA_ROLLOUTS", "agent")
+    monkeypatch.setattr(G, "judge",
+                        lambda t, r, a, reference="", check=None:
+                        {"score": 0.5, "feedback": "f", "dimensions": {}})
+    seen = {}
+
+    def fake_agent_rollout(self, system, task):
+        seen["task"] = task
+        seen["system_has_contract"] = "complete deliverable" in system
+        return "scaffold answer"
+    monkeypatch.setattr(G.SkillAdapter, "_agent_rollout", fake_agent_rollout)
+    adapter = G.SkillAdapter()
+    adapter._llm = None  # direct-mode client must not be touched in agent mode
+    batch = adapter.evaluate([{"task": "t1", "rubric": "r"}], {"body": "b"})
+    assert batch.outputs == ["scaffold answer"] and seen["task"] == "t1"
+    assert seen["system_has_contract"]

@@ -32,6 +32,10 @@ One shared metric grades three roles; it can only measure one of them.
 
 ### Pass 1 — body (IMPLEMENTED, the default)
 
+Inner/outer alignment (added 2026-07-16): rollouts serve candidates under the shared
+`optimize.SERVE_TEMPLATE` — the same contract the quality A/B serves — and `GEPA_ROLLOUTS=agent`
+opts into full-scaffold rollouts so scaffold-driven failures are visible to the inner loop.
+
 - Mutable: `body` only (`OPTIMIZE_COMPONENTS=body`). The frozen `description` still renders into
   rollouts for serving fidelity but cannot be mutated.
 - Objective: LLM judge on train tasks (existing), length penalty, deletion steering.

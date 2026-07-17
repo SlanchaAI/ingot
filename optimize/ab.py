@@ -148,14 +148,9 @@ see your workspace."""
 # must be guaranteed — a model that skips the routing tool for easy-looking tasks would otherwise
 # silently turn both arms into identical no-skill baselines (observed: zero tool calls, both
 # variants' input tokens identical to the digit). Routing fidelity is the description pass's job.
-EVAL_SERVE_TEMPLATE = """You are a deep agent serving a user request. The following skill has been
-loaded for this task — follow its instructions. Keep the final answer concise.
-Your final answer must contain the complete deliverable itself — e.g. full runnable code inline —
-never just a description of, or reference to, files you created in your workspace: the user cannot
-see your workspace.
-
-# Loaded skill
-{body}"""
+# The template itself is shared with GEPA's rollouts (optimize.SERVE_TEMPLATE) so the inner loop
+# optimizes against the exact contract the outer loop serves.
+from . import SERVE_TEMPLATE as EVAL_SERVE_TEMPLATE  # noqa: E402
 
 
 def load_tasks(skill: str, log=print) -> tuple[list[dict], list[dict], dict]:

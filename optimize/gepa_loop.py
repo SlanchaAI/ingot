@@ -25,13 +25,16 @@ def length_penalty(body: str) -> float:
     over = max(0, len(body) - BODY_TARGET_CHARS) / BODY_TARGET_CHARS
     return min(LENGTH_PENALTY, LENGTH_PENALTY * over)              # 0 at/under target, capped above
 
-ROLLOUT_SYSTEM = """You are an expert assistant. A skill (instructions for this kind of task, plus any
-bundled reference files) is provided below — follow it to complete the user's task. Keep the answer concise.
+# How rollouts execute a candidate skill. "direct" (default): one LLM call with the skill served
+# under optimize.SERVE_TEMPLATE — the exact contract the quality A/B serves, so the inner loop can
+# never optimize against different instructions than the outer loop measures. "agent": the full
+# deepagents scaffold (file tools and all) per rollout — reproduces scaffold-driven failures the
+# direct mode can't see (e.g. writing code to a scratch file instead of answering), at roughly
+# A/B-call cost per rollout. Set GEPA_ROLLOUTS=agent to opt in.
+GEPA_ROLLOUTS = os.environ.get("GEPA_ROLLOUTS", "direct")
 
-{skill}"""
-
-from . import (client_kwargs, is_openrouter, model_api_key, model_base_url,  # noqa: E402
-               openrouter_extra_body, teacher_base_url)
+from . import (SERVE_TEMPLATE, client_kwargs, is_openrouter, model_api_key,  # noqa: E402
+               model_base_url, openrouter_extra_body, teacher_base_url)
 from .judge import invoke_retry, judge  # noqa: E402
 from . import usage as usage_ledger  # noqa: E402
 
@@ -55,20 +58,39 @@ class SkillAdapter:
 
     def __init__(self, frozen: dict[str, str] | None = None):
         self._frozen = frozen or {}
-        self._llm = ChatOpenAI(model=MODEL, temperature=0,
-                               **client_kwargs(model_base_url(), key=model_api_key()))
+        self._llm = None  # built lazily — agent-mode rollouts never need the direct client
+
+    def _client(self):
+        if self._llm is None:
+            self._llm = ChatOpenAI(model=MODEL, temperature=0,
+                                   **client_kwargs(model_base_url(), key=model_api_key()))
+        return self._llm
 
     def _rollout(self, system, ex):
-        msg = invoke_retry(self._llm, [("system", system), ("user", ex["task"])])
-        usage_ledger.add("rollout", getattr(msg, "usage_metadata", None))
-        answer = msg.content
+        if GEPA_ROLLOUTS == "agent":
+            answer = self._agent_rollout(system, ex["task"])
+        else:
+            msg = invoke_retry(self._client(), [("system", system), ("user", ex["task"])])
+            usage_ledger.add("rollout", getattr(msg, "usage_metadata", None))
+            answer = msg.content
         j = judge(ex["task"], ex["rubric"], answer, reference=ex.get("reference", ""),
                   check=ex.get("check"))
         return answer, j["score"], {"task": ex["task"], "output": answer,
                                     "feedback": j["feedback"], "dimensions": j["dimensions"]}
 
+    def _agent_rollout(self, system, task: str) -> str:
+        """One rollout through the full deepagents scaffold — file tools included, so the failure
+        modes the scaffold invites (describe-instead-of-deliver) are visible to the inner loop."""
+        import asyncio
+
+        from agent.run import build_agent, run_task
+        agent = build_agent([], instructions=system)
+        answer, _, usage = asyncio.run(run_task(agent, task))
+        usage_ledger.add("rollout", usage)
+        return answer
+
     def evaluate(self, batch, candidate, capture_traces=False):
-        system = ROLLOUT_SYSTEM.format(skill=assemble({**self._frozen, **candidate}))
+        system = SERVE_TEMPLATE.format(body=assemble({**self._frozen, **candidate}))
         # the hosted model is slow (~15-60s/call) — run the batch's rollout+judge pairs concurrently
         with ThreadPoolExecutor(max_workers=min(6, len(batch))) as pool:
             results = list(pool.map(lambda ex: self._rollout(system, ex), batch))
