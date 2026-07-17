@@ -52,6 +52,7 @@ services:
       - ./skills:/app/skills
       - ./runs:/app/runs
       - ./optimize/tasks:/app/optimize/tasks   # auto-drafted eval sets must survive the container
+      - /var/run/docker.sock:/var/run/docker.sock  # EXEC_SANDBOX=docker launches locked-down sandbox containers (README: execution-grounded judging)
     depends_on:
       mcp:
         condition: service_started
@@ -72,6 +73,7 @@ services:
       LANGFUSE_SECRET_KEY: ${LANGFUSE_SECRET_KEY:-sk-lf-local-demo}
     volumes:
       - ./skills:/app/skills
+      - /var/run/docker.sock:/var/run/docker.sock  # EXEC_SANDBOX=docker launches locked-down sandbox containers (README: execution-grounded judging)
     depends_on:
       langfuse-web:
         condition: service_healthy
@@ -93,6 +95,7 @@ services:
       - ./skills:/app/skills
       - ./runs:/app/runs
       - ./optimize/tasks:/app/optimize/tasks   # auto-drafted eval sets must survive the container
+      - /var/run/docker.sock:/var/run/docker.sock  # EXEC_SANDBOX=docker launches locked-down sandbox containers (README: execution-grounded judging)
     depends_on:
       mcp:
         condition: service_started
@@ -116,6 +119,7 @@ services:
       - ./skills:/app/skills
       - ./runs:/app/runs
       - ./optimize/tasks:/app/optimize/tasks   # auto-drafted eval sets must survive the container
+      - /var/run/docker.sock:/var/run/docker.sock  # EXEC_SANDBOX=docker launches locked-down sandbox containers (README: execution-grounded judging)
     depends_on:
       mcp:
         condition: service_started
@@ -142,6 +146,7 @@ services:
       - ./skills:/app/skills
       - ./runs:/app/runs
       - ./optimize/tasks:/app/optimize/tasks   # auto-drafted eval sets must survive the container
+      - /var/run/docker.sock:/var/run/docker.sock  # EXEC_SANDBOX=docker launches locked-down sandbox containers (README: execution-grounded judging)
     depends_on:
       mcp:
         condition: service_started

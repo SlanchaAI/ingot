@@ -401,11 +401,18 @@ to please the judge, not to actually get better. Guards close the obvious paths:
 3. **No routing hacks.** If GEPA rewrites the routing `description`, promotion re-checks it against
    every other skill's — a rewrite that over-broadly **shadows** another skill (cosine ≥
    `COLLISION_SCORE`) is blocked, so a skill can't grab traffic by widening its trigger.
-4. **Execution-grounded judging.** For code tasks an objective check (`execcheck.py`) extracts and
-   `ast.parse`s the code and hands the judge a verdict it must treat as ground truth — "described
-   the code" or a syntax error can't be talked into a high score. Opt-in `EXEC_SANDBOX=1`
-   additionally *runs* it in a subprocess (a missing-fixture error counts as inconclusive, not a
-   defect). And a task can go all the way to **artifact-verified execution** by shipping a
+4. **Execution-grounded judging — sandboxed by default.** For code tasks an objective check
+   (`execcheck.py`) extracts and `ast.parse`s the code and hands the judge a verdict it must treat
+   as ground truth — "described the code" or a syntax error can't be talked into a high score.
+   By default (`EXEC_SANDBOX=docker`) the code additionally *runs* in a **throwaway locked-down
+   container**: no network, no mounts, read-only rootfs with tmpfs scratch, `nobody` user, all
+   capabilities dropped, memory/pid/cpu limits. A missing-fixture error counts as inconclusive,
+   not a defect — and if docker is unreachable the check **fails closed** to inconclusive; there
+   is never a silent fallback to unsandboxed execution. `SANDBOX_RUNTIME=runsc` swaps in
+   [gVisor](https://gvisor.dev)'s userspace kernel for true syscall isolation once installed;
+   `EXEC_SANDBOX=1` is the legacy bare-subprocess mode (same user/filesystem/network — only for
+   environments you'd let the judged code roam); `EXEC_SANDBOX=off` disables execution entirely.
+   And a task can go all the way to **artifact-verified execution** by shipping a
    `check:` spec in its task YAML — the answer's code then runs in a scratch directory seeded by
    the fixture, and the verdict is whether the assertion holds on what it produced, not what a
    judge thinks of the prose:
@@ -421,8 +428,11 @@ to please the judge, not to actually get better. Guards close the obvious paths:
    ```
 
    A broken fixture or missing dependency counts as inconclusive — the harness's failure is never
-   held against the answer. All of these are bare subprocesses, **not** isolated sandboxes — only
-   enable execution inside the disposable `optimize` container, never on the host.
+   held against the answer. `check:` specs execute through the same sandbox (and are inconclusive
+   when it's unavailable — they no longer run bare by default). The optimize services mount the
+   docker socket for this: the *orchestrator* (trusted repo code) talks to the daemon, while the
+   *judged code* runs confined in the sandbox container it launches — the judged code never sees
+   the socket.
 5. **Length penalty.** GEPA's objective subtracts a penalty for a bloated body, so it can't win by
    padding the skill with filler the judge mistakes for completeness.
 6. **Deletions need evidence.** The reflection prompt tells GEPA not to remove guidance the observed
@@ -464,6 +474,9 @@ Set in `.env` (never committed):
 | `GEPA_ROLLOUTS` | `direct` | body-pass rollout mode: `direct` (one call under the serving contract) or `agent` (full scaffold per rollout — sees scaffold-driven failures, ~10× cost) |
 | `RETENTION_WARN` | `0.5` | ⚠ review warning when the challenger keeps less than this fraction of the champion body |
 | `OPTIMIZE_COMPONENTS` | `body` | what GEPA may rewrite; add `description` (routing gate applies) or `file:<path>` entries (diffed, never executed — avoid scripts) |
+| `EXEC_SANDBOX` | `docker` | execution-grounded checks: `docker` = throwaway locked-down container (fails closed to inconclusive when docker is unreachable), `1` = bare subprocess (legacy), `off` = static checks only |
+| `SANDBOX_IMAGE` | `ingot-optimize` | image the sandbox containers run — any image with this repo's code at `/app` |
+| `SANDBOX_RUNTIME` | — | optional container runtime for sandbox runs, e.g. `runsc` for gVisor kernel-level isolation |
 | `SKILL_MAX_DESCRIPTION` | `1024` | `create_skill` description hard cap (Agent Skills spec) |
 | `SKILL_MAX_BODY` | `40000` | `create_skill` body ceiling (~500 lines) |
 
