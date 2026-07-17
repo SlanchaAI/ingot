@@ -9,27 +9,41 @@ OPENROUTER_URL = "https://openrouter.ai/api/v1"
 ZDR_PROVIDER = {"provider": {"zdr": True, "data_collection": "deny"}}
 
 _KEY_HELP = """\
-error: OPENROUTER_API_KEY is not set — the optimizer needs it for LLM calls.
+error: no API key is set for your LLM endpoint — the optimizer needs one.
 
   1. cp .env.example .env
-  2. put your key in it (get one at https://openrouter.ai/keys)
+  2. put your key in it (OpenRouter: https://openrouter.ai/keys — or set BASE_URL + API_KEY for
+     any other OpenAI-compatible provider, e.g. Fireworks)
   3. re-run this command
 
-(Running fully local instead? Point MODEL_BASE_URL / OPENROUTER_BASE_URL at your vLLM or Ollama
+(Running fully local instead? Point BASE_URL / MODEL_BASE_URL at your vLLM or Ollama
 OpenAI-compatible endpoint — no key is required then.)
 """
 
 
 def model_base_url() -> str:
     """Endpoint for the serving-model role (agent runs, A/B eval agents, GEPA rollouts).
-    MODEL_BASE_URL lets this role run against a local vLLM/Ollama server while the teacher and
-    judge stay wherever OPENROUTER_BASE_URL points."""
+    MODEL_BASE_URL lets this role run against a different provider (local vLLM/Ollama, or e.g.
+    Fireworks direct) while the teacher and judge stay wherever BASE_URL points."""
     return os.environ.get("MODEL_BASE_URL") or teacher_base_url()
 
 
 def teacher_base_url() -> str:
-    """Endpoint for the teacher-side roles (GEPA reflection, judge, task drafting)."""
-    return os.environ.get("OPENROUTER_BASE_URL") or OPENROUTER_URL
+    """Endpoint for the teacher-side roles (GEPA reflection, judge, task drafting). Generic
+    BASE_URL wins (any OpenAI-compatible provider); OPENROUTER_BASE_URL is the legacy alias."""
+    return (os.environ.get("BASE_URL") or os.environ.get("OPENROUTER_BASE_URL") or OPENROUTER_URL)
+
+
+def api_key() -> str:
+    """Bearer token for the configured endpoint. Generic API_KEY wins; OPENROUTER_API_KEY is the
+    legacy fallback so existing .env files keep working."""
+    return os.environ.get("API_KEY", "") or os.environ.get("OPENROUTER_API_KEY", "")
+
+
+def model_api_key() -> str:
+    """Key for the serving-model endpoint (falls back to the shared key) — hybrid setups can use
+    a different vendor for the serving role."""
+    return os.environ.get("MODEL_API_KEY", "") or api_key()
 
 
 def is_openrouter(url: str) -> bool:
@@ -48,22 +62,23 @@ def openrouter_extra_body() -> dict:
     return {"provider": provider}
 
 
-def client_kwargs(base_url: str) -> dict:
+def client_kwargs(base_url: str, key: str | None = None) -> dict:
     """ChatOpenAI connection kwargs for an endpoint. OpenRouter gets the hardcoded ZDR provider
-    preference (plus the optional OPENROUTER_PROVIDERS allowlist); anything else is treated as a
-    local OpenAI-compatible server — no provider preferences, and a placeholder api_key if none
-    is set (the client requires one)."""
-    key = os.environ.get("OPENROUTER_API_KEY", "")
+    preference (plus the optional OPENROUTER_PROVIDERS allowlist); any other OpenAI-compatible
+    endpoint (Fireworks/Together direct, local vLLM/Ollama) gets no provider preferences and a
+    placeholder api_key if none is set (the client requires one)."""
+    key = key if key is not None else api_key()
     if is_openrouter(base_url):
         return {"base_url": base_url, "api_key": key, "extra_body": openrouter_extra_body()}
     return {"base_url": base_url, "api_key": key or "local", "extra_body": {}}
 
 
 def openrouter_key_missing() -> bool:
-    """True when some active endpoint is OpenRouter and no key is configured. Fully-local
-    setups (both roles pointed at vLLM/Ollama) never need a key."""
-    urls = {model_base_url(), teacher_base_url()}
-    return any(is_openrouter(u) for u in urls) and not os.environ.get("OPENROUTER_API_KEY", "").strip()
+    """True when a hosted (https) endpoint is in use with no key configured. Local http endpoints
+    (vLLM/Ollama) never need one; each role checks the key that would actually be sent for it."""
+    if teacher_base_url().startswith("https://") and not api_key().strip():
+        return True
+    return model_base_url().startswith("https://") and not model_api_key().strip()
 
 
 def require_openrouter_key() -> None:

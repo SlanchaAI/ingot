@@ -19,7 +19,7 @@ MODEL = os.environ.get("MODEL", "qwen/qwen3.6-27b")
 # Endpoint + ZDR handling is shared with the optimizer (single source of truth): OpenRouter
 # endpoints get the hardcoded zero-data-retention provider preference; MODEL_BASE_URL points this
 # serving role at a local vLLM/Ollama server instead (README: Privacy).
-from optimize import ZDR_PROVIDER, client_kwargs, model_base_url  # noqa: E402
+from optimize import ZDR_PROVIDER, client_kwargs, model_api_key, model_base_url  # noqa: E402
 
 INSTRUCTIONS = """You are a deep agent with access to a skill router over MCP.
 For every task, first call `suggest_skills`, then decide from what it returns. Only ever call
@@ -45,7 +45,8 @@ def build_agent(tools, instructions: str = INSTRUCTIONS):
     from langchain_openai import ChatOpenAI
     from deepagents import create_deep_agent
 
-    model = ChatOpenAI(model=MODEL, temperature=0, **client_kwargs(model_base_url()))
+    model = ChatOpenAI(model=MODEL, temperature=0,
+                       **client_kwargs(model_base_url(), key=model_api_key()))
     return create_deep_agent(model=model, tools=tools, system_prompt=instructions)
 
 
