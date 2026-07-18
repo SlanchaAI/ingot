@@ -46,8 +46,10 @@ application path that can activate a new or rewritten skill.
   `promote` function or optimizer/canary activation flag.
 - CodeScene reviews: `optimize/promote.py` 10.0; `ui/app.py` 10.0.
 - CodeScene pre-commit safeguard: passed with no regressions.
+- CodeScene branch change-set analysis against current `origin/master`: passed with no regressions.
 - GitNexus change detection: CRITICAL central-flow impact, expected and acknowledged before this
   implementation.
+- Draft PR #18: mergeable; GitHub CI passed.
 
 ## Artifacts
 

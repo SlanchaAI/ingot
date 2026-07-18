@@ -240,14 +240,14 @@ rg -n 'approve_pending' optimize ui mcp_server agent
 Expected: first scan has no live feature references; second scan shows one production caller in
 `ui/app.py` plus its definition and tests.
 
-- [ ] **Step 4: Run GitNexus and CodeScene gates**
+- [x] **Step 4: Run GitNexus and CodeScene gates**
 
 Run GitNexus change detection, CodeScene `pre_commit_code_health_safeguard`, and CodeScene
 `analyze_change_set` against `master`.
 
 Expected: acknowledged impact only; both CodeScene quality gates pass.
 
-- [ ] **Step 5: Commit and push PR correction**
+- [x] **Step 5: Commit and push PR correction**
 
 Commit in reviewable units with the required co-author trailer, push
 `launch/human-gated-skills`, and confirm PR #18 CI passes. Do not merge.
