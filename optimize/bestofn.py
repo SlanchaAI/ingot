@@ -4,7 +4,8 @@ Where GEPA serializes ~10-15 propose→evaluate→reflect iterations (tens of mi
 this runs three concurrent waves and stops:
 
 1. baseline  — the seed skill is rolled out on every train task at once; its judge feedback
-               becomes the failure evidence the authors write against
+               becomes the failure evidence the authors write against, sharpened by one
+               diagnosis call that attributes failures to skill sections (see diagnose())
 2. author    — N candidate rewrites are drafted in parallel by the teacher model, each steered
                by a different angle so the pool isn't N copies of the same idea
 3. race      — successive halving: every survivor answers the next train task (all rollouts
@@ -81,13 +82,61 @@ def research_brief(baseline: list, log=print) -> str:
         cache_path.write_text(json.dumps({"queries": queries, "brief": brief}))
     return brief
 
+_MAX_DIAG_CHARS = 3000
+
+_DIAGNOSE_PROMPT = """You are diagnosing an agent skill before it is rewritten. Below are its
+components, the train tasks it must satisfy, and the judge's feedback where the current version
+fails.
+
+Skill components:
+{seed}
+
+Train tasks and rubrics:
+{tasks}
+
+Observed failures (judge feedback):
+{failures}
+
+Tasks it already handles well:
+{passes}
+
+Attribute each failure to the specific section(s) of the skill responsible, classifying every
+defect as one of: missing (needed guidance is absent), insufficient (present but incomplete or
+stale), or incorrect (present but wrong). Then list the sections NO failure implicates — a
+rewrite must preserve those. Output a compact plain-text report under exactly two headings,
+"IMPLICATED" and "PRESERVE" — no preamble."""
+
+
+def diagnose(seed: dict[str, str], task_text: str, failures: str, passes: str,
+             reflection_lm, log=print) -> str:
+    """Root-cause attribution before the author wave — the SkillForge paper's Skill Diagnostician
+    (Liu et al., "SkillForge", arXiv:2604.08618, §2.6.2) reduced to one call: failures mapped to
+    the specific skill sections responsible, each defect typed with the paper's missing /
+    insufficient / incorrect taxonomy, plus the sections nothing implicates, which every author
+    (the minimal-edit angle especially) is told to preserve. Returns '' on any failure —
+    diagnosis only steers, it must never kill a run."""
+    try:
+        report = reflection_lm(_DIAGNOSE_PROMPT.format(
+            seed=json.dumps(seed, indent=2), tasks=task_text, failures=failures, passes=passes))
+    except Exception as e:
+        log(f"[bestofn] diagnosis failed ({type(e).__name__}) — authors get raw judge feedback only")
+        return ""
+    return (report or "").strip()[:_MAX_DIAG_CHARS]
+
+
 _MAX_WORKERS = 16   # per-wave rollout/author concurrency (hosted providers handle this fine)
 
-# One steering angle per candidate slot (cycled past N=6) — cheap diversity so parallel blind
+# One steering angle per candidate slot (cycled past N) — cheap diversity so parallel blind
 # drafts explore different regions instead of resampling one. Angles steer STYLE, never deletion:
 # an angle that rewards cutting produced a challenger that halved a good body (caught by the gate,
-# but prevention belongs here).
+# but prevention belongs here). The first angle is the SkillForge optimizer's Minimal
+# Modification / Do No Harm discipline (Liu et al., "SkillForge", arXiv:2604.08618) run as one
+# competing candidate rather than a rule: when the minimal edit wins the race the reviewer gets a
+# clean additive diff, and when it loses, the fuller rewrite earned its changes on the same tasks.
 _ANGLES = (
+    "Make the smallest additive edit that fixes the observed failures: preserve the seed's "
+    "structure and wording everywhere the failure evidence does not implicate, and only add or "
+    "correct where it does.",
     "Tighten the wording ruthlessly — but preserve every operation the skill already covers.",
     "Include one worked example per major operation, with the exact expected output.",
     "Lead with edge cases and error handling: what goes wrong and the rule that prevents it.",
@@ -110,7 +159,7 @@ Train tasks and rubrics it must satisfy:
 
 Observed failures of the seed on these tasks (judge feedback):
 {failures}
-{research}
+{diagnosis}{research}
 
 Component roles are fixed: `description` is ONLY a routing trigger matched by embedding similarity
 against the user's task — keep it a concise 'Use this skill when…' summary of trigger phrases,
@@ -198,18 +247,27 @@ def run_bestofn(seed: dict[str, str], tasks: list[dict], frozen: dict[str, str] 
     brief = research_brief(baseline, log=log)
     research = (f"\nFresh web research on the failing topics (may postdate your training — "
                 f"treat it as authoritative over your priors):\n{brief}\n") if brief else ""
+    reflection_lm = make_reflection_lm()
+    task_text = "\n".join(f"- task: {t['task']}\n  rubric: {t.get('rubric', '')}" for t in tasks)
+    # SkillForge-style root cause attribution: skipped when the seed passes everything (nothing
+    # to attribute).
+    diag = (diagnose(seed, task_text, failures, passes, reflection_lm, log=log)
+            if any(r[1] < 1.0 for r in baseline) else "")
+    if diag:
+        log("[bestofn] diagnosed failures against skill sections (root cause attribution)")
+    diagnosis = (f"\nDiagnostic report — failures attributed to skill sections; fix what "
+                 f"IMPLICATED names, keep what PRESERVE names:\n{diag}\n") if diag else ""
     log(f"[bestofn] seed scores {seed_score:.3f} on {len(tasks)} train tasks; "
         f"authoring {candidates} candidates in parallel…")
 
     # wave 2 — N parallel drafts, one angle each
-    reflection_lm = make_reflection_lm()
     fmt = (_RAW_FORMAT.format(component=next(iter(seed))) if len(seed) == 1 else _JSON_FORMAT)
-    task_text = "\n".join(f"- task: {t['task']}\n  rubric: {t.get('rubric', '')}" for t in tasks)
 
     def author(i: int) -> dict[str, str] | None:
         prompt = _AUTHOR_PROMPT.format(
             seed=json.dumps(seed, indent=2), frozen=json.dumps(frozen or {}, indent=2),
-            tasks=task_text, failures=failures, passes=passes, research=research,
+            tasks=task_text, failures=failures, passes=passes, diagnosis=diagnosis,
+            research=research,
             angle=_ANGLES[i % len(_ANGLES)], components=sorted(seed), format_instructions=fmt)
         try:
             return _parse_candidate(reflection_lm(prompt), seed)
