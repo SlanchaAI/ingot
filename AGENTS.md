@@ -8,6 +8,8 @@ Guidance for coding agents working on the Ingot repository.
   actually produced by a run.
 - Real keys live only in `.env` (gitignored); everything in `docker-compose.yml` is a local-demo
   literal.
+- Never use an em dash (—) in any prose, docs, or comments you write in this repo. Use a comma,
+  colon, period, or parentheses instead.
 
 ## CodeScene MCP — Code Health guardrails
 
