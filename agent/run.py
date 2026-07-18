@@ -4,8 +4,8 @@ task -> proposed skills -> loaded skills -> result.
 
 Env: API_KEY for the configured OpenAI-compatible endpoint (required unless MODEL_BASE_URL points
 at a local endpoint), AGENT_MODEL (legacy alias MODEL), MODEL_BASE_URL (optional local vLLM/Ollama
-OpenAI-compatible endpoint), STRONG_MODEL (serves novel no-skill tasks and authors the new skill;
-defaults to GEPA_MODEL), MCP_URL, LANGFUSE_PUBLIC_KEY / LANGFUSE_SECRET_KEY / LANGFUSE_BASE_URL
+OpenAI-compatible endpoint), STRONG_MODEL (serves novel no-skill tasks and attempts optional skill
+authoring; defaults to GEPA_MODEL), MCP_URL, LANGFUSE_PUBLIC_KEY / LANGFUSE_SECRET_KEY / LANGFUSE_BASE_URL
 (optional tracing).
 """
 import os
@@ -27,8 +27,8 @@ MODEL = agent_model()
 
 
 def strong_model() -> str:
-    """Serving-time skill author: serves a request when no skill matches at all, so the new skill
-    is distilled from a strong solution. Defaults to the offline teacher (the GEPA skill author)."""
+    """Serve a request when no skill matches; optional authoring is separately gated by the MCP
+    server. Defaults to the offline teacher (the GEPA skill author)."""
     return os.environ.get("STRONG_MODEL") or os.environ.get("GEPA_MODEL", "z-ai/glm-5.2")
 
 INSTRUCTIONS = """You are a deep agent with access to a skill router over MCP.
@@ -40,9 +40,10 @@ For every task, first call `suggest_skills`, then decide from what it returns. O
 - If it returns only **`related: true`** entries (no direct match): load the closest with `get_skill`
   and *compose or extend* it into your solution rather than authoring a duplicate.
 - If it returns an **empty list** (nothing even related — a truly novel task): solve it from your own
-  knowledge, then before your final answer you MUST call `create_skill` exactly once to persist a
-  reusable skill distilled from your solution (description = one paragraph starting "Use this skill
-  when..."; body = the general method/steps, not the specifics of this one request).
+  knowledge, then before your final answer you MUST call `create_skill` exactly once to attempt to
+  persist a reusable skill distilled from your solution (description = one paragraph starting "Use
+  this skill when..."; body = the general method/steps, not the specifics of this one request).
+  A refusal is expected when trusted-local agent writes are disabled and must not affect the answer.
 
 Prefer reusing/extending an existing skill over creating a new one. Keep the final answer concise.
 Your final answer must contain the complete deliverable itself — e.g. full runnable code inline —
@@ -178,11 +179,11 @@ async def main(task: str):
         return
 
     # 2) Deep agent autonomously loads a skill via get_skill and solves. No proposals at all
-    # (not even related) means the agent will author a new skill — escalate to the strong model
-    # so the persisted skill is distilled from a strong solution.
+    # (not even related) means the agent will attempt to propose a new skill — escalate to the
+    # strong model. Persistence is independently controlled by the MCP server's opt-in write flag.
     escalate = not proposals
     if escalate:
-        print(f"\nSERVING MODEL: {strong_model()} (strong — no skill matched, will author one)")
+        print(f"\nSERVING MODEL: {strong_model()} (strong — no skill matched)")
     else:
         print(f"\nSERVING MODEL: {MODEL}")
     agent = build_agent(await _connect(), strong=escalate)

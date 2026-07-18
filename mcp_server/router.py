@@ -90,7 +90,7 @@ class Router:
         """Filter compatible skills, rank them locally, and return at most one instruction body.
         `novel` is the escalation signal for the calling harness: True when nothing compatible is
         even related (best score below `related_score`) — the case where a weak/strong setup should
-        serve with the strong model and persist its solution via create_skill."""
+        serve with the strong model, then use its configured human-reviewed or opt-in write path."""
         eligible = [s for s in self.skills if self._compatible(
             s, harness.lower(), cwd, set(available_tools), set(available_mcps), self._platform(platform)
         )]

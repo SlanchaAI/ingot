@@ -19,6 +19,9 @@ PORT = int(os.environ.get("PORT", "8000"))
 # not listen on the network. The compose mcp service sets HOST=0.0.0.0 (required for Docker port
 # publishing); host access stays localhost-only via the 127.0.0.1 port mapping.
 HOST = os.environ.get("HOST", "127.0.0.1")
+ENABLE_AGENT_SKILL_WRITES = os.environ.get("ENABLE_AGENT_SKILL_WRITES", "").lower() in {
+    "1", "true", "yes", "on",
+}
 
 
 class _State:
@@ -93,7 +96,10 @@ def get_skill(name: str) -> str:
 
 @mcp.tool()
 def create_skill(name: str, description: str, body: str) -> str:
-    """Create a new skill in the local writable library and reload the router."""
+    """Create and activate a skill when trusted-local agent writes are explicitly enabled."""
+    if not ENABLE_AGENT_SKILL_WRITES:
+        return ("Agent-authored skill writes are disabled. Set ENABLE_AGENT_SKILL_WRITES=1 only "
+                "in a trusted local environment, or add the skill through human review.")
     STATE.refresh_if_changed()
     slug = slugify(name)
     problem = name_problem(slug)
@@ -136,7 +142,8 @@ def route_and_load(task: str, harness: str, cwd: str, available_tools: list[str]
     The result's `novel` flag is the weak/strong routing signal for the calling harness:
     a `match` -> follow `skill_body` (a weak/cheap model suffices); no match with `novel` false ->
     related skills exist (see suggest_skills) to compose or extend; `novel` true -> nothing even
-    related, so serve with your strong model and persist its solution via create_skill."""
+    related, so serve with your strong model and use a human-reviewed workflow by default; the
+    caller may attempt create_skill when trusted-local agent writes are explicitly enabled."""
     STATE.refresh_if_changed()
     return STATE.router.route(task, harness, cwd, available_tools or [], available_mcps or [],
                               min_score=MIN_SCORE, related_score=RELATED_SCORE)

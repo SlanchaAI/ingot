@@ -1,5 +1,6 @@
 import asyncio
 
+from mcp_server import server
 from mcp_server.server import STATE, get_skill, mcp, route_and_load
 
 
@@ -21,6 +22,26 @@ def test_route_and_load_is_additive_to_existing_mcp_tools():
         "list_skills", "suggest_skills", "get_skill", "create_skill", "reload_skills",
         "route_and_load",
     }
+
+
+def test_create_skill_is_disabled_by_default(tmp_path, monkeypatch):
+    monkeypatch.setattr(server, "SKILLS_DIR", tmp_path)
+    monkeypatch.setattr(server, "ENABLE_AGENT_SKILL_WRITES", False)
+    result = server.create_skill("new-skill", "Use this for new work.", "Do the work.")
+    assert "disabled" in result.lower()
+    assert not (tmp_path / "new-skill").exists()
+
+
+def test_create_skill_opt_in_preserves_live_write(tmp_path, monkeypatch):
+    monkeypatch.setattr(server, "SKILLS_DIR", tmp_path)
+    monkeypatch.setattr(server, "ENABLE_AGENT_SKILL_WRITES", True)
+    monkeypatch.setattr(server.STATE, "refresh_if_changed", lambda: None)
+    monkeypatch.setattr(server.STATE, "by_name", {})
+    monkeypatch.setattr(server.STATE.router, "nearest", lambda _: (None, 0.0))
+    monkeypatch.setattr(server.STATE, "reload", lambda: 1)
+    result = server.create_skill("new-skill", "Use this for new work.", "Do the work.")
+    assert "Created skill" in result
+    assert (tmp_path / "new-skill" / "SKILL.md").exists()
 
 
 def test_route_refreshes_after_external_skill_promotion(tmp_path, monkeypatch):
