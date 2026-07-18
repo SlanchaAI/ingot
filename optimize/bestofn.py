@@ -160,6 +160,19 @@ def _score(candidate: dict[str, str], raw_scores: list[float]) -> float:
             if raw_scores else 0.0)
 
 
+def _score_remaining(field, survivors, remaining, rollout, scores, round_no, log) -> None:
+    """Settled-pool fast path: the halving cut can drop nobody below 2 finalists, so sequencing
+    the remaining rounds buys nothing. Score every remaining task for every survivor in one
+    concurrent wave instead."""
+    jobs = [(i, t) for i in survivors for t in remaining]
+    with ThreadPoolExecutor(max_workers=min(_MAX_WORKERS, len(jobs))) as pool:
+        results = list(pool.map(lambda j: rollout(field[j[0]], j[1]), jobs))
+    for (i, _), r in zip(jobs, results):
+        scores[i].append(r[1])
+    log(f"[bestofn] race settled to {len(survivors)} finalist(s) after round {round_no}; "
+        f"scored the remaining {len(remaining)} task(s) in one wave")
+
+
 def run_bestofn(seed: dict[str, str], tasks: list[dict], frozen: dict[str, str] | None = None,
                 candidates: int | None = None, log=print) -> tuple[dict[str, str], float, float]:
     """Drop-in for gepa_loop.run_gepa: returns (best_components, seed_score, best_score) where both
@@ -215,6 +228,9 @@ def run_bestofn(seed: dict[str, str], tasks: list[dict], frozen: dict[str, str] 
     scores: dict[int, list[float]] = {i: [] for i in range(len(field))}
     survivors = list(range(len(field)))
     for round_no, ex in enumerate(tasks):
+        if len(survivors) <= 2:
+            _score_remaining(field, survivors, tasks[round_no:], rollout, scores, round_no, log)
+            break
         with ThreadPoolExecutor(max_workers=min(_MAX_WORKERS, len(survivors))) as pool:
             results = list(pool.map(lambda i: rollout(field[i], ex), survivors))
         for i, r in zip(survivors, results):

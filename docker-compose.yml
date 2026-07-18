@@ -1,6 +1,7 @@
 # Ingot demo: an MCP server that suggests + serves skills, a LangGraph deep agent
 # that loads skills from it, a GEPA optimizer that A/B-tests skill improvements, an approval UI,
-# and a self-hosted Langfuse (v3) stack for traces / experiments.
+# and a self-hosted Langfuse (v3) stack for traces / experiments (optional: --profile langfuse;
+# plain `docker compose up` is lite mode).
 #
 # NOTE on "secrets" below: every credential in this file (postgres/redis/minio/clickhouse
 # passwords, the LANGFUSE_INIT_* API keys) is a LOCAL-DEMO LITERAL for the self-hosted stack on
@@ -30,11 +31,13 @@ services:
       LANGFUSE_BASE_URL: ${LANGFUSE_BASE_URL:-http://langfuse-web:3000}
       LANGFUSE_PUBLIC_KEY: ${LANGFUSE_PUBLIC_KEY:-pk-lf-local-demo}
       LANGFUSE_SECRET_KEY: ${LANGFUSE_SECRET_KEY:-sk-lf-local-demo}
+    volumes:
+      - ./runs:/app/runs   # local JSONL trace store must outlive the one-shot container
     depends_on:
       mcp:
         condition: service_started
-      langfuse-web:
-        condition: service_healthy
+      # no langfuse-web dependency: tracing degrades gracefully (local trace store + mine
+      # fallback), so the agent runs without the Langfuse stack
 
   # GEPA skill optimizer + A/B eval: `docker compose run --rm optimize pdf`
   optimize:
@@ -56,8 +59,7 @@ services:
     depends_on:
       mcp:
         condition: service_started
-      langfuse-web:
-        condition: service_healthy
+      # no langfuse-web dependency: the holdout gate runs locally when the stack is down
     profiles: ["optimize"]   # only runs on demand, not with `docker compose up`
 
   # Success/failure mining over real Langfuse traces: `docker compose run --rm optimize-mine pdf`
@@ -73,10 +75,10 @@ services:
       LANGFUSE_SECRET_KEY: ${LANGFUSE_SECRET_KEY:-sk-lf-local-demo}
     volumes:
       - ./skills:/app/skills
+      - ./runs:/app/runs                       # local trace store (Langfuse-unreachable fallback)
+      - ./optimize/tasks:/app/optimize/tasks   # train sets feed the mined-candidate leakage guard
       - /var/run/docker.sock:/var/run/docker.sock  # EXEC_SANDBOX=docker launches locked-down sandbox containers (README: execution-grounded judging)
-    depends_on:
-      langfuse-web:
-        condition: service_healthy
+    # no langfuse-web dependency: mining falls back to the local trace store without the stack
     profiles: ["optimize"]
 
   # Continuous loop — mine health, optimize the failing skills: `docker compose run --rm optimize-loop`
@@ -99,32 +101,7 @@ services:
     depends_on:
       mcp:
         condition: service_started
-      langfuse-web:
-        condition: service_healthy
-    profiles: ["optimize"]
-
-  # Live canary recommendation (ε-split + Thompson gate): `docker compose run --rm optimize-canary pdf`
-  optimize-canary:
-    build: .
-    entrypoint: ["python", "-m", "optimize.canary"]
-    env_file:
-      - path: .env
-        required: false
-    environment:
-      MCP_URL: http://mcp:8000/mcp
-      LANGFUSE_BASE_URL: ${LANGFUSE_BASE_URL:-http://langfuse-web:3000}
-      LANGFUSE_PUBLIC_KEY: ${LANGFUSE_PUBLIC_KEY:-pk-lf-local-demo}
-      LANGFUSE_SECRET_KEY: ${LANGFUSE_SECRET_KEY:-sk-lf-local-demo}
-    volumes:
-      - ./skills:/app/skills
-      - ./runs:/app/runs
-      - ./optimize/tasks:/app/optimize/tasks   # auto-drafted eval sets must survive the container
-      - /var/run/docker.sock:/var/run/docker.sock  # EXEC_SANDBOX=docker launches locked-down sandbox containers (README: execution-grounded judging)
-    depends_on:
-      mcp:
-        condition: service_started
-      langfuse-web:
-        condition: service_healthy
+      # no langfuse-web dependency: mining and the gate fall back to the local paths
     profiles: ["optimize"]
 
   # Approval UI (review A/B results, promote skills): http://localhost:8080
@@ -156,6 +133,7 @@ services:
   # UI: http://localhost:3100 — login demo@local.dev / localdemo123
   # ---------------------------------------------------------------------------
   langfuse-worker:
+    profiles: ["langfuse"]   # full observability stack: docker compose --profile langfuse up
     image: docker.io/langfuse/langfuse-worker:3
     restart: always
     depends_on: &langfuse-depends-on
@@ -196,6 +174,7 @@ services:
       REDIS_AUTH: localredissecret
 
   langfuse-web:
+    profiles: ["langfuse"]   # full observability stack: docker compose --profile langfuse up
     image: docker.io/langfuse/langfuse:3
     restart: always
     depends_on: *langfuse-depends-on
@@ -225,6 +204,7 @@ services:
       start_period: 30s
 
   clickhouse:
+    profiles: ["langfuse"]   # full observability stack: docker compose --profile langfuse up
     image: docker.io/clickhouse/clickhouse-server
     restart: always
     user: "101:101"
@@ -243,6 +223,7 @@ services:
       start_period: 1s
 
   minio:
+    profiles: ["langfuse"]   # full observability stack: docker compose --profile langfuse up
     image: cgr.dev/chainguard/minio
     restart: always
     entrypoint: sh
@@ -261,6 +242,7 @@ services:
       start_period: 1s
 
   redis:
+    profiles: ["langfuse"]   # full observability stack: docker compose --profile langfuse up
     image: docker.io/redis:7
     restart: always
     command: >
@@ -275,6 +257,7 @@ services:
       retries: 10
 
   postgres:
+    profiles: ["langfuse"]   # full observability stack: docker compose --profile langfuse up
     image: docker.io/postgres:17
     restart: always
     healthcheck:

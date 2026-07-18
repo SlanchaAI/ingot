@@ -31,10 +31,28 @@ def pending_path(skill: str) -> Path:
 def save_pending(skill: str, data: dict) -> Path:
     PENDING_DIR.mkdir(parents=True, exist_ok=True)
     path = pending_path(skill)
+    _archive_displaced(skill, path, data)
     temporary = path.with_suffix(f".{uuid.uuid4().hex}.tmp")
     temporary.write_text(json.dumps(data, indent=2) + "\n")
     temporary.replace(path)
     return path
+
+
+def _archive_displaced(skill: str, path: Path, data: dict) -> None:
+    """Each skill has ONE review slot. A new challenger from a DIFFERENT pass (other changed
+    components) must not silently destroy a reviewable one, so the displaced challenger is
+    archived beside the slot; re-runs of the same pass overwrite in place as before."""
+    if not path.exists():
+        return
+    existing = json.loads(path.read_text())
+    if sorted(existing.get("changed_components", [])) == sorted(data.get("changed_components", [])):
+        return
+    archived = PENDING_DIR / f"{skill}.displaced-{existing.get('created', uuid.uuid4().hex)}.json"
+    shutil.copy(path, archived)
+    print(f"[pending] one review slot per skill: the pending "
+          f"{existing.get('changed_components')} challenger was displaced by this "
+          f"{data.get('changed_components')} challenger and archived to {archived} "
+          f"(promote or reject before running a different pass to avoid this)")
 
 
 def load_pending(skill: str) -> dict | None:

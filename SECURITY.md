@@ -18,7 +18,7 @@ Ingot is a local development system, not a hardened multi-tenant service.
 - Agent-authored `create_skill` calls only queue inactive candidates. A normal application flow can
   activate a new skill or rewrite only through an explicit approval UI action.
 - Content checks on agent-authored skills are defense in depth, not proof that a skill is safe.
-- GEPA-generated changes and canary wins only create pending recommendations. Reviewers own every
+- Optimizer-generated changes only create pending recommendations. Reviewers own every
   activation decision.
 - Fetched third-party skills are dependencies. Review their code, instructions, and licenses.
 - Run agents without sensitive host mounts. Keep real keys only in the gitignored `.env` file.

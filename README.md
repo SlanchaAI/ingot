@@ -6,15 +6,48 @@
   <img src="docs/ingot.jpg" alt="Ingot, the mascot, handing skills out to AI agents" width="720">
 </p>
 
-**Ingot** is a self-improving [Agent Skills](https://github.com/anthropics/skills) library:
+**Ingot** is a self-improving [Agent Skills](https://github.com/anthropics/skills) library for
+your own agents. An **MCP server** routes each task to the right skill by embedding similarity,
+so a cheap or local model can do work that normally needs a frontier one: the skill carries the
+method. When no skill exists, a strong model solves the task once and saves what it learned as a
+new skill, and the next similar request runs on the cheap model. When a skill underperforms, a
+gated optimize loop rewrites it, proves the rewrite on held-out tasks, and a human approves it in
+a small **approval UI** before it goes live (hot reload, no restart).
 
-- An **MCP server** routes tasks to skills by embedding similarity and serves them to a
-  **LangGraph deep agent**.
-- Every run is traced to a self-hosted **[Langfuse](https://langfuse.com)**.
-- An optimizer mines the traces for failures, rewrites a failing skill, and A/B-tests champion vs
-  challenger through the full agent on held-out tasks.
-- You review every new or rewritten candidate in a small **approval UI**. Only approval makes it
-  live, with no restart.
+Built for individual users first:
+
+- **Lite.** `docker compose up` starts just the router and the approval UI. The tracing stack
+  is an optional upgrade (`--profile langfuse`), not a requirement.
+- **Local.** Point it at Ollama or vLLM and it runs with no API key; skills, traces, and evals
+  never leave your machine.
+- **Secure.** Hosted calls default to OpenRouter with zero-data-retention provider routing
+  enforced on every request, and no service is reachable off your machine.
+- **Easy.** A skill is a folder with a `SKILL.md`. Drop one in and it is live on the next
+  request; the optimizer auto-drafts eval sets, and `MAX_RUN_USD` hard-caps what a run may spend.
+- **Improvement you can measure.** In a real run, optimizing one stale skill took `qwen3-32b`
+  from a 0.133 to a 0.783 mean judge score on held-out tasks, in 72 seconds, for about $0.03.
+
+## Quickstart (lite mode)
+
+```bash
+git clone https://github.com/SlanchaAI/ingot.git && cd ingot
+cp .env.example .env               # add an OpenRouter key, or point BASE_URL at Ollama (no key)
+scripts/fetch_skills.sh all        # fetch ~70 real skills into ./skills (see Skill sources)
+docker compose up                  # lite by default: skill router (localhost:8000) + approval UI
+                                   # (localhost:8080) + one demo agent run
+docker compose run --rm agent "How do I merge several PDFs into one and add page numbers?"
+```
+
+Every agent run appends to a local trace store (`runs/traces.jsonl`); `optimize-mine` and the
+optimize gate read it whenever Langfuse is unreachable, so the entire improvement loop works in
+lite mode. You lose only the trace browser and experiment UI. Want those?
+
+```bash
+docker compose --profile langfuse up   # adds the self-hosted Langfuse stack (localhost:3100)
+```
+
+Everything upgrades in place, and the tutorial below runs with that full stack so you can watch
+every trace.
 
 ## Privacy first
 
@@ -74,11 +107,12 @@ system mature it. Every command, number, and screenshot below comes from a real 
 git clone https://github.com/SlanchaAI/ingot.git && cd ingot
 cp .env.example .env               # put your OpenRouter key in it (https://openrouter.ai/settings/keys)
 scripts/fetch_skills.sh all        # fetch ~70 real skills into ./skills (see Skill sources)
-docker compose up --build
+docker compose --profile langfuse up --build
 ```
 
-This brings up the MCP server (`localhost:8000`), Langfuse (`localhost:3100`), and the approval UI
-(`localhost:8080`), then runs the agent once on a demo task.
+This brings up the MCP server (`localhost:8000`), the approval UI (`localhost:8080`), and (via
+the `langfuse` profile) the self-hosted Langfuse (`localhost:3100`), then runs the agent once on
+a demo task.
 
 No skills are committed to this repo. `fetch_skills.sh` clones each source, copies its skills in,
 and deletes the clone, so everything stays under its own upstream license. Without an API key
@@ -107,8 +141,9 @@ RESULT:
 The agent asked the router (`suggest_skills`), loaded the top match (`get_skill`), and followed
 it. The `@…` suffix is the skill's content-hash revision, which also lands on the trace as a tag.
 A routed task runs on the cheap `AGENT_MODEL` because the skill carries the method; only truly
-novel tasks escalate to `STRONG_MODEL` (step 11). The tutorial outputs were recorded on Fireworks
-model IDs; the `SERVING MODEL` line shows whatever `AGENT_MODEL` you configure. Open **http://localhost:3100** (login
+novel tasks escalate to `STRONG_MODEL` (step 10). Steps 2 to 4 were recorded on Fireworks model
+IDs and steps 5 to 8 on the OpenRouter defaults (`qwen/qwen3-32b` serving); the `SERVING MODEL`
+line always shows whatever `AGENT_MODEL` you configure. Open **http://localhost:3100** (login
 `demo@local.dev` / `localdemo123`, local demo literals, not secrets) to see the full trace. To
 trace to an existing project instead, see
 [Using your own Langfuse project](#using-your-own-langfuse-project).
@@ -200,37 +235,49 @@ Write an eval task set for the skill (`optimize/tasks/tailwind.yaml`) with train
 whose rubrics carry the v4 ground truth (the teacher can also auto-draft one on a skill's first
 CLI optimize run). Then open **http://localhost:8080** and click **Optimize**. The optimizer
 authors several candidate bodies in parallel, races them on the train tasks, and A/Bs the winner
-against the champion through the full agent on the held-out tasks (a few minutes, well under $1).
-The same run works headless: `docker compose run --rm optimize tailwind`. Our run:
+against the champion through the full agent on the held-out tasks (about two minutes, a few
+cents). The same run works headless: `docker compose run --rm optimize tailwind`. Our run:
 
 ```
-[bestofn] seed scores 0.050 on 6 train tasks; authoring 5 candidates in parallel…
-[bestofn] winner: candidate 1 at 0.967 (seed 0.050)
-[ab] champion: mean judge score 1.000  [1.0, 1.0, 1.0, 1.0, 1.0, 1.0]
-[ab] challenger: mean judge score 0.833  [1.0, 0.0, 1.0, 1.0, 1.0, 1.0]
-[ab] champion 1.000 vs challenger 0.833 -> champion holds
+[bestofn] research brief reused from cache (eca23a52979eadc6.json)
+[bestofn] seed scores 0.033 on 6 train tasks; authoring 5 candidates in parallel…
+[bestofn] race round 1/6 (Set up Tailwind CSS v4 in a Vite project. What do …): 3 candidate(s) advance, 2 dropped
+[bestofn] race round 2/6 (Add a custom color `brand` (#7c3aed) in Tailwind v…): 2 candidate(s) advance, 1 dropped
+[bestofn] race settled to 2 finalist(s) after round 2; scored the remaining 4 task(s) in one wave
+[bestofn] winner: candidate 1 at 1.000 (seed 0.033)
+[ab] champion: mean judge score 0.133  [0.0, 0.2, 0.2, 0.0, 0.2, 0.2]
+[ab] challenger: mean judge score 0.767  [0.7, 0.9, 1.0, 0.9, 0.9, 0.2]
+[ab] champion 0.133 vs challenger 0.767 -> CHALLENGER WINS
+[ab] output tokens/task: 1278 -> 1032 (-246)
+  estimated cost: $0.04 (OpenRouter list prices)
+[ab] ⚠ challenger drops 100% of the champion body, gated on only 6 held-out task(s) - review the deletions carefully
+[ab] pending approval written to /app/runs/pending/tailwind.json - review + promote at http://localhost:8080
 ```
 
-The inner loop worked: the stub scored 0.050 in bare rollouts and the rewrite scored 0.967. But
-the held-out A/B runs through the full agent, and there the champion scored a perfect 1.000: a
-frontier serving model recognizes the stub's v3 advice as stale and answers v4 from its own
-knowledge. The rewrite could only match it, so the gate refused the swap. No measurable win, no
-challenger.
+Read what happened. The stub scored 0.033 in bare rollouts, and because its correctness failures
+looked like knowledge gaps, the authors were briefed with one shared web-research pass (cached, so
+repeat runs cost zero extra searches). The winner distilled a full v4 body. On the held-out A/B
+through the real agent, the stub champion scored 0.133: a small serving model follows the loaded
+v3 advice straight into wrong answers, so a stale body actively hurts. The challenger scored
+0.767, a +0.63 margin that clears the default promotion bar (+0.15) with room to spare, and it
+answers with fewer tokens. The ⚠ retention warning is the review system doing its job: this
+challenger replaced the whole body, so a human looks at the diff before anything ships.
 
-That result generalizes: **body-pass wins concentrate where the body carries knowledge the serving
-model can't have** (internal tools, your conventions, post-cutoff dependencies). On
-public-knowledge domains, strong models transcend bad bodies. The gate's refusals are what make
-the wins trustworthy: in a companion run against the NVIDIA-authored
-`accelerated-computing-cudf` skill, a challenger that dropped half the champion body and regressed
-a held-out task was blocked, 0.980 vs 0.800. What this stub measurably lacks is routing, which is
-the next step.
+The size of the win tracks the serving model: **body-pass wins concentrate where the body carries
+knowledge the serving model doesn't have** (weak or older models, internal tools, your
+conventions, post-cutoff dependencies). On a frontier serving model the same experiment ends the
+other way: in an earlier recorded run the champion scored a perfect 1.000 (the strong model
+recognized the v3 stub as stale and answered v4 from its own knowledge) and the gate refused the
+rewrite. The gate's refusals are what make the wins trustworthy: in a companion run against the
+NVIDIA-authored `accelerated-computing-cudf` skill, a challenger that dropped half the champion
+body and regressed a held-out task was blocked, 0.980 vs 0.800.
 
 Optimization is greedy: one component per pass, each scored by its own role's metric:
 
 | pass | command | inner-loop objective | cost |
 |------|---------|---------------------|------|
-| body (default) | the UI's **Optimize** button, or `optimize tailwind` | LLM judge on train tasks; full-agent A/B gate | ~$0.3 (`--gepa`: ~$1) |
-| description | `optimize tailwind --description` | the routing suite, scored by the real embedding router; no LLM rollouts | ~$0.05, seconds |
+| body (default) | the UI's **Optimize** button, or `optimize tailwind` | LLM judge on train tasks; full-agent A/B gate | ~$0.05 (`--gepa`: ~$1) |
+| description | `optimize tailwind --description` | the routing suite, scored by the real embedding router; no LLM rollouts | ~$0.01, a couple of minutes |
 | scripts | `optimize tailwind --scripts` | refused for now: bundled scripts need execution-grounded evals | n/a |
 
 The split exists because a quality judge can't measure routing and a router can't measure
@@ -238,49 +285,59 @@ quality. The body pass's rollouts serve each candidate under the exact contract 
 the inner loop can't optimize against different instructions than the outer loop measures.
 `GEPA_ROLLOUTS=agent` runs every rollout through the full agent scaffold instead.
 
-### 6. Fix the routing with the description pass
-
-The routing key is the `description`, so routing gets its own pass with its own metric, run
-against the `routing:` cases in `optimize/tasks/tailwind.yaml`: realistic positive phrasings plus
-`expected: null` negatives. The cases that matter are the real misses, so put your mined traffic
-in the suite (we added the node_modules request verbatim, plus a "classes disappear in the
-production build" variant):
-
-```bash
-docker compose run --rm optimize tailwind --description
-```
-
-```
-[routing] inner-loop score: seed 0.571 -> best 0.857
-[routing] champion: top1 0.600 · recall@3 0.600 · no-route precision 0.500
-[routing] challenger: top1 1.000 · recall@3 1.000 · no-route precision 0.500
-[routing] pending description written to /app/runs/pending/tailwind.json
-```
-
-Top-1 routing goes 0.600 to 1.000 in seconds for a few reflection calls (~$0.03). Every candidate
-description is scored by the real embedding router against the real skill corpus, so there's
-nothing for an LLM judge to be fooled about. The winning description names the symptoms users
-actually type and deliberately keeps v3 vocabulary like `tailwind.config.js`, because a routing
-description must speak the words traffic uses; the v4 truth lives in the body. The gate requires
-no regression on any routing metric, at least one strict improvement, and no collision with
-another skill's description.
-
-### 7. Review and promote in the approval UI
+### 6. Review and promote in the approval UI
 
 Back at **http://localhost:8080**, the header pill flips to **1 to review** and the `tailwind` row
 shows a `challenger ready` chip:
 
 ![approval UI, skills list with a challenger ready](docs/ui-home.png)
 
-Click **Review challenger** to see the metric deltas, the gate verdict, and the diff:
+Click **Review challenger** to see the judge scores, the token shift, the retention warning, and
+the body diff (a routing challenger shows its metric deltas the same way):
 
 ![approval UI, pending challenger review](docs/ui-review.png)
 
 **Approve & promote** verifies the evidence still matches the on-disk champion, snapshots the
 prior revision, and swaps the challenger into `skills/tailwind/`. The MCP server picks up the
-revision change with no restart. **Reject** discards it.
+revision change with no restart. **Reject** discards it. One review slot exists per skill:
+promote or reject before running a different pass, or the displaced challenger is archived beside
+the slot (the run tells you where) rather than reviewed.
+
+### 7. Fix the routing with the description pass
+
+The body is fixed, but step 3's third request still misroutes: the routing key is the
+`description`, so routing gets its own pass with its own metric, run against the `routing:` cases
+in `optimize/tasks/tailwind.yaml`: realistic positive phrasings plus `expected: null` negatives.
+The cases that matter are the real misses, so put your mined traffic in the suite (we added the
+node_modules request verbatim, plus a "classes disappear in the production build" variant):
+
+```bash
+docker compose run --rm optimize tailwind --description
+```
+
+```
+[routing] inner-loop score: seed 0.286 -> best 0.714
+[routing] champion: top1 0.500 · recall@3 0.500 · no-route precision 0.000
+[routing] challenger: top1 1.000 · recall@3 1.000 · no-route precision 0.333
+[routing] pending description written to /app/runs/pending/tailwind.json - review + promote at http://localhost:8080
+[usage] tokens spent by this routing pass (reflection only):
+  reflection      7 calls      3,796 in     7,154 out
+  estimated cost: $0.01 (OpenRouter list prices)
+```
+
+Top-1 routing goes 0.500 to 1.000 for a cent of reflection calls. Every candidate description is
+scored by the real embedding router against the real skill corpus, so there's nothing for an LLM
+judge to be fooled about. The winning description names the symptoms users actually type
+("missing styles from component libraries in node_modules") and learned explicit negatives from
+the `expected: null` cases ("Do not use this skill for plain CSS, vanilla CSS grid/flexbox
+styling"), which is where the no-route precision gain comes from. The gate requires no regression
+on any routing metric, at least one strict improvement, and no collision with another skill's
+description. The pass is stochastic: a run can land a weaker (still gate-passing) challenger, and
+re-running the same pass overwrites the slot in place.
 
 ### 8. The same request now finds the skill
+
+Promote the routing challenger in the UI exactly as in step 6, then replay the miss:
 
 ```bash
 docker compose run --rm agent "Why aren't the classes from my component library in node_modules getting styled?"
@@ -288,40 +345,22 @@ docker compose run --rm agent "Why aren't the classes from my component library 
 
 ```
 PROPOSED SKILLS (MCP suggest_skills):
-   0.661  tailwind - Use this skill when the user needs help with Tailwind CSS, including con…
-LOADED SKILLS (MCP get_skill): ['tailwind@1b65da6e92f1…']
+   0.667  tailwind - Use this skill when the user needs help with Tailwind CSS, including fra…
+SERVING MODEL: qwen/qwen3-32b
+LOADED SKILLS (MCP get_skill): (none)
 ```
 
-The exact request that misrouted in step 3 now routes to `tailwind`, and the agent loads the
-promoted revision (note the new `@…` hash).
+The exact request that misrouted in step 3 now routes to `tailwind` top-1. One honest caveat,
+visible right there in the output: on this request the serving model answered without loading the
+routed skill at all. Live loading behavior belongs to the serving model; the controlled
+body-vs-body comparison is the step 5 A/B, which injects the body and guarantees serving. Routing
+puts the right skill in front of the model; the A/B proves what happens when it is actually used.
 
 That's the loop: a first-draft skill → real traffic → mined diagnosis → a body pass gated on
 held-out quality → a description pass gated on routing metrics → human approval at every
 promotion → hot reload.
 
-### 9. (Optional) Evaluate via a live canary instead
-
-Instead of the offline A/B, a canary serves the challenger to a fraction of live traffic, judges
-each real outcome, and recommends promotion once the challenger's posterior beats the champion's:
-
-```bash
-docker compose run --rm optimize-canary pdf --epsilon 0.5
-```
-
-```
-[canary] req  4: challenger ok | served champ 2 / chall 2 | P(chall>champ)=0.50
-[canary] req 21: challenger ok | served champ 13 / chall 8 | P(chall>champ)=0.89
-[canary] req 23: champion   ·  | served champ 15 / chall 8 | P(chall>champ)=0.94
-[canary] inconclusive after 24 requests (P=0.91), keeping champion
-```
-
-Each request flips an ε-coin, each arm keeps a Beta posterior, and the run stops early to recommend
-(P≥0.95) or reject (P≤0.05). Here the challenger climbed to P=0.91, under the conservative bar, so
-the canary kept the champion. A win creates a pending recommendation; a human still approves it in
-the UI. Every canary request is first-class in Langfuse: tagged with the arm and exact revision,
-with the judged outcome written back as scores.
-
-### 10. (Optional) Put it on autopilot
+### 9. (Optional) Put it on autopilot
 
 One command mines every skill's real traffic for health and optimizes only the ones actually
 failing, leaving every survivor in the approval UI (nothing auto-promotes):
@@ -337,7 +376,7 @@ docker compose run --rm optimize-loop            # all skills with eval sets; ad
 [loop] done. 1 challenger(s) queued for review: ['pdf']
 ```
 
-### 11. Grow the library
+### 10. Grow the library
 
 Three ways the library grows:
 
@@ -403,7 +442,7 @@ Set in `.env` (never committed):
 | `API_KEY` | (none) | bearer token for `BASE_URL`; `OPENROUTER_API_KEY` is the legacy alias. Local `http://` endpoints need no key |
 | `AGENT_MODEL` | `qwen/qwen3.6-27b` | the agent: everything that executes skills, incl. rollouts; `MODEL` is the legacy alias |
 | `MODEL_BASE_URL` / `MODEL_API_KEY` | `BASE_URL` / `API_KEY` | serving-role-only overrides for hybrid setups |
-| `OPENROUTER_PROVIDERS` | (none) | OpenRouter only: optional provider allowlist (e.g. `fireworks,deepinfra`); composes with ZDR |
+| `OPENROUTER_PROVIDERS` | (none) | OpenRouter only: provider priority (e.g. `fireworks,groq`), tried in order; composes with ZDR, and roles no listed provider serves fall back to the open ZDR pool |
 | `GEPA_MODEL` | `z-ai/glm-5.2` | the reflection LM (the skill author) |
 | `STRONG_MODEL` | `GEPA_MODEL` | serves novel requests (no skill matched) and authors the new skill |
 | `JUDGE_MODEL` | `google/gemini-2.5-flash` | the LLM judge; must differ from `GEPA_MODEL` |
@@ -425,6 +464,8 @@ Set in `.env` (never committed):
 | `SANDBOX_RUNTIME` | (none) | optional container runtime, e.g. `runsc` for gVisor |
 | `SKILL_MAX_DESCRIPTION` | `1024` | `create_skill` description cap (Agent Skills spec) |
 | `SKILL_MAX_BODY` | `40000` | `create_skill` body ceiling (~500 lines) |
+| `TRACES_FILE` | `runs/traces.jsonl` | local JSONL trace store: written by every agent run, read by `optimize-mine` when Langfuse is unreachable, so mining works without the tracing stack |
+| `MAX_RUN_USD` | (none) | hard spend cap per optimize run: the ledger estimates cost from OpenRouter list prices after every call and aborts the run past the cap |
 | `LANGFUSE_BASE_URL` | `http://langfuse-web:3000` | Langfuse endpoint every service traces to and mines from |
 | `LANGFUSE_PUBLIC_KEY` / `LANGFUSE_SECRET_KEY` | `pk-lf-local-demo` / `sk-lf-local-demo` | project keys; defaults are the bundled stack's local demo literals |
 | `LANGFUSE_PUBLIC_URL` | `http://localhost:3100` | where your browser reaches Langfuse (UI trace links) |
@@ -502,9 +543,10 @@ task an entire pool aces is dead weight.
 
 ### Using your own Langfuse project
 
-By default `docker compose up` runs a self-hosted Langfuse (UI at **http://localhost:3100**,
-login `demo@local.dev` / `localdemo123`). To point ingot at an existing Langfuse project instead,
-set all three in `.env` and restart (`docker compose up -d`):
+`docker compose --profile langfuse up` runs a self-hosted Langfuse (UI at
+**http://localhost:3100**, login `demo@local.dev` / `localdemo123`). To point ingot at an
+existing Langfuse project instead, skip the profile, set all three in `.env`, and restart
+(`docker compose up -d`):
 
 ```bash
 LANGFUSE_PUBLIC_KEY=pk-lf-...                  # your project's keys: Project Settings -> API Keys
@@ -513,10 +555,10 @@ LANGFUSE_BASE_URL=https://cloud.langfuse.com   # or your self-hosted URL
 LANGFUSE_PUBLIC_URL=https://cloud.langfuse.com # optional: where your browser reaches it
 ```
 
-Two gotchas: `LANGFUSE_BASE_URL` must be reachable from inside the containers (not
+One gotcha: `LANGFUSE_BASE_URL` must be reachable from inside the containers (not
 `http://localhost:<port>`, which inside a container is the container itself; use
-`http://host.docker.internal:<port>` or your host's LAN IP). And the bundled Langfuse stack still
-starts, harmlessly unused.
+`http://host.docker.internal:<port>` or your host's LAN IP). The bundled stack only starts under
+`--profile langfuse`, so pointing at your own project adds no extra containers.
 
 ## How it works
 
@@ -536,9 +578,9 @@ starts, harmlessly unused.
 - **`skills/<name>/SKILL.md`**: YAML `description` is the routing key; the body is what the agent
   loads.
 - **`optimize/`**: trace mining (`mine.py`), multi-dimensional LLM judge (`judge.py`), two
-  inner-loop strategies (`bestofn.py`, `gepa_loop.py`), A/B + revisioned evidence (`ab.py`), live
-  canary recommendations (`canary.py`), staged approval with rollback (`promote.py`), token ledger
-  (`usage.py`). Optimizers only write pending records. A/B agents get mutation tools stripped. The mining + categorized-failure ideas are
+  inner-loop strategies (`bestofn.py`, `gepa_loop.py`), A/B + revisioned evidence (`ab.py`),
+  staged approval with rollback (`promote.py`), token ledger (`usage.py`). Optimizers only write
+  pending records. A/B agents get mutation tools stripped. The mining + categorized-failure ideas are
   borrowed from [SkillForge (Liu et al., arXiv:2604.08618)](https://arxiv.org/abs/2604.08618).
 - **`ui/`**: FastAPI approval UI (one HTML page, no build step) and the only normal application
   path that activates pending creations or rewrites.
