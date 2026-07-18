@@ -44,8 +44,8 @@ def test_race_picks_best_and_halves(monkeypatch):
     _stub_rollouts(monkeypatch, {"SEED": 0.2, "CAND-0": 0.4, "CAND-1": 0.9, "CAND-2": 0.6}, calls)
 
     def lm(prompt):   # keyed off the angle so concurrent authors stay deterministic
-        i = next(i for i, a in enumerate(bestofn._ANGLES) if a in prompt)
-        return f"CAND-{i}"
+        i = next((i for i, a in enumerate(bestofn._ANGLES) if a in prompt), None)
+        return "" if i is None else f"CAND-{i}"   # the diagnosis prompt carries no angle
     monkeypatch.setattr(bestofn, "make_reflection_lm", lambda: lm)
 
     best, seed_score, best_score = bestofn.run_bestofn({"body": "SEED"}, TRAIN,
@@ -83,9 +83,10 @@ def test_author_prompt_carries_failures_and_distinct_angles(monkeypatch):
         return "CAND"
     monkeypatch.setattr(bestofn, "make_reflection_lm", lambda: lambda p: lm(p))
     bestofn.run_bestofn({"body": "SEED"}, TRAIN, candidates=3, log=lambda *a: None)
-    assert len(prompts) == 3
-    assert all("feedback: fb" in p for p in prompts)          # failure evidence briefed in
-    assert len({p.split("Angle for THIS draft:")[1].split("\n")[0] for p in prompts}) == 3
+    authors = [p for p in prompts if "Angle for THIS draft:" in p]   # diagnosis call excluded
+    assert len(authors) == 3
+    assert all("feedback: fb" in p for p in authors)          # failure evidence briefed in
+    assert len({p.split("Angle for THIS draft:")[1].split("\n")[0] for p in authors}) == 3
 
 
 def test_length_penalty_applies_to_candidates(monkeypatch):
@@ -121,6 +122,8 @@ def test_halving_schedule_ten_candidates(monkeypatch):
     lock = threading.Lock()
 
     def lm_indexed(prompt):
+        if "Angle for THIS draft:" not in prompt:   # diagnosis call must not consume an index
+            return ""
         with lock:
             return f"CAND-{next(counter)}"
     monkeypatch.setattr(bestofn, "make_reflection_lm", lambda: lm_indexed)
@@ -137,8 +140,8 @@ def test_single_train_task_single_round(monkeypatch):
     _stub_rollouts(monkeypatch, {"SEED": 0.1, "CAND-0": 0.3, "CAND-1": 0.8}, calls)
 
     def lm(prompt):
-        i = next(i for i, a in enumerate(bestofn._ANGLES) if a in prompt)
-        return f"CAND-{i}"
+        i = next((i for i, a in enumerate(bestofn._ANGLES) if a in prompt), None)
+        return "" if i is None else f"CAND-{i}"
     monkeypatch.setattr(bestofn, "make_reflection_lm", lambda: lm)
     best, _, _ = bestofn.run_bestofn({"body": "SEED"}, TRAIN[:1], candidates=2, log=lambda *a: None)
     assert best == {"body": "CAND-1"}
@@ -206,9 +209,10 @@ def test_author_prompt_protects_passing_tasks_from_deletion(monkeypatch):
         return "CAND"
     monkeypatch.setattr(bestofn, "make_reflection_lm", lambda: lm)
     bestofn.run_bestofn({"body": "SEED"}, TRAIN, candidates=2, log=lambda *a: None)
-    assert all("Deletions need evidence" in p for p in prompts)
-    assert all("- t0 (judge score 1.00)" in p and "- t2 (judge score 1.00)" in p for p in prompts)
-    assert all("- t1 (judge score" not in p for p in prompts)   # failing tasks aren't "preserve" items
+    authors = [p for p in prompts if "Angle for THIS draft:" in p]
+    assert all("Deletions need evidence" in p for p in authors)
+    assert all("- t0 (judge score 1.00)" in p and "- t2 (judge score 1.00)" in p for p in authors)
+    assert all("- t1 (judge score" not in p for p in authors)   # failing tasks aren't "preserve" items
 
 
 def _baseline(score, dims):
@@ -257,5 +261,52 @@ def test_research_reaches_author_prompt(monkeypatch, tmp_path):
     prompts = []
     monkeypatch.setattr(bestofn, "make_reflection_lm", lambda: lambda p: prompts.append(p) or "CAND")
     bestofn.run_bestofn({"body": "SEED"}, TRAIN, candidates=2, log=lambda *a: None)
-    assert all("USE @theme IN V4" in p for p in prompts)
-    assert all("authoritative over your priors" in p for p in prompts)
+    authors = [p for p in prompts if "Angle for THIS draft:" in p]
+    assert authors and all("USE @theme IN V4" in p for p in authors)
+    assert all("authoritative over your priors" in p for p in authors)
+
+
+# Diagnosis (SkillForge's Skill Diagnostician) + the minimal-edit author angle
+
+
+def test_minimal_edit_angle_rides_in_default_wave():
+    # the SkillForge Do-No-Harm angle must sit in the first OPTIMIZE_CANDIDATES(=5) slots
+    assert "smallest additive edit" in bestofn._ANGLES[0]
+
+
+def test_diagnosis_reaches_author_prompts(monkeypatch):
+    _stub_rollouts(monkeypatch, {"SEED": 0.0, "CAND": 1.0}, [])
+    prompts = []
+
+    def lm(p):
+        prompts.append(p)
+        return "IMPLICATED: install section (incorrect)" if "diagnosing an agent skill" in p else "CAND"
+    monkeypatch.setattr(bestofn, "make_reflection_lm", lambda: lm)
+    bestofn.run_bestofn({"body": "SEED"}, TRAIN, candidates=2, log=lambda *a: None)
+    diags = [p for p in prompts if "diagnosing an agent skill" in p]
+    authors = [p for p in prompts if "Angle for THIS draft:" in p]
+    assert len(diags) == 1                                     # one diagnosis call per run
+    assert "insufficient" in diags[0] and "feedback: fb" in diags[0]   # defect taxonomy + evidence
+    assert all("IMPLICATED: install section (incorrect)" in p for p in authors)
+    assert all("keep what PRESERVE names" in p for p in authors)
+
+
+def test_diagnosis_skipped_when_seed_passes_everything(monkeypatch):
+    _stub_rollouts(monkeypatch, {"SEED": 1.0, "CAND": 1.0}, [])
+    prompts = []
+    monkeypatch.setattr(bestofn, "make_reflection_lm", lambda: lambda p: prompts.append(p) or "CAND")
+    bestofn.run_bestofn({"body": "SEED"}, TRAIN, candidates=2, log=lambda *a: None)
+    assert not any("diagnosing an agent skill" in p for p in prompts)
+
+
+def test_diagnosis_failure_does_not_kill_run(monkeypatch):
+    _stub_rollouts(monkeypatch, {"SEED": 0.1, "CAND": 0.9}, [])
+
+    def lm(p):
+        if "diagnosing an agent skill" in p:
+            raise RuntimeError("provider 500")
+        return "CAND"
+    monkeypatch.setattr(bestofn, "make_reflection_lm", lambda: lm)
+    best, _, best_score = bestofn.run_bestofn({"body": "SEED"}, TRAIN,
+                                              candidates=2, log=lambda *a: None)
+    assert best == {"body": "CAND"} and best_score == pytest.approx(0.9)
