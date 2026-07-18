@@ -401,8 +401,8 @@ function renderBoard(skills, withTasks) {
   if (pending) alerts.push(alert("act", "REVIEW",
     `${pending} scored challenger${pending > 1 ? "s" : ""} awaiting your decision — see Review below.`));
   if (running) alerts.push(alert("info", "RUNNING", "an optimization is in progress — watch the log."));
-  if (!withTasks.length) alerts.push(alert("warn", "NO TASK SETS",
-    "no skills have eval task sets yet; add optimize/tasks/&lt;skill&gt;.yaml to make one optimizable."));
+  if (!withTasks.length) alerts.push(alert("info", "GET STARTED",
+    `${skills.length} skill${skills.length === 1 ? "" : "s"} tracked, none optimizable yet — add an eval task set to a skill below to begin.`));
   else if (!pending && !running) alerts.push(alert("ok", "IDLE",
     "every evaluated skill is at its champion; nothing awaiting review."));
   $("#attention").innerHTML = alerts.join("");
