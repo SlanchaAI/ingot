@@ -27,7 +27,7 @@ services:
         required: false      # a missing .env/key gets a friendly in-app message instead
     environment:
       MCP_URL: http://mcp:8000/mcp
-      LANGFUSE_BASE_URL: http://langfuse-web:3000
+      LANGFUSE_BASE_URL: ${LANGFUSE_BASE_URL:-http://langfuse-web:3000}
       LANGFUSE_PUBLIC_KEY: ${LANGFUSE_PUBLIC_KEY:-pk-lf-local-demo}
       LANGFUSE_SECRET_KEY: ${LANGFUSE_SECRET_KEY:-sk-lf-local-demo}
     depends_on:
@@ -45,7 +45,7 @@ services:
         required: false
     environment:
       MCP_URL: http://mcp:8000/mcp
-      LANGFUSE_BASE_URL: http://langfuse-web:3000
+      LANGFUSE_BASE_URL: ${LANGFUSE_BASE_URL:-http://langfuse-web:3000}
       LANGFUSE_PUBLIC_KEY: ${LANGFUSE_PUBLIC_KEY:-pk-lf-local-demo}
       LANGFUSE_SECRET_KEY: ${LANGFUSE_SECRET_KEY:-sk-lf-local-demo}
     volumes:
@@ -68,7 +68,7 @@ services:
       - path: .env
         required: false
     environment:
-      LANGFUSE_BASE_URL: http://langfuse-web:3000
+      LANGFUSE_BASE_URL: ${LANGFUSE_BASE_URL:-http://langfuse-web:3000}
       LANGFUSE_PUBLIC_KEY: ${LANGFUSE_PUBLIC_KEY:-pk-lf-local-demo}
       LANGFUSE_SECRET_KEY: ${LANGFUSE_SECRET_KEY:-sk-lf-local-demo}
     volumes:
@@ -88,7 +88,7 @@ services:
         required: false
     environment:
       MCP_URL: http://mcp:8000/mcp
-      LANGFUSE_BASE_URL: http://langfuse-web:3000
+      LANGFUSE_BASE_URL: ${LANGFUSE_BASE_URL:-http://langfuse-web:3000}
       LANGFUSE_PUBLIC_KEY: ${LANGFUSE_PUBLIC_KEY:-pk-lf-local-demo}
       LANGFUSE_SECRET_KEY: ${LANGFUSE_SECRET_KEY:-sk-lf-local-demo}
     volumes:
@@ -112,7 +112,7 @@ services:
         required: false
     environment:
       MCP_URL: http://mcp:8000/mcp
-      LANGFUSE_BASE_URL: http://langfuse-web:3000
+      LANGFUSE_BASE_URL: ${LANGFUSE_BASE_URL:-http://langfuse-web:3000}
       LANGFUSE_PUBLIC_KEY: ${LANGFUSE_PUBLIC_KEY:-pk-lf-local-demo}
       LANGFUSE_SECRET_KEY: ${LANGFUSE_SECRET_KEY:-sk-lf-local-demo}
     volumes:
@@ -138,10 +138,10 @@ services:
         required: false
     environment:
       MCP_URL: http://mcp:8000/mcp
-      LANGFUSE_BASE_URL: http://langfuse-web:3000
+      LANGFUSE_BASE_URL: ${LANGFUSE_BASE_URL:-http://langfuse-web:3000}
       LANGFUSE_PUBLIC_KEY: ${LANGFUSE_PUBLIC_KEY:-pk-lf-local-demo}
       LANGFUSE_SECRET_KEY: ${LANGFUSE_SECRET_KEY:-sk-lf-local-demo}
-      LANGFUSE_PUBLIC_URL: http://localhost:3100   # where the browser reaches Langfuse
+      LANGFUSE_PUBLIC_URL: ${LANGFUSE_PUBLIC_URL:-http://localhost:3100}   # where the browser reaches Langfuse
     volumes:
       - ./skills:/app/skills
       - ./runs:/app/runs
