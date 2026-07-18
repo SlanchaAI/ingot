@@ -2,17 +2,16 @@
 
 **Mine your traffic. Refine your skills.**
 
-<p align="center">
-  <img src="docs/ingot.jpg" alt="Ingot, the mascot, handing skills out to AI agents" width="720">
-</p>
+[![CI](https://github.com/SlanchaAI/ingot/actions/workflows/ci.yml/badge.svg)](https://github.com/SlanchaAI/ingot/actions/workflows/ci.yml) [![License: MIT](https://img.shields.io/github/license/SlanchaAI/ingot)](LICENSE) [![Python 3.12](https://img.shields.io/badge/Python-3.12-3776AB?logo=python&logoColor=white)](Dockerfile) [![Docker](https://img.shields.io/badge/Docker-Compose-2496ED?logo=docker&logoColor=white)](docker-compose.yml)
 
-**Ingot** is a self-improving [Agent Skills](https://github.com/anthropics/skills) library for
-your own agents. An **MCP server** routes each task to the right skill by embedding similarity,
-so a cheap or local model can do work that normally needs a frontier one: the skill carries the
-method. When no skill exists, a strong model solves the task once and saves what it learned as a
-new skill, and the next similar request runs on the cheap model. When a skill underperforms, a
-gated optimize loop rewrites it, proves the rewrite on held-out tasks, and a human approves it in
-a small **approval UI** before it goes live (hot reload, no restart).
+**Ingot** is a local-first [Agent Skills](https://github.com/anthropics/skills) library for your
+own agents. Its **MCP server** routes each task to the right skill, letting a cheap or local model
+reuse methods that would otherwise need a frontier model.
+
+When no skill fits, a strong model drafts a candidate. When traffic exposes a weak skill, Ingot
+mines the failure, drafts a challenger, and tests it on held-out tasks. **Nothing promotes
+itself.** Agent-authored skills and optimizer rewrites stay inactive until a human reviews the
+evidence and approves them in the UI. Approved skills hot-reload with no restart.
 
 Built for individual users first:
 
@@ -24,8 +23,18 @@ Built for individual users first:
   enforced on every request, and no service is reachable off your machine.
 - **Easy.** A skill is a folder with a `SKILL.md`. Drop one in and it is live on the next
   request; the optimizer auto-drafts eval sets, and `MAX_RUN_USD` hard-caps what a run may spend.
-- **Improvement you can measure.** In a real run, optimizing one stale skill took `qwen3-32b`
-  from a 0.133 to a 0.783 mean judge score on held-out tasks, in 72 seconds, for about $0.03.
+- **Improvement you can measure.** In a separate recorded run, optimizing one stale skill took
+  `qwen3-32b` from a 0.133 to a 0.783 mean judge score on held-out tasks, in 72 seconds, for
+  about $0.03.
+
+## See the human gate
+
+![Approval UI with a challenger ready for human review](docs/ui-home.png)
+
+Every agent-authored skill and optimizer rewrite lands here before it can route traffic.
+
+[Quickstart](#quickstart-lite-mode) · [Full tutorial](#tutorial) ·
+[Contributing](CONTRIBUTING.md) · [Security](SECURITY.md) · [MIT license](LICENSE)
 
 ## Quickstart (lite mode)
 
@@ -37,6 +46,9 @@ docker compose up                  # lite by default: skill router (localhost:80
                                    # (localhost:8080) + one demo agent run
 docker compose run --rm agent "How do I merge several PDFs into one and add page numbers?"
 ```
+
+The lite stack uses ports `8000` and `8080` and the fixed Compose project name `ingot`. Stop an
+existing Ingot stack before starting a second checkout on the same host.
 
 Every agent run appends to a local trace store (`runs/traces.jsonl`); `optimize-mine` and the
 optimize gate read it whenever Langfuse is unreachable, so the entire improvement loop works in
@@ -290,8 +302,6 @@ the inner loop can't optimize against different instructions than the outer loop
 
 Back at **http://localhost:8080**, the header pill flips to **1 to review** and the `tailwind` row
 shows a `challenger ready` chip:
-
-![approval UI, skills list with a challenger ready](docs/ui-home.png)
 
 Click **Review challenger** to see the judge scores, the token shift, the retention warning, and
 the body diff (a routing challenger shows its metric deltas the same way):
@@ -566,6 +576,10 @@ One gotcha: `LANGFUSE_BASE_URL` must be reachable from inside the containers (no
 `--profile langfuse`, so pointing at your own project adds no extra containers.
 
 ## How it works
+
+<p align="center">
+  <img src="docs/ingot.jpg" alt="Ingot, the mascot, handing skills out to AI agents" width="720">
+</p>
 
 - **`mcp_server/`**: [FastMCP](https://github.com/jlowin/fastmcp) v3 server (HTTP transport), six tools:
   - `suggest_skills(task, k)`: routable matches by embedding similarity (CPU
