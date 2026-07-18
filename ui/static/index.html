@@ -3,6 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
+<link rel="icon" href="data:,">
 <title>ingot · optimize &amp; promote</title>
 <style>
   /* Slancha identity (seed teaser), shared with /carn: paper cream, warm ink,
@@ -292,7 +293,8 @@
       <span class="side" id="head-side">ingot</span></div>
     <h1 class="board-title">Skill optimization</h1>
     <p class="board-sub">Parallel candidate rewrites race on each skill's eval tasks; champion and challenger are
-      A/B-scored through the full agent; approving promotes the winner and hot-reloads the MCP server.
+      A/B-scored through the full agent. Agents can also author new candidates. Nothing becomes active
+      until you inspect it here and approve it.
       Deep traces in <a id="lf2" href="#" target="_blank" rel="noopener">Langfuse ↗</a>.</p>
     <div class="kpis" id="kpis"><div class="kpi"><span class="n">…</span><span class="l">loading</span></div></div>
     <div class="attention" id="attention"></div>
@@ -320,16 +322,15 @@
   <section class="band" id="pending-section" hidden>
     <div class="band-head"><span><span class="n">/</span> REVIEW</span>
       <span class="side">champion vs challenger</span></div>
-    <h2 class="head">Pending challenger: <span id="pending-skill"></span></h2>
-    <p class="sub">The challenger's evolved SKILL.md was scored against the champion through the full agent.
-      Promote only a clear, gate-passing win.</p>
+    <h2 class="head"><span id="pending-title">Pending challenger</span>: <span id="pending-skill"></span></h2>
+    <p class="sub" id="pending-copy">Inspect every changed instruction before approval.</p>
     <div class="review-card">
       <div class="beam" aria-hidden="true"></div>
       <div id="pending-detail"></div>
       <div class="difflabel">SKILL.md diff · champion → challenger</div>
       <pre class="diff" id="diff"></pre>
       <div class="review-actions">
-        <button class="btn primary" id="approve">Approve &amp; promote</button>
+        <button class="btn primary" id="approve">Approve</button>
         <button class="btn" id="reject">Reject</button>
         <span class="msg" id="pending-msg"></span>
       </div>
@@ -379,29 +380,30 @@ const kpi = (cls, n, l, d) =>
   `<div class="kpi ${cls}"><span class="n">${n}</span><span class="l">${l}</span>${d ? `<span class="d">${d}</span>` : ""}</div>`;
 const alert = (cls, tag, txt) =>
   `<div class="alert ${cls}"><span class="atag">${tag}</span><span class="atxt">${txt}</span></div>`;
-const statusChip = s => !s.has_tasks ? `<span class="chip mute">no evals</span>`
+const statusChip = s => s.creation ? `<span class="chip rust">new skill ready</span>`
+  : !s.has_tasks ? `<span class="chip mute">no evals</span>`
   : s.pending ? `<span class="chip rust">challenger ready</span>`
   : s.status === "running" ? `<span class="chip warn">optimizing</span>`
   : `<span class="chip pass">evals</span> <span class="chip mute">at champion</span>`;
 
 function renderBoard(skills, withTasks) {
-  const pending = withTasks.filter(s => s.pending).length;
+  const pending = skills.filter(s => s.pending).length;
   const running = skills.filter(s => s.status === "running").length;
   $("#kpis").innerHTML =
     kpi("", withTasks.length, "task sets", "skills with evals") +
     kpi(pending ? "act" : "", pending, pending === 1 ? "awaiting review" : "awaiting review",
-        pending ? "challenger scored" : "none pending") +
+        pending ? "human decision required" : "none pending") +
     kpi("", running, "optimizing", running ? "GEPA + A/B running" : "idle") +
-    kpi("", skills.length, "skills tracked", "registered in the router");
+    kpi("", skills.length, "skills visible", "active + pending review");
   tickKpis();
   $("#skills-side").textContent = `${withTasks.length} of ${skills.length}`;
   $("#head-side").textContent = pending ? `${pending} to review` : "ingot";
 
   const alerts = [];
   if (pending) alerts.push(alert("act", "REVIEW",
-    `${pending} scored challenger${pending > 1 ? "s" : ""} awaiting your decision — see Review below.`));
+    `${pending} candidate${pending > 1 ? "s" : ""} awaiting your decision; see Review below.`));
   if (running) alerts.push(alert("info", "RUNNING", "an optimization is in progress — watch the log."));
-  if (!withTasks.length) alerts.push(alert("info", "GET STARTED",
+  if (!withTasks.length && !pending) alerts.push(alert("info", "GET STARTED",
     `${skills.length} skill${skills.length === 1 ? "" : "s"} tracked, none optimizable yet — add an eval task set to a skill below to begin.`));
   else if (!pending && !running) alerts.push(alert("ok", "IDLE",
     "every evaluated skill is at its champion; nothing awaiting review."));
@@ -429,10 +431,11 @@ function renderSkills(skills) {
         <p class="sdesc">${esc(s.description)}</p>
       </div>
       <div class="sactions">
-        <button class="btn" onclick="optimize('${esc(s.name)}')" ${s.status === "running" || !s.has_tasks ? "disabled" : ""}
-          ${s.has_tasks ? "" : `title="no eval task set — docker compose run --rm optimize ${esc(s.name)} auto-drafts one"`}>
-          ${s.status === "running" ? "optimizing…" : "Optimize"}</button>
-        ${s.pending ? `<button class="btn primary" onclick="showPending('${esc(s.name)}')">Review challenger</button>` : ""}
+        ${s.creation ? "" : `<button class="btn" onclick="optimize('${esc(s.name)}')"
+          ${s.status === "running" || !s.has_tasks ? "disabled" : ""}
+          ${s.has_tasks ? "" : `title="no eval task set; docker compose run --rm optimize ${esc(s.name)} auto-drafts one"`}>
+          ${s.status === "running" ? "optimizing…" : "Optimize"}</button>`}
+        ${s.pending ? `<button class="btn primary" onclick="showPending('${esc(s.name)}')">${s.creation ? "Review new skill" : "Review challenger"}</button>` : ""}
       </div>
     </div>`).join("");
 }
@@ -450,7 +453,7 @@ async function refresh() {
     $("#log").textContent = active.map(([s, r]) => r.log.map(l => `[${s}] ${l}`).join("\n")).join("\n");
     $("#log").scrollTop = $("#log").scrollHeight;
   }
-  const pending = withTasks.find(s => s.pending);
+  const pending = skills.find(s => s.pending);
   if (pending && !currentPending) showPending(pending.name);
   if (!skills.some(s => s.pending)) { $("#pending-section").hidden = true; currentPending = null; }
 }
@@ -474,8 +477,17 @@ async function showPending(skill) {
   currentPending = skill;
   $("#pending-section").hidden = false;
   $("#pending-skill").textContent = skill;
+  const creation = p.kind === "creation";
+  $("#pending-title").textContent = creation ? "New skill candidate" : "Pending challenger";
+  $("#pending-copy").textContent = creation
+    ? "Review the proposed routing description and instructions. Approval activates this skill for the first time."
+    : "The challenger was scored against the active skill. Promote only a clear, gate-passing win.";
+  $("#approve").textContent = creation ? "Approve & activate" : "Approve & promote";
+  $("#approve").disabled = Boolean(p.gate && !p.gate.promotable);
   let detail;
-  if (p.ab) {  // quality pass: judge scores + token shift through the full agent
+  if (creation) {
+    detail = `<div class="metaline"><b>Agent-authored new skill</b> · not active · human approval required</div>`;
+  } else if (p.ab) {  // quality pass: judge scores + token shift through the full agent
     const c = p.ab.champion, ch = p.ab.challenger, chalWins = ch.mean > c.mean;
 
     const cand = (role, o, win) =>

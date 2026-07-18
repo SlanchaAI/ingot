@@ -71,6 +71,34 @@ def test_skills_list_empty_library(client):
     assert r.json() == []
 
 
+def test_skills_list_includes_pending_creation(client):
+    P.save_pending("new-skill", {
+        "kind": "creation",
+        "skill": "new-skill",
+        "champion_components": {"description": "", "body": ""},
+        "challenger_components": {
+            "description": "Use this for new work.",
+            "body": "Do the work.",
+        },
+        "changed_components": ["description", "body"],
+        "gate": {"promotable": True, "blocked": [], "warnings": []},
+        "source": "agent",
+    })
+
+    assert client.get("/api/skills").json() == [{
+        "name": "new-skill",
+        "description": "Use this for new work.",
+        "has_tasks": False,
+        "pending": True,
+        "status": None,
+        "creation": True,
+    }]
+    pending = client.get("/api/pending/new-skill").json()
+    assert pending["kind"] == "creation"
+    assert "+Use this for new work." in pending["diff"]
+    assert "+Do the work." in pending["diff"]
+
+
 def test_pending_renders_component_diff_and_warnings(client):
     P.save_pending("pdf", {
         "skill": "pdf", "dataset": "pdf-holdout",
@@ -93,7 +121,7 @@ def test_promote_passes_through_result(client, monkeypatch):
     import ui.app as ui_app
     P.save_pending("pdf", {"skill": "pdf", "gate": {"promotable": True, "blocked": []},
                            "champion_components": {}, "challenger_components": {}})
-    monkeypatch.setattr(ui_app, "promote", lambda skill: f"promoted '{skill}'")
+    monkeypatch.setattr(ui_app, "approve_pending", lambda skill: f"promoted '{skill}'")
     r = client.post("/api/promote/pdf")
     assert r.status_code == 200 and r.json() == {"result": "promoted 'pdf'"}
 

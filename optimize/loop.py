@@ -1,6 +1,6 @@
 """Continuous optimization loop: mine each skill's real traces for health, then optimize the ones
 that are actually failing — stitching mining → (auto-drafted) eval set → GEPA A/B → *gated* pending
-into one command. Nothing auto-promotes; every surviving improvement lands in the approval UI.
+into one command. Every surviving improvement lands in the approval UI and requires approval.
 
 Usage: python -m optimize.loop [skill ...]   (default: every skill with an eval task set)
 """

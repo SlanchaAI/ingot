@@ -1,11 +1,10 @@
 """Optimize a full skill and A/B it: the inner loop turns the skill's components into a challenger
-— by default parallel best-of-N with racing (optimize.bestofn, seconds-scale), or GEPA's sequential
-reflective evolution with --gepa / OPTIMIZE_STRATEGY=gepa — then champion and challenger run through
+using parallel best-of-N with racing by default (optimize.bestofn, seconds-scale), or GEPA's
+sequential reflective evolution with --gepa / OPTIMIZE_STRATEGY=gepa. Champion and challenger run through
 the full agent with a local `route_and_load`. Each variant is a Langfuse dataset run (side-by-side
-in the UI); the result is written to runs/pending/<skill>.json for approval in the UI (or promoted
-directly with --promote).
+in the UI); the result is written to runs/pending/<skill>.json for approval in the UI.
 
-Usage: python -m optimize.ab <skill> [--promote] [--gepa] [--candidates N] [--budget N] [--skip-gepa]
+Usage: python -m optimize.ab <skill> [--gepa] [--candidates N] [--budget N] [--skip-gepa]
 """
 import argparse
 import asyncio
@@ -25,7 +24,7 @@ from mcp_server.registry import SKILLS_DIR, load_skills, optimizable_components,
 from . import agent_model
 from . import usage as usage_ledger
 from .judge import judge
-from .promote import promote, save_pending
+from .promote import save_pending
 from .evidence import build_evidence, write_evidence
 
 TASKS_DIR = Path(__file__).resolve().parent / "tasks"
@@ -276,8 +275,8 @@ def _run_variant(dataset, variant: str, agent, tasks: list[dict]):
             [behavior_by_task.get(t["task"], []) for t in tasks])
 
 
-def run_ab(skill: str, promote_now: bool = False, budget: int = 60,
-           skip_gepa: bool = False, challenger_file: str | None = None,
+def run_ab(skill: str, budget: int = 60, skip_gepa: bool = False,
+           challenger_file: str | None = None,
            strategy: str | None = None, candidates: int | None = None, log=print) -> dict:
     from langfuse import get_client
 
@@ -439,8 +438,6 @@ def run_ab(skill: str, promote_now: bool = False, budget: int = 60,
         log(f"[ab] ⚠ {'; '.join(warnings)}")
     if not wins:
         log("[ab] champion holds — nothing to promote.")
-    elif promote_now and promotable:
-        log("[ab] --promote: " + promote(skill, challenger, evidence))
     elif promotable:
         p = save_pending(skill, summary)
         log(f"[ab] pending approval written to {p} — review + promote at http://localhost:8080")
@@ -460,7 +457,6 @@ if __name__ == "__main__":
                         help="routing pass over the description (embedding-scored inner loop)")
     passes.add_argument("--scripts", action="store_true",
                         help="not yet supported — needs execution-grounded evals")
-    ap.add_argument("--promote", action="store_true", help="promote immediately if challenger wins")
     ap.add_argument("--gepa", action="store_true",
                     help="use the sequential GEPA reflective loop instead of the default "
                          "parallel best-of-N (also: OPTIMIZE_STRATEGY=gepa)")
@@ -485,6 +481,6 @@ if __name__ == "__main__":
         from .routing import run_routing
         run_routing(args.skill, budget=args.budget)
     else:
-        run_ab(args.skill, promote_now=args.promote, budget=args.budget,
+        run_ab(args.skill, budget=args.budget,
                skip_gepa=args.skip_gepa, challenger_file=args.challenger_file,
                strategy="gepa" if args.gepa else None, candidates=args.candidates)
