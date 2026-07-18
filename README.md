@@ -46,8 +46,8 @@ lite mode. You lose only the trace browser and experiment UI. Want those?
 docker compose --profile langfuse up   # adds the self-hosted Langfuse stack (localhost:3100)
 ```
 
-Everything upgrades in place, and the tutorial below runs with that full stack so you can watch
-every trace.
+Everything upgrades in place. The tutorial below runs in lite mode; nothing in it needs the
+Langfuse stack.
 
 ## Privacy first
 
@@ -107,12 +107,11 @@ system mature it. Every command, number, and screenshot below comes from a real 
 git clone https://github.com/SlanchaAI/ingot.git && cd ingot
 cp .env.example .env               # put your OpenRouter key in it (https://openrouter.ai/settings/keys)
 scripts/fetch_skills.sh all        # fetch ~70 real skills into ./skills (see Skill sources)
-docker compose --profile langfuse up --build
+docker compose up --build
 ```
 
-This brings up the MCP server (`localhost:8000`), the approval UI (`localhost:8080`), and (via
-the `langfuse` profile) the self-hosted Langfuse (`localhost:3100`), then runs the agent once on
-a demo task.
+This brings up the MCP server (`localhost:8000`) and the approval UI (`localhost:8080`), then
+runs the agent once on a demo task.
 
 No skills are committed to this repo. `fetch_skills.sh` clones each source, copies its skills in,
 and deletes the clone, so everything stays under its own upstream license. Without an API key
@@ -143,10 +142,8 @@ it. The `@…` suffix is the skill's content-hash revision, which also lands on 
 A routed task runs on the cheap `AGENT_MODEL` because the skill carries the method; only truly
 novel tasks escalate to `STRONG_MODEL` (step 10). Steps 2 to 4 were recorded on Fireworks model
 IDs and steps 5 to 8 on the OpenRouter defaults (`qwen/qwen3-32b` serving); the `SERVING MODEL`
-line always shows whatever `AGENT_MODEL` you configure. Open **http://localhost:3100** (login
-`demo@local.dev` / `localdemo123`, local demo literals, not secrets) to see the full trace. To
-trace to an existing project instead, see
-[Using your own Langfuse project](#using-your-own-langfuse-project).
+line always shows whatever `AGENT_MODEL` you configure. The run's full trace just landed in
+`runs/traces.jsonl`; that local store is what the miner reads in step 4.
 
 ### 3. Write a first-draft skill and watch it under-deliver
 
@@ -256,7 +253,11 @@ cents). The same run works headless: `docker compose run --rm optimize tailwind`
 
 Read what happened. The stub scored 0.033 in bare rollouts, and because its correctness failures
 looked like knowledge gaps, the authors were briefed with one shared web-research pass (cached, so
-repeat runs cost zero extra searches). The winner distilled a full v4 body. On the held-out A/B
+repeat runs cost zero extra searches). That research step is optional: it fires only if you set
+`TAVILY_API_KEY`, and without one the run works identically minus the brief. What it buys you is
+facts that postdate the author model's training — exactly what a version-drift skill like this
+needs, since otherwise the rewrite can only be as current as the author's own knowledge (see
+[Optimization strategies](#optimization-strategies)). The winner distilled a full v4 body. On the held-out A/B
 through the real agent, the stub champion scored 0.133: a small serving model follows the loaded
 v3 advice straight into wrong answers, so a stale body actively hurts. The challenger scored
 0.767, a +0.63 margin that clears the default promotion bar (+0.15) with room to spare, and it
@@ -479,9 +480,13 @@ Promotion-gate knobs (`PROMOTE_MIN_MARGIN`, `PROMOTE_MIN_SAMPLES`, `COLLISION_SC
 Both strategies feed the same held-out A/B and promotion gate.
 
 **`parallel` (default)**: best-of-N with racing (`optimize/bestofn.py`). The seed is rolled out on
-every train task at once and its judge feedback becomes the failure brief; N candidate rewrites
-(`OPTIMIZE_CANDIDATES`) are drafted in parallel, each steered by a different angle; then
-successive halving over the train tasks drops the bottom half each round. The winner's cumulative
+every train task at once and its judge feedback becomes the failure brief, sharpened by a one-call
+diagnostic report that attributes each failure to the skill sections responsible, typed as
+missing / insufficient / incorrect (the SkillForge paper's Skill Diagnostician); N candidate
+rewrites (`OPTIMIZE_CANDIDATES`) are drafted in parallel, each steered by a different angle — one
+of them always the paper's minimal-additive-edit "Do No Harm" discipline, so a clean-diff
+candidate competes in every race; then successive halving over the train tasks drops the bottom
+half each round. The winner's cumulative
 mean (minus the length penalty) must beat the seed. Minutes, not tens of minutes, on ~15 rollouts.
 
 **`gepa`** (`--gepa`, or `OPTIMIZE_STRATEGY=gepa`): the sequential reflective loop
@@ -580,8 +585,9 @@ One gotcha: `LANGFUSE_BASE_URL` must be reachable from inside the containers (no
 - **`optimize/`**: trace mining (`mine.py`), multi-dimensional LLM judge (`judge.py`), two
   inner-loop strategies (`bestofn.py`, `gepa_loop.py`), A/B + revisioned evidence (`ab.py`),
   staged approval with rollback (`promote.py`), token ledger (`usage.py`). Optimizers only write
-  pending records. A/B agents get mutation tools stripped. The mining + categorized-failure ideas are
-  borrowed from [SkillForge (Liu et al., arXiv:2604.08618)](https://arxiv.org/abs/2604.08618).
+  pending records. A/B agents get mutation tools stripped. The mining, categorized-failure, and
+  failure-diagnosis ideas (plus the minimal-edit author angle) are borrowed from
+  [SkillForge (Liu et al., arXiv:2604.08618)](https://arxiv.org/abs/2604.08618).
 - **`ui/`**: FastAPI approval UI (one HTML page, no build step) and the only normal application
   path that activates pending creations or rewrites.
 
