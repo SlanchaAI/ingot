@@ -1,5 +1,4 @@
-"""Content guardrails for agent-authored skills (create_skill is the un-gated live-write path;
-GEPA promotions go through human approval instead).
+"""Content guardrails for agent-authored skill candidates before they enter human review.
 
 Deliberately narrow: we hard-reject only *low-false-positive* signals. We do NOT denylist shell
 commands, `.env`/credential mentions, or `curl | sh`, because legitimate skills routinely contain

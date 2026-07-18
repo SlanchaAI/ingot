@@ -103,7 +103,7 @@ services:
         condition: service_healthy
     profiles: ["optimize"]
 
-  # Live canary promotion (ε-split + Thompson gate): `docker compose run --rm optimize-canary pdf`
+  # Live canary recommendation (ε-split + Thompson gate): `docker compose run --rm optimize-canary pdf`
   optimize-canary:
     build: .
     entrypoint: ["python", "-m", "optimize.canary"]

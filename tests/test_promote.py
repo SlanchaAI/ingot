@@ -1,6 +1,6 @@
 import pytest
 
-from mcp_server.registry import load_skills, optimizable_components, skill_revision
+from mcp_server.registry import load_skills, optimizable_components, parse_skill, skill_revision
 from optimize import promote as P
 
 
@@ -32,11 +32,31 @@ def _pending(skill_dir, *, promotable=True):
     }
 
 
+def _creation(tmp_path, monkeypatch):
+    skills = tmp_path / "skills"
+    monkeypatch.setattr(P, "SKILLS_DIR", skills)
+    monkeypatch.setattr(P, "PENDING_DIR", tmp_path / "pending")
+    monkeypatch.setattr(P, "load_skills", lambda: [])
+    P.save_pending("new-skill", {
+        "kind": "creation",
+        "skill": "new-skill",
+        "champion_components": {"description": "", "body": ""},
+        "challenger_components": {
+            "description": "Use this for new work.",
+            "body": "Do the work.",
+        },
+        "changed_components": ["description", "body"],
+        "gate": {"promotable": True, "blocked": [], "warnings": []},
+        "source": "agent",
+    })
+    return skills
+
+
 def test_promote_refuses_blocked_evidence(tmp_path, monkeypatch):
     skill = _library(tmp_path, monkeypatch)
     P.save_pending("pdf", _pending(skill, promotable=False))
     with pytest.raises(ValueError, match="Behavioral CI gate blocked"):
-        P.promote("pdf")
+        P.approve_pending("pdf")
     assert "old body" in (skill / "SKILL.md").read_text()
 
 
@@ -46,7 +66,7 @@ def test_promote_refuses_stale_champion_revision(tmp_path, monkeypatch):
     pending["evidence"]["champion"]["revision"] = "stale"
     P.save_pending("pdf", pending)
     with pytest.raises(ValueError, match="champion revision changed"):
-        P.promote("pdf")
+        P.approve_pending("pdf")
 
 
 def test_promote_refuses_bundled_file_drift(tmp_path, monkeypatch):
@@ -56,7 +76,7 @@ def test_promote_refuses_bundled_file_drift(tmp_path, monkeypatch):
     (skill / "reference.md").write_text("version two")
     P.save_pending("pdf", pending)
     with pytest.raises(ValueError, match="champion revision changed"):
-        P.promote("pdf")
+        P.approve_pending("pdf")
 
 
 def test_promote_snapshots_previous_revision_and_swaps_challenger(tmp_path, monkeypatch):
@@ -64,7 +84,7 @@ def test_promote_snapshots_previous_revision_and_swaps_challenger(tmp_path, monk
     pending = _pending(skill)
     old_revision = pending["evidence"]["champion"]["revision"]
     P.save_pending("pdf", pending)
-    result = P.promote("pdf")
+    result = P.approve_pending("pdf")
     assert "new body" in (skill / "SKILL.md").read_text()
     assert "old body" in (P.REVISIONS_DIR / "pdf" / old_revision / "SKILL.md").read_text()
     assert not P.pending_path("pdf").exists()
@@ -81,8 +101,52 @@ def test_failed_stage_write_leaves_live_skill_untouched(tmp_path, monkeypatch):
 
     monkeypatch.setattr(P, "write_components", fail_write)
     with pytest.raises(RuntimeError, match="stage failed"):
-        P.promote("pdf")
+        P.approve_pending("pdf")
     assert "old body" in (skill / "SKILL.md").read_text()
+
+
+def test_approve_pending_creation_activates_atomically_and_preserves_source(tmp_path, monkeypatch):
+    skills = _creation(tmp_path, monkeypatch)
+
+    result = P.approve_pending("new-skill")
+
+    destination = skills / "new-skill"
+    meta, body = parse_skill((destination / "SKILL.md").read_text(), "new-skill")
+    assert "Activated new skill 'new-skill'" in result
+    assert meta == {
+        "name": "new-skill",
+        "description": "Use this for new work.",
+        "source": "agent",
+    }
+    assert body == "Do the work."
+    assert not P.pending_path("new-skill").exists()
+    assert list(skills.glob(".new-skill.*.stage")) == []
+
+
+def test_approve_pending_creation_refuses_active_name_race(tmp_path, monkeypatch):
+    skills = _creation(tmp_path, monkeypatch)
+    destination = skills / "new-skill"
+    destination.mkdir(parents=True)
+
+    with pytest.raises(ValueError, match="already exists"):
+        P.approve_pending("new-skill")
+
+    assert P.pending_path("new-skill").exists()
+
+
+def test_failed_creation_write_preserves_pending_and_leaves_no_active_skill(tmp_path, monkeypatch):
+    skills = _creation(tmp_path, monkeypatch)
+
+    def fail_write(*args, **kwargs):
+        raise RuntimeError("creation write failed")
+
+    monkeypatch.setattr(P, "write_skill_md", fail_write)
+    with pytest.raises(RuntimeError, match="creation write failed"):
+        P.approve_pending("new-skill")
+
+    assert P.pending_path("new-skill").exists()
+    assert not (skills / "new-skill").exists()
+    assert list(skills.glob(".new-skill.*.stage")) == []
 
 
 def test_write_components_rejects_symlink_escape(tmp_path):

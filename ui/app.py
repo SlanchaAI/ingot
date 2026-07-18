@@ -10,7 +10,7 @@ from fastapi.responses import FileResponse
 
 from mcp_server.registry import SLUG_RE, load_skills
 from optimize.ab import TASKS_DIR, run_ab
-from optimize.promote import load_pending, pending_path, promote
+from optimize.promote import approve_pending, list_pending, load_pending, pending_path
 from ui.carn import carn_enabled, router as carn_router
 
 
@@ -49,19 +49,73 @@ def config():
 
 @app.get("/api/skills")
 def skills():
-    tasksets = {p.stem for p in TASKS_DIR.glob("*.yaml")}
+    active = _active_skill_rows({p.stem for p in TASKS_DIR.glob("*.yaml")})
+    return active + _pending_creation_rows(active)
+
+
+def _active_skill_rows(tasksets: set[str]) -> list[dict]:
     return [
         {"name": s.name, "description": s.description, "has_tasks": s.name in tasksets,
          "pending": load_pending(s.name) is not None,
-         "status": RUNS.get(s.name, {}).get("status")}
+         "status": RUNS.get(s.name, {}).get("status"), "creation": False}
         for s in load_skills()
         if SLUG_RE.fullmatch(s.name)  # a non-slug name (hostile frontmatter) can't be optimized anyway
     ]
 
 
+def _pending_creation_row(record: dict, active_names: set[str]) -> dict | None:
+    if record.get("kind") != "creation":
+        return None
+    name = record["skill"]
+    if name in active_names:
+        return None
+    description = record.get("challenger_components", {}).get("description")
+    if not isinstance(description, str):
+        return None
+    return {
+        "name": name,
+        "description": description,
+        "has_tasks": False,
+        "pending": True,
+        "status": None,
+        "creation": True,
+    }
+
+
+def _pending_creation_rows(active: list[dict]) -> list[dict]:
+    active_names = {item["name"] for item in active}
+    creations = []
+    for record in list_pending():
+        creation = _pending_creation_row(record, active_names)
+        if creation:
+            creations.append(creation)
+    return creations
+
+
 @app.post("/api/optimize/{skill}", dependencies=[Depends(same_origin)])
 def optimize(skill: str):
     _check(skill)
+    _preflight_optimize(skill)
+    state = RUNS[skill] = {"status": "running", "log": []}
+
+    def log(*args):
+        state["log"].append(" ".join(str(a) for a in args))
+
+    threading.Thread(target=_run_optimization, args=(skill, state, log), daemon=True).start()
+    return {"started": skill}
+
+
+def _preflight_optimize(skill: str) -> None:
+    _preflight_provider()
+    if not (TASKS_DIR / f"{skill}.yaml").exists():
+        raise HTTPException(404, f"no eval task set for '{skill}'")
+    # one optimization at a time: the token ledger is process-global, and concurrent runs
+    # would also contend for the same OpenRouter budget
+    if any(s.get("status") == "running" for s in RUNS.values()):
+        raise HTTPException(409, "an optimization is already running")
+
+
+def _preflight_provider() -> None:
     from optimize import openrouter_key_missing, preflight_provider_pins
     if openrouter_key_missing():
         raise HTTPException(400, "OPENROUTER_API_KEY is not set — copy .env.example to .env, "
@@ -71,27 +125,15 @@ def optimize(skill: str):
         preflight_provider_pins()
     except SystemExit as e:  # pin/model conflict — surface the explanation, don't start a run
         raise HTTPException(400, str(e))
-    if not (TASKS_DIR / f"{skill}.yaml").exists():
-        raise HTTPException(404, f"no eval task set for '{skill}'")
-    # one optimization at a time: the token ledger is process-global, and concurrent runs
-    # would also contend for the same OpenRouter budget
-    if any(s.get("status") == "running" for s in RUNS.values()):
-        raise HTTPException(409, "an optimization is already running")
-    state = RUNS[skill] = {"status": "running", "log": []}
 
-    def log(*args):
-        state["log"].append(" ".join(str(a) for a in args))
 
-    def work():
-        try:
-            run_ab(skill, log=log)
-            state["status"] = "done"
-        except BaseException as e:  # surface SystemExit etc. in the UI
-            log(f"ERROR: {e}")
-            state["status"] = "error"
-
-    threading.Thread(target=work, daemon=True).start()
-    return {"started": skill}
+def _run_optimization(skill: str, state: dict, log) -> None:
+    try:
+        run_ab(skill, log=log)
+        state["status"] = "done"
+    except BaseException as e:  # surface SystemExit etc. in the UI
+        log(f"ERROR: {e}")
+        state["status"] = "error"
 
 
 @app.get("/api/runs")
@@ -131,7 +173,7 @@ def approve(skill: str):
         raise HTTPException(404, f"no pending challenger for '{skill}'")
     if p.get("gate", {}).get("promotable") is not True:
         raise HTTPException(409, "Behavioral CI gate blocked this challenger")
-    return {"result": promote(skill)}
+    return {"result": approve_pending(skill)}
 
 
 @app.post("/api/reject/{skill}", dependencies=[Depends(same_origin)])

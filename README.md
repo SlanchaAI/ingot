@@ -13,8 +13,8 @@
 - Every run is traced to a self-hosted **[Langfuse](https://langfuse.com)**.
 - An optimizer mines the traces for failures, rewrites a failing skill, and A/B-tests champion vs
   challenger through the full agent on held-out tasks.
-- You review the diff and scores in a small **approval UI**. The winner goes live via hot reload,
-  no restart.
+- You review every new or rewritten candidate in a small **approval UI**. Only approval makes it
+  live, with no restart.
 
 ## Privacy first
 
@@ -299,10 +299,10 @@ That's the loop: a first-draft skill → real traffic → mined diagnosis → a 
 held-out quality → a description pass gated on routing metrics → human approval at every
 promotion → hot reload.
 
-### 9. (Optional) Promote via a live canary instead
+### 9. (Optional) Evaluate via a live canary instead
 
 Instead of the offline A/B, a canary serves the challenger to a fraction of live traffic, judges
-each real outcome, and promotes only once the challenger's posterior beats the champion's:
+each real outcome, and recommends promotion once the challenger's posterior beats the champion's:
 
 ```bash
 docker compose run --rm optimize-canary pdf --epsilon 0.5
@@ -315,11 +315,11 @@ docker compose run --rm optimize-canary pdf --epsilon 0.5
 [canary] inconclusive after 24 requests (P=0.91), keeping champion
 ```
 
-Each request flips an ε-coin, each arm keeps a Beta posterior, and the run stops early to promote
+Each request flips an ε-coin, each arm keeps a Beta posterior, and the run stops early to recommend
 (P≥0.95) or reject (P≤0.05). Here the challenger climbed to P=0.91, under the conservative bar, so
-the canary kept the champion. Add `--promote` to auto-promote on a win. Every canary request is
-first-class in Langfuse: tagged with the arm and exact revision, with the judged outcome written
-back as scores.
+the canary kept the champion. A win creates a pending recommendation; a human still approves it in
+the UI. Every canary request is first-class in Langfuse: tagged with the arm and exact revision,
+with the judged outcome written back as scores.
 
 ### 10. (Optional) Put it on autopilot
 
@@ -344,10 +344,10 @@ Three ways the library grows:
 - **Write one yourself**, exactly like step 3. Only two frontmatter fields matter: `name` (a slug)
   and `description` (the routing trigger; write it "pushy", starting with "Use this skill
   when…", since under-triggering is the common failure).
-- **Let the agent write one.** When `suggest_skills` returns an empty list, the request escalates
-  to `STRONG_MODEL` (defaults to `GEPA_MODEL`): it solves the task and persists what it learned
-  via the `create_skill` MCP tool. The next similar request routes to the new skill on the cheap
-  `AGENT_MODEL`. How often this fires is governed by `RELATED_SCORE`.
+- **Let the agent propose one.** When `suggest_skills` returns an empty list, the request escalates
+  to `STRONG_MODEL` (defaults to `GEPA_MODEL`): it solves the task and queues what it learned via
+  `create_skill`. The candidate remains inactive until a human approves it. How often this fires is
+  governed by `RELATED_SCORE`.
 - **Compose instead of sprawl.** If a skill is merely related (similarity below the routing
   threshold), `suggest_skills` returns it flagged `related: true` and the agent is told to extend
   or compose it rather than author a near-duplicate.
@@ -356,7 +356,7 @@ Three ways the library grows:
 docker compose run --rm agent "Plan a strict low-FODMAP weekly dinner menu for two people"
 # PROPOSED SKILLS (MCP suggest_skills):            <- empty: no skill covers this
 # SERVING MODEL: accounts/fireworks/models/glm-5p2 (strong)
-# mcp log: [ingot] created skill 'low-fodmap-meal-planning', live immediately
+# mcp log: [ingot] queued skill candidate 'low-fodmap-meal-planning' for human approval
 ```
 
 ---
@@ -384,8 +384,8 @@ judge, not to get better. Guards close the obvious paths:
 5. **Length penalty.** The objective subtracts a penalty for a bloated body.
 6. **Deletions need evidence.** A challenger that drops most of the champion body (retention below
    `RETENTION_WARN`) gets a ⚠ warning in the review UI with the retention number and sample count.
-7. **Human override, informed.** A challenger that wins the mean but fails the gate is still
-   recorded; the UI shows a red ⛔ banner with the reasons, so an override is deliberate.
+7. **Blocked means blocked.** A challenger that wins the mean but fails the gate is still recorded
+   for diagnosis, but the UI refuses approval and shows the exact reasons.
 
 ```
 [ab] champion 0.55 vs challenger 0.60 -> CHALLENGER WINS
@@ -525,21 +525,23 @@ starts, harmlessly unused.
     [fastembed](https://github.com/qdrant/fastembed), no GPU); near-misses come back flagged
     `related`; empty = truly novel
   - `get_skill(name)`: the full SKILL.md; the header line carries the content-hash revision
-  - `create_skill(name, description, body)`: persist a new agent-authored skill (never overwrites)
-  - `reload_skills()`: hot reload after promotion/creation
+  - `create_skill(name, description, body)`: queue a new agent-authored candidate (never activates
+    or overwrites)
+  - `reload_skills()`: hot reload after approval or direct operator edits
   - `route_and_load(task, harness, cwd, available_tools, available_mcps)`: one-round-trip
     selection for external clients (see [Bring your own agent](#bring-your-own-agent-mcp-only))
 - **`agent/run.py`**: [deepagents](https://github.com/langchain-ai/deepagents) LangGraph agent
   wired to those tools, traced to Langfuse. Serves routed tasks on the weak `AGENT_MODEL` and
-  escalates truly novel tasks to `STRONG_MODEL`.
+  escalates truly novel tasks to `STRONG_MODEL`, which can queue reusable candidates for review.
 - **`skills/<name>/SKILL.md`**: YAML `description` is the routing key; the body is what the agent
   loads.
 - **`optimize/`**: trace mining (`mine.py`), multi-dimensional LLM judge (`judge.py`), two
   inner-loop strategies (`bestofn.py`, `gepa_loop.py`), A/B + revisioned evidence (`ab.py`), live
-  canary (`canary.py`), snapshot promotion with rollback (`promote.py`), token ledger
-  (`usage.py`). A/B agents get mutation tools stripped. The mining + categorized-failure ideas are
+  canary recommendations (`canary.py`), staged approval with rollback (`promote.py`), token ledger
+  (`usage.py`). Optimizers only write pending records. A/B agents get mutation tools stripped. The mining + categorized-failure ideas are
   borrowed from [SkillForge (Liu et al., arXiv:2604.08618)](https://arxiv.org/abs/2604.08618).
-- **`ui/`**: FastAPI approval UI (one HTML page, no build step).
+- **`ui/`**: FastAPI approval UI (one HTML page, no build step) and the only normal application
+  path that activates pending creations or rewrites.
 
 ### Bring your own agent (MCP only)
 
@@ -550,8 +552,8 @@ agent); the bundled `agent/run.py` is a reference client, not a requirement. Poi
 - **`match`**: follow `skill_body`; a weak/cheap model suffices, the skill carries the method.
 - **no match, `novel: false`**: related skills exist; call `suggest_skills` and compose or extend
   the closest instead of authoring a duplicate.
-- **`novel: true`**: nothing even related. Serve with your strong model and persist its solution
-  via `create_skill`.
+- **`novel: true`**: nothing even related. Serve with your strong model, then call `create_skill`
+  to queue a reusable candidate. It remains inactive until UI approval.
 
 To keep the trace-mining loop fed from your own harness, see
 [Tracing from your own harness](#tracing-from-your-own-harness-mcp-only).
@@ -601,13 +603,15 @@ guardrails plus a small, well-defended write surface.
 
 Write paths, and what guards each:
 
-- **`create_skill`** (agent-authored, goes live with no human approval) is the highest-risk path,
-  so it's the most guarded: slug + frontmatter sanitization, never overwrites, Agent-Skills-spec
+- **`create_skill`** is agent-authored but pending only. It cannot route until a human approves it
+  in the UI. Authoring uses slug + frontmatter sanitization, never overwrites, Agent-Skills-spec
   name/description limits, an instruction-override / prompt-injection phrase check
   (`mcp_server/safety.py`), an embedding collision check that blocks route-shadowing, and an
   optional ML classifier (below). Accepted skills are tagged `source: agent`.
-- **Optimizer promotion** is gated by human approval: content lands in `runs/pending/` and you
-  review the diff in the UI before it goes live.
+- **Optimizer rewrites and canary recommendations** land in `runs/pending/` and cannot activate
+  themselves. Rewrites also require matching Behavioral CI evidence before UI approval.
+- **Direct filesystem edits** let an operator control trusted state under `skills/`. This explicit
+  escape hatch sits outside the application approval guarantee.
 - **Third-party skills** are unaudited but not attacker-controlled at runtime; review them as you
   would any dependency.
 
@@ -632,7 +636,7 @@ CPU). If the model is missing it degrades silently to the regex heuristic. In Do
 ### Network exposure
 
 **Everything is localhost-only by default, because nothing is authenticated.** The MCP tools and
-the approval UI's endpoints (which can trigger paid optimization runs and promote skills) have no
+the approval UI's endpoints (which can trigger paid optimization runs and activate skills) have no
 auth of their own; the demo's protection is that no service is reachable off the machine:
 
 - `docker-compose.yml` publishes every port on loopback only (`127.0.0.1:8000` MCP,
@@ -641,7 +645,7 @@ auth of their own; the demo's protection is that no service is reachable off the
 
 To expose a service, change its port mapping in `docker-compose.yml` from `"127.0.0.1:8000:8000"`
 to `"8000:8000"` (or bind a specific interface). Do this knowingly: anyone who can reach those
-ports can create skills, promote challengers, and spend your API budget. For anything beyond a
+ports can queue candidates, approve activations, and spend your API budget. For anything beyond a
 trusted LAN, put an authenticating reverse proxy in front.
 
 Deliberately not done: we do not denylist shell commands, `.env` mentions, or `curl … | sh` in

@@ -1,11 +1,13 @@
 """Canary A/B visibility in Langfuse: pinned trace ids, arm/revision tags, outcome score
 write-back. Langfuse and the agent are stubbed — no network."""
 import asyncio
+import json
 
 import pytest
 
 import agent.run as agent_run
 from optimize import canary as C
+from optimize import promote as P
 
 
 class _FakeLangfuse:
@@ -112,3 +114,40 @@ def test_canary_loop_tags_arms_with_revisions(monkeypatch, tmp_path):
     assert {s["trace_id"] for s in lf.scores} == {"trace-1", "trace-2"}
     assert lf.flushed >= 1
     assert result["decision"] in ("inconclusive", "reject", "promote")
+
+
+def test_canary_win_records_recommendation_without_activating(tmp_path, monkeypatch):
+    skill = tmp_path / "skills" / "pdf"
+    skill.mkdir(parents=True)
+    skill_md = skill / "SKILL.md"
+    skill_md.write_text("---\nname: pdf\ndescription: Merge PDFs.\n---\nold body\n")
+    before = skill_md.read_bytes()
+    monkeypatch.setattr(C, "SKILLS_DIR", tmp_path / "skills")
+    monkeypatch.setattr(P, "PENDING_DIR", tmp_path / "pending")
+    challenger = {"description": "Merge PDFs.", "body": "new body"}
+    checkpoint = tmp_path / "challenger.json"
+    checkpoint.write_text(json.dumps({"components": challenger}))
+    monkeypatch.setattr(C, "load_tasks", lambda skill: (
+        [{"task": "t", "rubric": "r"}], [], {"kind": "holdout", "leakage": False}))
+    monkeypatch.setattr(C, "build_agent", lambda *args, **kwargs: "agent")
+    monkeypatch.setattr(C, "_variant_tools", lambda *args, **kwargs: [])
+    monkeypatch.setattr(C, "langfuse_config", lambda *args, **kwargs: {})
+
+    async def fake_run(*args, **kwargs):
+        return "answer", [], {}
+
+    monkeypatch.setattr(C, "run_task", fake_run)
+    monkeypatch.setattr(C, "judge", lambda *args, **kwargs: {"score": 1.0, "feedback": "good"})
+    monkeypatch.setattr(C, "p_challenger_better", lambda *args, **kwargs: 0.99)
+
+    result = C.run_canary("pdf", challenger_file=str(checkpoint), epsilon=0.5,
+                          min_samples=1, max_requests=3, seed=0)
+
+    assert result["decision"] == "promote"
+    assert skill_md.read_bytes() == before
+    pending = P.load_pending("pdf")
+    assert pending["canary"]["decision"] == "promote"
+    assert pending["challenger_components"] == challenger
+    assert pending["gate"]["promotable"] is True
+    assert pending["evidence"]["champion"]["revision"] == C.skill_revision(skill)
+    assert pending["evidence"]["challenger"]["revision"] == C.skill_revision(skill, challenger)

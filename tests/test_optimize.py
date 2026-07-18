@@ -1,5 +1,7 @@
 """Unit tests for optimizer pure-logic (no network/LLM): the canary's Thompson decision and the
 multi-dimensional judge's failure parsing."""
+import inspect
+
 import numpy as np
 
 from optimize import ab as ab_mod
@@ -7,6 +9,15 @@ from optimize import judge as judge_mod
 from optimize.ab import body_retention, promotion_gate, retention_warnings
 from optimize.canary import p_challenger_better
 from optimize.judge import DIMENSIONS, failed_dimensions
+
+
+def test_optimizer_has_no_activation_control():
+    from optimize import canary as canary_mod
+    from optimize import promote as promotion
+
+    assert "promote_now" not in inspect.signature(ab_mod.run_ab).parameters
+    assert "auto_promote" not in inspect.signature(canary_mod.run_canary).parameters
+    assert not hasattr(promotion, "promote")
 
 
 def test_ensemble_judge_averages_score_and_majority_votes_dimensions(monkeypatch):
