@@ -57,15 +57,36 @@ def is_openrouter(url: str) -> bool:
     return "openrouter.ai" in url
 
 
+def langfuse_available() -> bool:
+    """True when the configured Langfuse answers its health endpoint (3s probe). The A/B gate
+    and the miner use this to choose between experiment-logged runs and the local lite path."""
+    import urllib.request
+    base = os.environ.get("LANGFUSE_BASE_URL", "http://langfuse-web:3000").rstrip("/")
+    try:
+        with urllib.request.urlopen(f"{base}/api/public/health", timeout=3):
+            return True
+    except OSError:
+        return False
+
+
+def traces_file():
+    """Local JSONL trace store: the zero-infrastructure fallback written by the agent and read
+    by optimize-mine when the Langfuse stack isn't running (one {task, answer, tags} per line)."""
+    from pathlib import Path
+    return Path(os.environ.get("TRACES_FILE") or
+                Path(__file__).resolve().parent.parent / "runs" / "traces.jsonl")
+
+
 def openrouter_extra_body() -> dict:
     """Provider preferences for OpenRouter calls: the hardcoded ZDR policy, plus an optional
-    allowlist (OPENROUTER_PROVIDERS=fireworks[,deepinfra] -> provider.only) for users who prefer
-    one trusted vendor over pool resilience. The allowlist composes with ZDR — a pinned provider
-    still must qualify as zero-data-retention."""
+    priority list (OPENROUTER_PROVIDERS=fireworks[,groq] -> provider.order): listed providers
+    are tried first, in order, and models none of them serves fall back to the rest of the
+    pool. The priority composes with ZDR: a listed provider still must qualify as
+    zero-data-retention for the model, or routing skips it."""
     provider = dict(ZDR_PROVIDER["provider"])
-    only = [p.strip() for p in os.environ.get("OPENROUTER_PROVIDERS", "").split(",") if p.strip()]
-    if only:
-        provider["only"] = only
+    order = [p.strip() for p in os.environ.get("OPENROUTER_PROVIDERS", "").split(",") if p.strip()]
+    if order:
+        provider["order"] = order
     return {"provider": provider}
 
 
@@ -120,19 +141,20 @@ def provider_conflict(model: str, pins: list[str]) -> str | None:
     normalized = {_normalize(p) for p in served_by}
     if any(_normalize(pin) in n or n in _normalize(pin) for pin in pins for n in normalized if n):
         return None
-    return (f"OPENROUTER_PROVIDERS={','.join(pins)} pins providers that don't serve '{model}' "
-            f"(served by: {', '.join(sorted(set(served_by)))}). Fix OPENROUTER_PROVIDERS, or pick "
-            f"a model your pinned provider offers (https://openrouter.ai/{model}).")
+    return (f"OPENROUTER_PROVIDERS={','.join(pins)} lists no provider that serves '{model}' "
+            f"(served by: {', '.join(sorted(set(served_by)))}); this role falls back to the "
+            f"open ZDR pool (https://openrouter.ai/{model}).")
 
 
-def preflight_provider_pins() -> None:
-    """When OPENROUTER_PROVIDERS is set, verify every role that talks to OpenRouter uses a model
-    the pinned providers actually serve — exit with the explanation instead of a mid-run 404.
-    (Even a served model can still fail at call time if the pinned provider isn't ZDR-qualified
-    for it; that error is caught and explained by the runtime handler in optimize/judge.py.)"""
+def preflight_provider_pins() -> list[str]:
+    """When OPENROUTER_PROVIDERS is set, check which OpenRouter-facing roles use a model no
+    listed provider serves. With priority semantics those roles simply fall back to the open
+    ZDR pool, so this warns instead of exiting; the warnings are also returned for callers/tests.
+    (A served model can still be skipped at call time if the provider isn't ZDR-qualified for
+    it; that error is caught and explained by the runtime handler in optimize/judge.py.)"""
     pins = [p.strip() for p in os.environ.get("OPENROUTER_PROVIDERS", "").split(",") if p.strip()]
     if not pins:
-        return
+        return []
     roles = {}
     if is_openrouter(model_base_url()):
         roles["AGENT_MODEL"] = agent_model()
@@ -149,10 +171,9 @@ def preflight_provider_pins() -> None:
         if conflict:
             problems.append(f"  {role}={model}: {conflict}")
     if problems:
-        # SystemExit with a message: exits 1 with the text on stderr for CLIs, and the UI
-        # endpoint re-surfaces str(e) as a 400 detail.
-        raise SystemExit("error: provider pin conflicts detected before spending any tokens:\n"
-                         + "\n".join(problems))
+        print("warning: some roles are not covered by OPENROUTER_PROVIDERS and will fall back "
+              "to the open ZDR pool:\n" + "\n".join(problems), file=sys.stderr)
+    return problems
 
 
 # The serving contract: how a skill body is presented to the model that executes it. The quality

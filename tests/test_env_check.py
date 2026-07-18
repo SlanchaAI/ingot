@@ -67,15 +67,15 @@ def test_model_base_url_overrides_only_the_serving_role(monkeypatch):
     assert teacher_base_url() == "https://openrouter.ai/api/v1"
 
 
-def test_provider_allowlist_composes_with_zdr(monkeypatch):
+def test_provider_priority_composes_with_zdr(monkeypatch):
     from optimize import ZDR_PROVIDER, client_kwargs, openrouter_extra_body
     monkeypatch.delenv("OPENROUTER_PROVIDERS", raising=False)
     assert openrouter_extra_body() == ZDR_PROVIDER                       # default: ZDR only, no pin
-    monkeypatch.setenv("OPENROUTER_PROVIDERS", "fireworks, deepinfra")
+    monkeypatch.setenv("OPENROUTER_PROVIDERS", "fireworks, groq")
     body = openrouter_extra_body()
-    assert body["provider"]["only"] == ["fireworks", "deepinfra"]
-    assert body["provider"]["zdr"] is True                               # pin never relaxes ZDR
-    assert "only" not in ZDR_PROVIDER["provider"]                        # constant not mutated
+    assert body["provider"]["order"] == ["fireworks", "groq"]            # priority, in given order
+    assert body["provider"]["zdr"] is True                               # priority never relaxes ZDR
+    assert "order" not in ZDR_PROVIDER["provider"]                       # constant not mutated
     monkeypatch.setenv("OPENROUTER_API_KEY", "sk-or-test")
     assert client_kwargs("https://openrouter.ai/api/v1")["extra_body"] == body
     assert client_kwargs("http://localhost:8000/v1")["extra_body"] == {}  # local: no prefs at all
@@ -104,7 +104,8 @@ def test_provider_conflict_loose_name_matching(monkeypatch):
     assert provider_conflict("qwen/x", ["fireworks"]) is None          # display-name vs slug
     assert provider_conflict("qwen/x", ["io-net"]) is None             # punctuation-insensitive
     msg = provider_conflict("qwen/x", ["groq"])
-    assert "don't serve 'qwen/x'" in msg and "DeepInfra" in msg and "OPENROUTER_PROVIDERS=groq" in msg
+    assert "no provider that serves 'qwen/x'" in msg and "DeepInfra" in msg
+    assert "OPENROUTER_PROVIDERS=groq" in msg and "falls back" in msg
 
 
 def test_provider_conflict_unknown_model_and_network_failure(monkeypatch):
@@ -128,17 +129,14 @@ def test_preflight_no_pins_makes_no_network_calls(monkeypatch):
     preflight_provider_pins()  # no-op, no network
 
 
-def test_preflight_reports_every_conflicting_role(monkeypatch):
-    import pytest
+def test_preflight_warns_on_every_uncovered_role(monkeypatch):
     import optimize
     monkeypatch.setenv("OPENROUTER_PROVIDERS", "fireworks")
     monkeypatch.delenv("MODEL_BASE_URL", raising=False)
     monkeypatch.delenv("OPENROUTER_BASE_URL", raising=False)
     monkeypatch.setattr(optimize, "provider_conflict",
                         lambda model, pins: None if "gemini" in model else f"nope for {model}")
-    with pytest.raises(SystemExit) as exc:
-        optimize.preflight_provider_pins()
-    text = str(exc.value)
+    text = "\n".join(optimize.preflight_provider_pins())   # warns, never exits: roles fall back
     assert "AGENT_MODEL=" in text and "GEPA_MODEL=" in text and "JUDGE_MODEL" not in text
 
 
@@ -151,9 +149,7 @@ def test_preflight_reports_agent_model_alias_value(monkeypatch):
     monkeypatch.setenv("AGENT_MODEL", "brand/new-model")
     monkeypatch.setattr(optimize, "provider_conflict",
                         lambda model, pins: f"nope for {model}")
-    with pytest.raises(SystemExit) as exc:
-        optimize.preflight_provider_pins()
-    assert "AGENT_MODEL=brand/new-model" in str(exc.value)
+    assert any("AGENT_MODEL=brand/new-model" in w for w in optimize.preflight_provider_pins())
 
 
 def test_agent_model_resolution(monkeypatch):
@@ -169,7 +165,6 @@ def test_agent_model_resolution(monkeypatch):
 
 
 def test_preflight_checks_strong_model_only_when_explicitly_set(monkeypatch):
-    import pytest
     import optimize
     monkeypatch.setenv("OPENROUTER_PROVIDERS", "fireworks")
     monkeypatch.delenv("MODEL_BASE_URL", raising=False)
@@ -177,13 +172,10 @@ def test_preflight_checks_strong_model_only_when_explicitly_set(monkeypatch):
     monkeypatch.setattr(optimize, "provider_conflict",
                         lambda model, pins: f"nope for {model}")
     monkeypatch.delenv("STRONG_MODEL", raising=False)
-    with pytest.raises(SystemExit) as exc:
-        optimize.preflight_provider_pins()
-    assert "STRONG_MODEL" not in str(exc.value)     # default = GEPA_MODEL, already checked
+    text = "\n".join(optimize.preflight_provider_pins())
+    assert "STRONG_MODEL" not in text               # default = GEPA_MODEL, already checked
     monkeypatch.setenv("STRONG_MODEL", "z-ai/glm-5.2-max")
-    with pytest.raises(SystemExit) as exc:
-        optimize.preflight_provider_pins()
-    assert "STRONG_MODEL=z-ai/glm-5.2-max" in str(exc.value)
+    assert any("STRONG_MODEL=z-ai/glm-5.2-max" in w for w in optimize.preflight_provider_pins())
 
 
 def test_preflight_skips_roles_on_local_endpoints(monkeypatch):

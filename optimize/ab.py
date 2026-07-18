@@ -12,6 +12,7 @@ import json
 import os
 import statistics
 import time
+from concurrent.futures import ThreadPoolExecutor
 from dataclasses import replace
 from pathlib import Path
 
@@ -21,7 +22,7 @@ from langchain_core.tools import tool
 from agent.run import build_agent, langfuse_config, run_task
 from mcp_server.registry import SKILLS_DIR, load_skills, optimizable_components, skill_revision
 
-from . import agent_model
+from . import agent_model, langfuse_available
 from . import usage as usage_ledger
 from .judge import judge
 from .promote import save_pending
@@ -152,7 +153,6 @@ def promotion_gate(skill: str, champ_scores: list[float], chall_scores: list[flo
                 reasons.append(f"cross-harness parity {parity['rate']:.3f} < 1.000")
     return (not reasons), reasons
 
-# The canary serves its assigned arm through the same route-shaped tool as production.
 EVAL_INSTRUCTIONS = """You are a deep agent with access to a read-only skill router over MCP.
 For every task, call `route_and_load` once with the full task, harness `codex`, current working
 directory, and available tools/MCPs. Follow `skill_body` when a match is returned. With no match,
@@ -275,11 +275,105 @@ def _run_variant(dataset, variant: str, agent, tasks: list[dict]):
             [behavior_by_task.get(t["task"], []) for t in tasks])
 
 
+def _run_variant_local(agent, tasks: list[dict]):
+    """Langfuse-free twin of _run_variant: identical rollouts and judging, no experiment
+    logging. Used when the tracing stack isn't running (lite mode); a failed item scores 0,
+    matching _run_variant's per-item default."""
+    async def rollout_all():
+        return await asyncio.gather(
+            *[run_task(agent, t["task"], config={}, include_behavior=True) for t in tasks],
+            return_exceptions=True)
+    outs = asyncio.run(rollout_all())
+    ok = [(i, t, o) for i, (t, o) in enumerate(zip(tasks, outs))
+          if not isinstance(o, BaseException)]
+    for _, _, o in ok:
+        usage_ledger.add("agent_ab", o[2])
+    scores = [0.0] * len(tasks)
+    with ThreadPoolExecutor(max_workers=max(1, len(ok))) as pool:
+        judgments = list(pool.map(
+            lambda x: judge(x[1]["task"], x[1]["rubric"], str(x[2][0]),
+                            check=x[1].get("check"), deliverable=x[1].get("deliverable")), ok))
+    for (i, _, _), j in zip(ok, judgments):
+        scores[i] = j["score"]
+    zero = {"input_tokens": 0, "output_tokens": 0}
+    return (scores,
+            [zero if isinstance(o, BaseException) else o[2] for o in outs],
+            [[] if isinstance(o, BaseException) else o[3] for o in outs])
+
+
+def _eval_variants(dataset, ts: int, champion: dict, challenger: dict, holdout: list[dict],
+                   cache_path: Path, log=print) -> dict:
+    """Champion and challenger holdout experiments, concurrently when both run live. The
+    champion side is served from (and recorded to) the revision-keyed eval cache."""
+    def eval_variant(variant: str, comps: dict) -> dict:
+        run_name = f"{variant}-{ts}"
+        log(f"[ab] running variant '{run_name}' through the deep agent ({len(holdout)} held-out tasks)…")
+        # Guaranteed serving: the variant body is injected into the instructions (see
+        # EVAL_SERVE_TEMPLATE) instead of hoping the model fetches it through a tool call.
+        agent = build_agent([], instructions=EVAL_SERVE_TEMPLATE.format(body=comps["body"]))
+        scores, usages, behaviors = (_run_variant(dataset, run_name, agent, holdout)
+                                     if dataset is not None
+                                     else _run_variant_local(agent, holdout))
+        return {
+            "run": run_name, "scores": scores,
+            "mean": statistics.mean(scores) if scores else 0.0,  # all items failing must not crash the run
+            "tokens": {
+                "input": [u["input_tokens"] for u in usages],
+                "output": [u["output_tokens"] for u in usages],
+                "mean_input": statistics.mean(u["input_tokens"] for u in usages),
+                "mean_output": statistics.mean(u["output_tokens"] for u in usages),
+            },
+            "behavior": behaviors,
+        }
+
+    results = {}
+    variants = [("champion", champion), ("challenger", challenger)]
+    if cache_path.exists():
+        # the champion side is deterministic in (revision, holdout, model, judge) up to judge
+        # noise — reuse the recorded run instead of re-spending the full agent + judge on it
+        results["champion"] = json.loads(cache_path.read_text())
+        log(f"[ab] champion: holdout results reused from cache (revision unchanged) — "
+            f"mean {results['champion']['mean']:.3f}  {results['champion']['scores']}")
+        variants = [("challenger", challenger)]
+    if len(variants) == 2:
+        # the two variants are independent: run both dataset experiments concurrently, which
+        # halves the cold gate's wall-clock (the cached-champion path is one run anyway)
+        with ThreadPoolExecutor(max_workers=2) as pool:
+            futures = {v: pool.submit(eval_variant, v, comps) for v, comps in variants}
+            for v, _ in variants:
+                results[v] = futures[v].result()
+    else:
+        for v, comps in variants:
+            results[v] = eval_variant(v, comps)
+    if "champion" in dict(variants):
+        EVAL_CACHE_DIR.mkdir(parents=True, exist_ok=True)
+        cache_path.write_text(json.dumps(results["champion"]))
+    for variant in ("champion", "challenger"):
+        r = results[variant]
+        log(f"[ab] {variant}: mean judge score {r['mean']:.3f}  {r['scores']}")
+        log(f"[ab] {variant}: tokens/task in {r['tokens']['mean_input']:.0f} (per-task {r['tokens']['input']})"
+            f" | out {r['tokens']['mean_output']:.0f} (per-task {r['tokens']['output']})")
+    return results
+
+
+def _holdout_dataset(skill: str, holdout: list[dict], log):
+    """(langfuse client, dataset) for the holdout when the stack is reachable, else
+    (None, None): the gate then runs locally with no experiment logging (lite mode)."""
+    if not langfuse_available():
+        log("[ab] Langfuse unreachable — running the holdout gate locally (no experiment logging)")
+        return None, None
+    from langfuse import get_client
+    langfuse = get_client()
+    ds_name = f"{skill}-holdout"
+    langfuse.create_dataset(name=ds_name)
+    for i, t in enumerate(holdout):
+        langfuse.create_dataset_item(dataset_name=ds_name, id=f"{skill}-holdout-{i}", input=t)
+    return langfuse, langfuse.get_dataset(ds_name)
+
+
 def run_ab(skill: str, budget: int = 60, skip_gepa: bool = False,
            challenger_file: str | None = None,
            strategy: str | None = None, candidates: int | None = None, log=print) -> dict:
-    from langfuse import get_client
-
     usage_ledger.reset()
     train, holdout, split = load_tasks(skill)
     skill_dir = SKILLS_DIR / skill
@@ -334,52 +428,18 @@ def run_ab(skill: str, budget: int = 60, skip_gepa: bool = False,
         log(f"[opt] challenger checkpointed to {ckpt} (resume with --challenger-file)")
 
     # 2) A/B through the full deep agent on the HELD-OUT tasks (the promotion gate — the optimizer
-    #    never saw these), one Langfuse dataset run per variant.
+    #    never saw these), one Langfuse dataset run per variant when the stack is up, or the
+    #    Langfuse-free local path when it isn't (same rollouts and judge, no experiment logging).
     log(f"[ab] evaluating champion vs challenger on {len(holdout)} held-out tasks…")
-    langfuse = get_client()
     ds_name = f"{skill}-holdout"
-    langfuse.create_dataset(name=ds_name)
-    for i, t in enumerate(holdout):
-        langfuse.create_dataset_item(dataset_name=ds_name, id=f"{skill}-holdout-{i}", input=t)
-    dataset = langfuse.get_dataset(ds_name)
+    langfuse, dataset = _holdout_dataset(skill, holdout, log)
 
     ts = int(time.time())
-    results = {}
     champion_skill = next(item for item in load_skills() if item.name == skill)
     cache_path = EVAL_CACHE_DIR / f"{skill}-{_champion_cache_key(champion_skill.revision, holdout)}.json"
-    for variant, comps in [("champion", champion), ("challenger", challenger)]:
-        if variant == "champion" and cache_path.exists():
-            # the champion side is deterministic in (revision, holdout, model, judge) up to judge
-            # noise — reuse the recorded run instead of re-spending the full agent + judge on it
-            results[variant] = json.loads(cache_path.read_text())
-            log(f"[ab] champion: holdout results reused from cache (revision unchanged) — "
-                f"mean {results[variant]['mean']:.3f}  {results[variant]['scores']}")
-            continue
-        run_name = f"{variant}-{ts}"
-        log(f"[ab] running variant '{run_name}' through the deep agent ({len(holdout)} held-out tasks)…")
-        # Guaranteed serving: the variant body is injected into the instructions (see
-        # EVAL_SERVE_TEMPLATE) instead of hoping the model fetches it through a tool call.
-        agent = build_agent([], instructions=EVAL_SERVE_TEMPLATE.format(body=comps["body"]))
-        scores, usages, behaviors = _run_variant(dataset, run_name, agent, holdout)
-        results[variant] = {
-            "run": run_name, "scores": scores,
-            "mean": statistics.mean(scores) if scores else 0.0,  # all items failing must not crash the run
-            "tokens": {
-                "input": [u["input_tokens"] for u in usages],
-                "output": [u["output_tokens"] for u in usages],
-                "mean_input": statistics.mean(u["input_tokens"] for u in usages),
-                "mean_output": statistics.mean(u["output_tokens"] for u in usages),
-            },
-            "behavior": behaviors,
-        }
-        if variant == "champion":
-            EVAL_CACHE_DIR.mkdir(parents=True, exist_ok=True)
-            cache_path.write_text(json.dumps(results[variant]))
-        r = results[variant]
-        log(f"[ab] {variant}: mean judge score {r['mean']:.3f}  {scores}")
-        log(f"[ab] {variant}: tokens/task in {r['tokens']['mean_input']:.0f} (per-task {r['tokens']['input']})"
-            f" | out {r['tokens']['mean_output']:.0f} (per-task {r['tokens']['output']})")
-    langfuse.flush()
+    results = _eval_variants(dataset, ts, champion, challenger, holdout, cache_path, log)
+    if langfuse is not None:
+        langfuse.flush()
 
     wins = results["challenger"]["mean"] > results["champion"]["mean"]
     changed = [k for k in champion if challenger.get(k, "").strip() != champion[k].strip()]
@@ -429,7 +489,8 @@ def run_ab(skill: str, budget: int = 60, skip_gepa: bool = False,
     log(f"[ci] behavioral evidence: {evidence_json} and {evidence_markdown}")
     log("\n[usage] tokens spent by this optimization run:")
     log(usage_ledger.format_report())
-    log(f"[ab] compare runs in Langfuse: Datasets -> {ds_name} (http://localhost:3100)")
+    if langfuse is not None:
+        log(f"[ab] compare runs in Langfuse: Datasets -> {ds_name} (http://localhost:3100)")
 
     # Promotion gate: a mean win alone isn't enough — it must clear the anti-reward-hacking checks.
     if wins and not promotable:

@@ -70,7 +70,7 @@ def build_agent(tools, instructions: str = INSTRUCTIONS, strong: bool = False):
 def langfuse_config(tags: list[str] | None = None, trace_id: str | None = None) -> dict:
     """ainvoke config with a Langfuse callback if keys are set, else empty. Pass `trace_id`
     (from Langfuse.create_trace_id()) to pin the run to a known trace so callers can attach
-    scores to it afterwards (the canary does this per request)."""
+    scores to it afterwards."""
     if not (os.environ.get("LANGFUSE_PUBLIC_KEY") and os.environ.get("LANGFUSE_SECRET_KEY")):
         return {}
     from langfuse.langchain import CallbackHandler
@@ -188,14 +188,15 @@ async def main(task: str):
         print(f"\nSERVING MODEL: {MODEL}")
     agent = build_agent(await _connect(), strong=escalate)
     # Trace tags: plain skill name feeds mine.py's relevance filter, revision=name@rev pins the
-    # exact version served, novel marks strong-model escalations — same convention as the canary
-    # and the one documented for external harnesses (README: Tracing from your own harness).
+    # exact version served, novel marks strong-model escalations — the convention documented for
+    # external harnesses (README: Tracing from your own harness).
     tags = ["demo", "novel"] if escalate else ["demo"]
     if routed.get("match"):
         tags.append(routed["match"])
         if routed.get("revision"):
             tags.append(f"revision={routed['match']}@{routed['revision']}")
     final, loaded, usage = await run_task(agent, task, config=langfuse_config(tags=tags))
+    _log_local_trace(task, final, tags)
 
     print(f"\nLOADED SKILLS (MCP get_skill): {loaded or '(none)'}")
     print(f"TOKENS: {usage['input_tokens']} in / {usage['output_tokens']} out")
@@ -207,6 +208,22 @@ async def main(task: str):
         from langfuse import get_client
         get_client().flush()  # one-shot process: make sure the trace ships before exit
         print("[agent] trace sent to Langfuse (http://localhost:3100)")
+
+
+def _log_local_trace(task: str, answer: str, tags: list[str]) -> None:
+    """Append the run to the local JSONL trace store, the zero-infrastructure record that keeps
+    optimize-mine working when the Langfuse stack isn't running. Written unconditionally: with
+    Langfuse on it doubles as a plain-text backup; failures never break the serving path."""
+    import time
+    from optimize import traces_file
+    try:
+        path = traces_file()
+        path.parent.mkdir(parents=True, exist_ok=True)
+        with path.open("a") as f:
+            f.write(json.dumps({"ts": int(time.time()), "task": task,
+                                "answer": answer, "tags": tags}) + "\n")
+    except OSError as e:
+        print(f"[agent] local trace store unavailable ({e}) — run not recorded locally")
 
 
 if __name__ == "__main__":
