@@ -23,9 +23,9 @@ Built for individual users first:
   enforced on every request, and no service is reachable off your machine.
 - **Easy.** A skill is a folder with a `SKILL.md`. Drop one in and it is live on the next
   request; the optimizer auto-drafts eval sets, and `MAX_RUN_USD` hard-caps what a run may spend.
-- **Improvement you can measure.** In a separate recorded run, optimizing one stale skill took
-  `qwen3-32b` from a 0.133 to a 0.783 mean judge score on held-out tasks, in 72 seconds, for
-  about $0.03.
+- **Improvement you can measure.** In the [recorded walkthrough below](#5-optimize-the-body-parallel-candidates--a-held-out-ab),
+  a stale skill's held-out mean judge score rose from 0.133 to 0.767 while output tokens fell
+  from 1,278 to 1,032, for about $0.04.
 
 ## See the human gate
 
@@ -49,6 +49,9 @@ docker compose run --rm agent "How do I merge several PDFs into one and add page
 
 The lite stack uses ports `8000` and `8080` and the fixed Compose project name `ingot`. Stop an
 existing Ingot stack before starting a second checkout on the same host.
+
+No hosted key? The final command still verifies the router: `suggest_skills` returns the `pdf`
+skill at 0.74, then the agent explains how to configure a model for the full answer.
 
 Every agent run appends to a local trace store (`runs/traces.jsonl`); `optimize-mine` and the
 optimize gate read it whenever Langfuse is unreachable, so the entire improvement loop works in
