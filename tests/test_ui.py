@@ -139,3 +139,27 @@ def test_optimize_surfaces_pin_conflicts_as_400(client, monkeypatch):
     monkeypatch.setattr(optimize, "preflight_provider_pins", conflict)
     r = client.post("/api/optimize/pdf")
     assert r.status_code == 400 and "pin conflicts" in r.json()["detail"]
+
+
+def test_skills_api_reports_eval_status_for_all_skills(client, tmp_path, monkeypatch):
+    # the UI's evals chip keys off has_tasks — every skill must carry it, task set or not
+    from mcp_server import registry
+    from mcp_server.registry import write_skill_md
+    import ui.app as U
+    for name in ("with-evals", "without-evals"):
+        d = registry.SKILLS_DIR / name   # hermetic per-test root (conftest)
+        d.mkdir(parents=True)
+        write_skill_md(d / "SKILL.md", {"name": name, "description": "d"}, "b")
+    tasks = tmp_path / "tasks"
+    tasks.mkdir()
+    (tasks / "with-evals.yaml").write_text("train: []")
+    monkeypatch.setattr(U, "TASKS_DIR", tasks)
+    flags = {s["name"]: s["has_tasks"] for s in client.get("/api/skills").json()}
+    assert flags == {"with-evals": True, "without-evals": False}
+
+
+def test_index_ships_eval_chips_and_disabled_optimize(client):
+    html = client.get("/").text
+    assert "no evals" in html          # chip for skills without an eval task set
+    assert "has_tasks" in html         # rendering keys off the API flag
+    assert "auto-drafts" in html       # disabled Optimize explains how to get evals
