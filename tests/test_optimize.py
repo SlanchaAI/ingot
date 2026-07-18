@@ -123,6 +123,19 @@ def test_greedy_pick_skips_aced_and_excluded_tasks():
     assert _greedy_pick([0.7, 0.0, -1.0], vecs, k=3) == [0]
 
 
+def test_save_pending_archives_a_displaced_cross_pass_challenger(tmp_path, monkeypatch):
+    from optimize import promote as promote_mod
+    monkeypatch.setattr(promote_mod, "PENDING_DIR", tmp_path)
+    promote_mod.save_pending("pdf", {"changed_components": ["body"], "created": 111})
+    promote_mod.save_pending("pdf", {"changed_components": ["body"], "created": 222})   # same pass: overwrite
+    assert len(list(tmp_path.glob("pdf*"))) == 1
+    promote_mod.save_pending("pdf", {"changed_components": ["description"], "created": 333})
+    import json
+    archived = tmp_path / "pdf.displaced-222.json"
+    assert json.loads(archived.read_text())["changed_components"] == ["body"]           # preserved
+    assert json.loads((tmp_path / "pdf.json").read_text())["changed_components"] == ["description"]
+
+
 def test_length_penalty_is_zero_under_target_and_grows_above():
     from optimize.gepa_loop import BODY_TARGET_CHARS, LENGTH_PENALTY, length_penalty
     assert length_penalty("x" * (BODY_TARGET_CHARS // 2)) == 0.0            # concise -> no penalty
