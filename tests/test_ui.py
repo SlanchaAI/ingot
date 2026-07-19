@@ -156,6 +156,19 @@ def test_pending_renders_component_diff_and_warnings(client):
     assert p["evidence"]["markdown"].endswith("EVIDENCE.md")
 
 
+def test_pending_exposes_model_and_judge_for_the_comparison_panel(client):
+    P.save_pending("pdf", {
+        "skill": "pdf", "model": "qwen/qwen3-32b", "judge": "google/gemini-2.5-flash",
+        "champion_components": {"description": "d", "body": "a"},
+        "challenger_components": {"description": "d", "body": "b"},
+        "changed_components": ["body"],
+        "ab": {"champion": {"mean": 0.2, "scores": [0.2], "tokens": {"mean_output": 100, "mean_input": 200}},
+               "challenger": {"mean": 0.8, "scores": [0.8], "tokens": {"mean_output": 90, "mean_input": 180}}}})
+    p = client.get("/api/pending/pdf").json()
+    assert p["model"] == "qwen/qwen3-32b" and p["judge"] == "google/gemini-2.5-flash"
+    assert p["ab"]["challenger"]["tokens"]["mean_output"] == 90   # the panel reads before/after tokens
+
+
 def test_pending_reads_legacy_gepa_scores(client):
     """Review slots written before the GEPA body loop was removed store the candidate-search
     scores under `gepa`; an existing queue must still render."""
