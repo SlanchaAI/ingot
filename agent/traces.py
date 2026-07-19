@@ -8,6 +8,10 @@ import time
 from pathlib import Path
 
 SCHEMA_VERSION = 1
+_JSON_SECRET = re.compile(
+    r'(?i)("(?:api[_-]?key|token|password|secret)"\s*:\s*")'
+    r'(?:\\.|[^"\\])*(")'
+)
 _SECRET = re.compile(
     r"(?i)(authorization\s*:\s*bearer\s+|(?:api[_-]?key|token|password|secret)\s*[=:]\s*)"
     r"([^\s,;]+)"
@@ -21,6 +25,8 @@ def _enabled(name: str, default: bool = True) -> bool:
 def redact(value: str) -> str:
     if not _enabled("LOCAL_TRACE_REDACT", True):
         return value
+    value = _JSON_SECRET.sub(
+        lambda match: f"{match.group(1)}[REDACTED]{match.group(2)}", value)
     return _SECRET.sub(lambda match: f"{match.group(1)}[REDACTED]", value)
 
 

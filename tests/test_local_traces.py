@@ -6,6 +6,7 @@ import urllib.request
 import pytest
 
 from agent.run import _log_local_trace
+from agent.traces import redact
 from optimize import mine as mine_mod
 
 
@@ -75,6 +76,24 @@ def test_trace_opt_out_redaction_schema_permissions_and_rotation(tmp_path, monke
     assert path.parent.stat().st_mode & 0o777 == 0o700
     _log_local_trace("next", "answer", [])
     assert path.with_name("traces.jsonl.1").exists()
+
+
+@pytest.mark.parametrize(("value", "secret", "expected"), [
+    ('{"api_key":"secret"}', "secret", '{"api_key":"[REDACTED]"}'),
+    ('{"password": "hunter2"}', "hunter2", '{"password": "[REDACTED]"}'),
+    ('{"token":"abc123","safe":true}', "abc123",
+     '{"token":"[REDACTED]","safe":true}'),
+    ('{"secret": "keep-braces"}', "keep-braces", '{"secret": "[REDACTED]"}'),
+    ("api_key=plain-secret; next", "plain-secret", "api_key=[REDACTED]; next"),
+    ("Authorization: Bearer bearer-secret, next", "bearer-secret",
+     "Authorization: Bearer [REDACTED], next"),
+])
+def test_trace_redaction_covers_credentials_and_preserves_punctuation(
+        value, secret, expected):
+    redacted = redact(value)
+
+    assert redacted == expected
+    assert secret not in redacted
 
 
 def test_trace_writer_retries_short_writes(tmp_path, monkeypatch):
