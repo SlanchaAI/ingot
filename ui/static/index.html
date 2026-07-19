@@ -566,7 +566,8 @@ function renderSkills(skills) {
     <div class="srow${s.pending ? " pend" : ""}${s.has_tasks ? "" : " noev"}">
       <div class="main">
         <div class="nameline"><span class="sname">${esc(s.name)}</span>${statusChip(s)}
-          ${s.revision ? `<span class="chip mute">rev ${esc(shortRev(s.revision))}</span>` : ""}</div>
+          ${s.revision ? `<span class="chip mute">rev ${esc(shortRev(s.revision))}</span>` : ""}
+          ${s.uses ? `<span class="chip mute" title="times this skill's instructions were served">${s.uses} use${s.uses === 1 ? "" : "s"}</span>` : ""}</div>
         <p class="sdesc">${esc(s.description)}</p>
       </div>
       <div class="sactions">

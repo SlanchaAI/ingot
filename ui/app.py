@@ -70,9 +70,12 @@ def skills():
 
 
 def _active_skill_rows(tasksets: set[str]) -> list[dict]:
+    from mcp_server.usage_counts import load_counts
+    counts = load_counts()
     return [
         {"name": s.name, "description": s.description, "has_tasks": s.name in tasksets,
          "pending": load_pending(s.name) is not None, "revision": s.revision,
+         "uses": counts.get(s.name, 0),
          "status": RUNS.get(s.name, {}).get("status"), "creation": False}
         for s in load_skills()
         if SLUG_RE.fullmatch(s.name)  # a non-slug name (hostile frontmatter) can't be optimized anyway

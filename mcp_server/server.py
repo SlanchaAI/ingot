@@ -7,7 +7,7 @@ import threading
 from fastmcp import FastMCP
 from optimize.promote import load_pending, save_pending
 
-from . import guard_model, safety
+from . import guard_model, safety, usage_counts
 from .registry import SKILLS_DIR, configured_roots, load_skills, name_problem, slugify
 from .router import Router
 
@@ -62,9 +62,11 @@ mcp = FastMCP("ingot")
 
 @mcp.tool()
 def list_skills() -> list[dict]:
-    """List all available skills by name and routing description."""
+    """List all available skills by name, routing description, and load count (times served)."""
     STATE.refresh_if_changed()
-    return [{"name": skill.name, "description": skill.description} for skill in STATE.skills]
+    counts = usage_counts.load_counts()
+    return [{"name": skill.name, "description": skill.description,
+             "uses": counts.get(skill.name, 0)} for skill in STATE.skills]
 
 
 @mcp.tool()
@@ -89,6 +91,7 @@ def get_skill(name: str) -> str:
     skill = STATE.by_name.get(name)
     if not skill:
         return f"No skill named '{name}'. Use suggest_skills or list_skills first."
+    usage_counts.record_use(skill.name)
     identity = f"{skill.name}@{skill.revision}" if skill.revision else skill.name
     return f"# Skill: {identity}\n{skill.description}\n\n{skill.body}"
 
@@ -146,8 +149,11 @@ def route_and_load(task: str, harness: str, cwd: str, available_tools: list[str]
     body to compose or extend; `novel` true -> nothing even related, so serve with your strong
     model. Only the selected compatible match can carry a body; alternatives are metadata-only."""
     STATE.refresh_if_changed()
-    return STATE.router.route(task, harness, cwd, available_tools or [], available_mcps or [],
-                              min_score=MIN_SCORE, related_score=RELATED_SCORE)
+    result = STATE.router.route(task, harness, cwd, available_tools or [], available_mcps or [],
+                                min_score=MIN_SCORE, related_score=RELATED_SCORE)
+    if result.get("match"):
+        usage_counts.record_use(result["match"])
+    return result
 
 
 if __name__ == "__main__":
