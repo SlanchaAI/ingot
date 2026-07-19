@@ -1,7 +1,7 @@
-# Ingot demo: an MCP server that suggests + serves skills, a LangGraph deep agent
-# that loads skills from it, a GEPA optimizer that A/B-tests skill improvements, an approval UI,
-# and a self-hosted Langfuse (v3) stack for traces / experiments (optional: --profile langfuse;
-# plain `docker compose up` is lite mode).
+# Ingot demo: a change-control UI over a versioned skill library, an MCP server that serves the
+# approved revision of each skill, a LangGraph deep agent that loads skills from it, optional
+# background candidate generation, and a self-hosted Langfuse (v3) stack for traces / experiments
+# (optional: --profile langfuse; plain `docker compose up` is lite mode).
 #
 # NOTE on "secrets" below: every credential in this file (postgres/redis/minio/clickhouse
 # passwords, the LANGFUSE_INIT_* API keys) is a LOCAL-DEMO LITERAL for the self-hosted stack on
@@ -39,7 +39,8 @@ services:
       # no langfuse-web dependency: tracing degrades gracefully (local trace store + mine
       # fallback), so the agent runs without the Langfuse stack
 
-  # GEPA skill optimizer + A/B eval: `docker compose run --rm optimize pdf`
+  # Optional candidate generation + held-out A/B: `docker compose run --rm optimize pdf`.
+  # Writes a quarantined pending record; it can never activate a skill.
   optimize:
     build: .
     entrypoint: ["python", "-m", "optimize.ab"]
@@ -81,7 +82,8 @@ services:
     # no langfuse-web dependency: mining falls back to the local trace store without the stack
     profiles: ["optimize"]
 
-  # Continuous loop — mine health, optimize the failing skills: `docker compose run --rm optimize-loop`
+  # Background loop: mine health, propose changes for the failing skills, leave them quarantined
+  # for review: `docker compose run --rm optimize-loop`
   optimize-loop:
     build: .
     entrypoint: ["python", "-m", "optimize.loop"]
@@ -104,7 +106,7 @@ services:
       # no langfuse-web dependency: mining and the gate fall back to the local paths
     profiles: ["optimize"]
 
-  # Approval UI (review A/B results, promote skills): http://localhost:8080
+  # Change-control UI (review evidence, promote, roll back): http://localhost:8080
   ui:
     build: .
     command: python -m uvicorn ui.app:app --host 0.0.0.0 --port 8080

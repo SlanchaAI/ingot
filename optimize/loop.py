@@ -1,17 +1,19 @@
-"""Continuous optimization loop: mine each skill's real traces for health, then optimize the ones
-that are actually failing — stitching mining → (auto-drafted) eval set → GEPA A/B → *gated* pending
-into one command. Every surviving improvement lands in the approval UI and requires approval.
+"""Background candidate generation: mine each skill's real traces for health, then propose changes
+only for the ones actually failing. One command stitches together mining, an (auto-drafted) eval
+set, the held-out A/B, and a *gated* pending record. This is the intended way to run optimization:
+unattended, off the review path. Every surviving candidate lands quarantined in the review queue and
+still requires human approval.
 
 Usage: python -m optimize.loop [skill ...]   (default: every skill with an eval task set)
 """
 import argparse
 import os
 
-from .ab import TASKS_DIR, run_ab
+from .ab import TASKS_DIR, run_ab, warn_removed_strategy
 from .mine import mine
 
-HEALTH_THRESHOLD = float(os.environ.get("LOOP_HEALTH_THRESHOLD", "0.7"))  # mine mean below this = optimize
-# Which passes an unhealthy skill gets, in order. "body" = quality GEPA + full-agent A/B;
+HEALTH_THRESHOLD = float(os.environ.get("LOOP_HEALTH_THRESHOLD", "0.7"))  # mine mean below this = propose
+# Which passes an unhealthy skill gets, in order. "body" = candidate search + full-agent A/B;
 # "description" = the routing-objective pass (embedding-scored, ~free; routing cases auto-draft).
 PASSES = [p.strip() for p in os.environ.get("LOOP_PASSES", "body").split(",") if p.strip()]
 _KNOWN_PASSES = ("body", "description")
@@ -22,9 +24,10 @@ def skills_with_tasksets() -> list[str]:
 
 
 def loop(skills: list[str] | None = None, force: bool = False, budget: int = 60, log=print) -> dict:
+    warn_removed_strategy(log)
     targets = skills or skills_with_tasksets()
     if not targets:
-        log("[loop] no skills have eval task sets yet — nothing to optimize.")
+        log("[loop] no skills have eval task sets yet, so there is nothing to propose.")
         return {}
     results = {}
     for skill in targets:
@@ -46,10 +49,10 @@ def loop(skills: list[str] | None = None, force: bool = False, budget: int = 60,
         passes = {}
         for pass_name in PASSES:
             if pass_name == "body":
-                r = run_ab(skill, budget=budget, log=log)
+                r = run_ab(skill, log=log)
             else:
                 from .routing import run_routing
-                r = run_routing(skill, log=log)
+                r = run_routing(skill, budget=budget, log=log)
             passes[pass_name] = {"improved": r.get("improved"), "gate": r.get("gate")}
         gate = next((p["gate"] for p in passes.values() if p.get("gate", {}) and p["gate"].get("promotable")),
                     passes.get("body", {}).get("gate"))
@@ -64,8 +67,9 @@ def loop(skills: list[str] | None = None, force: bool = False, budget: int = 60,
 if __name__ == "__main__":
     ap = argparse.ArgumentParser()
     ap.add_argument("skills", nargs="*", help="skills to check (default: all with an eval task set)")
-    ap.add_argument("--force", action="store_true", help="optimize even skills that look healthy")
-    ap.add_argument("--budget", type=int, default=60, help="GEPA max metric calls per skill")
+    ap.add_argument("--force", action="store_true", help="propose even for skills that look healthy")
+    ap.add_argument("--budget", type=int, default=60,
+                    help="max GEPA metric calls for the description pass (LOOP_PASSES=…,description)")
     args = ap.parse_args()
     from . import require_openrouter_key
     require_openrouter_key()

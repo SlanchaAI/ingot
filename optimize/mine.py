@@ -240,7 +240,8 @@ def mine(skill: str, limit: int = 50, log=print) -> dict:
     log(f"[mine] pulling recent traces from Langfuse for '{skill}'…")
     traces = fetch_traces(limit)
     if not traces:
-        raise SystemExit("No usable traces found — run the agent / optimizer first to generate some.")
+        raise SystemExit("No usable traces found; run the agent or a candidate pass first to "
+                         "generate some.")
     total = len(traces)
     traces = relevant_traces(traces, skill)
     if not traces:

@@ -4,9 +4,9 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <link rel="icon" href="data:,">
-<title>ingot · optimize &amp; promote</title>
+<title>ingot · evidence-gated change control</title>
 <style>
-  /* Slancha identity (seed teaser), shared with /carn: paper cream, warm ink,
+  /* Slancha identity (seed teaser): paper cream, warm ink,
      terracotta chrome, display serif + humanist sans + mono data. App-UI register:
      summary before detail, state as chips/severity, the decision surface up front.
      champion/challenger keep a green/red status pair, always carried by a ✓/✕/⛔ glyph. */
@@ -175,7 +175,20 @@
   .empty code { font-family: var(--mono); background: var(--paper-3); color: var(--ink);
     padding: .05rem .35rem; border-radius: 4px; }
 
-  /* ---- optimizer log ---- */
+  /* ---- history: rollback targets + audit trail ---- */
+  .hlist { margin-top: 1.1rem; border-top: 1px solid var(--line); }
+  .hrow { display: flex; flex-wrap: wrap; align-items: center; gap: .5rem .9rem;
+    padding: .7rem .45rem; border-bottom: 1px solid var(--line); }
+  .hrow .hname { font-family: var(--mono); font-size: .84rem; font-weight: 600; }
+  .hrow .hmeta { font-family: var(--mono); font-size: .72rem; color: var(--ink-3); }
+  .hrow .hact { margin-left: auto; display: flex; gap: .5rem; align-items: center; }
+  .hrow select { font: .72rem/1.4 var(--mono); padding: .34rem .4rem; border-radius: 5px;
+    border: 1px solid var(--line-2); background: var(--paper); color: var(--ink); max-width: 15rem; }
+  .audit { font-family: var(--mono); font-size: .74rem; color: var(--ink-2); line-height: 1.85;
+    margin-top: 1.1rem; }
+  .audit .aact { font-weight: 700; color: var(--rust); text-transform: uppercase; }
+
+  /* ---- candidate-generation log ---- */
   .log { font-family: var(--mono); font-size: .74rem; line-height: 1.6; margin-top: 1.1rem;
     background: var(--paper-2); border: 1px solid var(--line); border-radius: 9px;
     padding: .85rem 1rem; overflow: auto; max-height: 22rem; white-space: pre-wrap; color: var(--ink-2); }
@@ -217,6 +230,7 @@
   .metaline b.win { color: var(--pass); } .metaline b.lose { color: var(--fail); }
   .review-actions { display: flex; align-items: center; gap: .7rem; margin-top: 1.2rem; flex-wrap: wrap; }
   .review-actions .msg { font-family: var(--mono); font-size: .74rem; color: var(--pass); }
+  .review-actions .msg.err { color: var(--fail); font-weight: 600; }
   .difflabel { font-family: var(--mono); font-size: .66rem; letter-spacing: .09em; text-transform: uppercase;
     color: var(--rust); margin: 1.4rem 0 .4rem; }
   pre.diff { font-family: var(--mono); font-size: .72rem; line-height: 1.55; margin: 0;
@@ -275,13 +289,13 @@
       <path d="M7.2 6.1 C 12 8.4, 12.8 10.4, 16.8 11.4"/>
       <path d="M7.2 17.9 C 12 15.6, 12.8 13.6, 16.8 12.6"/>
     </svg>
-    <span class="wm">ingot</span><span class="tag">skill optimizer</span>
+    <span class="wm">ingot</span><span class="tag">change control</span>
   </a>
   <div class="topnav">
+    <a class="lnk" href="#review-section">Review</a>
+    <a class="lnk" href="#history-section">History</a>
     <a class="lnk" href="#skills">Skills</a>
     <a class="lnk" href="#run-section">Activity</a>
-    <a class="lnk" href="#pending-section">Review</a>
-    <a class="lnk" id="carn-link" href="/carn" hidden>carn</a>
     <a class="lnk ext" id="lf" href="#" target="_blank" rel="noopener">Langfuse</a>
     <span class="pill idle" id="status-pill">…</span>
   </div>
@@ -289,56 +303,78 @@
 
 <div class="page">
   <header class="board-head reveal">
-    <div class="eyebrow"><span><span class="n">/</span> OPTIMIZER</span>
+    <div class="eyebrow"><span><span class="n">/</span> CHANGE CONTROL</span>
       <span class="side" id="head-side">ingot</span></div>
-    <h1 class="board-title">Skill optimization</h1>
-    <p class="board-sub">Parallel candidate rewrites race on each skill's eval tasks; champion and challenger are
-      A/B-scored through the full agent. Agents can also author new candidates. Nothing becomes active
-      until you inspect it here and approve it.
+    <h1 class="board-title">Evidence-gated change control</h1>
+    <p class="board-sub">Every change to a skill's instructions is quarantined until you approve it here.
+      Approval re-checks the evidence against the on-disk revision, snapshots what it replaces, and swaps
+      the skill directory atomically. Any snapshot can be restored from History.
       Deep traces in <a id="lf2" href="#" target="_blank" rel="noopener">Langfuse ↗</a>.</p>
     <div class="kpis" id="kpis"><div class="kpi"><span class="n">…</span><span class="l">loading</span></div></div>
     <div class="attention" id="attention"></div>
   </header>
 
-  <section class="band reveal" id="skills">
-    <div class="band-head"><span><span class="n">/</span> SKILLS</span>
-      <span class="side" id="skills-side"></span></div>
-    <h2 class="head">Skills</h2>
-    <p class="sub">Every skill the router serves, evals first. Optimize authors candidates in
-      parallel, races them on the train tasks, and A/Bs the winner on held-out tasks; a scored
-      challenger surfaces here for review before it can be promoted. Skills without evals can't be
-      optimized yet — a CLI run auto-drafts a task set.</p>
-    <div class="skilllist" id="skills-list"></div>
-  </section>
-
-  <section class="band" id="run-section" hidden>
-    <div class="band-head"><span><span class="n">/</span> ACTIVITY</span>
-      <span class="side">optimizer log</span></div>
-    <h2 class="head">Optimizer log</h2>
-    <p class="sub">Live output from the running optimization (candidates + race + A/B). One optimization runs at a time.</p>
-    <pre class="log" id="log"></pre>
-  </section>
-
-  <section class="band" id="pending-section" hidden>
+  <section class="band reveal" id="review-section">
     <div class="band-head"><span><span class="n">/</span> REVIEW</span>
-      <span class="side">champion vs challenger</span></div>
-    <h2 class="head"><span id="pending-title">Pending challenger</span>: <span id="pending-skill"></span></h2>
+      <span class="side">evidence and decision</span></div>
+    <h2 class="head" id="pending-heading">Pending change</h2>
     <p class="sub" id="pending-copy">Inspect every changed instruction before approval.</p>
-    <div class="review-card">
+    <div class="review-card" id="pending-card" hidden>
       <div class="beam" aria-hidden="true"></div>
       <div id="pending-detail"></div>
       <div class="difflabel">SKILL.md diff · champion → challenger</div>
       <pre class="diff" id="diff"></pre>
+      <div class="difflabel" id="evidence-label">Evidence bundle · recorded at generation time</div>
+      <pre class="diff" id="evidence"></pre>
       <div class="review-actions">
         <button class="btn primary" id="approve">Approve</button>
         <button class="btn" id="reject">Reject</button>
-        <span class="msg" id="pending-msg"></span>
       </div>
     </div>
+    <div class="empty" id="review-empty">
+      <div class="et">Nothing is awaiting review.</div>
+      <div class="ed">Quarantined changes land here: skills an agent authored via <code>create_skill</code>,
+        and candidates from the optional candidate generator. No other application path can activate
+        a skill.</div>
+    </div>
+    <!-- outside the card on purpose: approving or rejecting the last pending change hides the
+         card, and the result of that decision has to stay on screen -->
+    <div class="review-actions"><span class="msg" id="pending-msg"></span></div>
+  </section>
+
+  <section class="band reveal" id="history-section">
+    <div class="band-head"><span><span class="n">/</span> HISTORY</span>
+      <span class="side">snapshots and audit trail</span></div>
+    <h2 class="head">Revisions and audit trail</h2>
+    <p class="sub">Every promotion snapshots the revision it displaced, so a change is reversible.
+      Restoring one is atomic and is itself recorded. The trail holds metadata only (action, skill,
+      revision, actor, timestamp), never skill text.</p>
+    <div id="history"></div>
+    <div class="review-actions"><span class="msg" id="history-msg"></span></div>
+  </section>
+
+  <section class="band reveal" id="skills">
+    <div class="band-head"><span><span class="n">/</span> SKILLS</span>
+      <span class="side" id="skills-side"></span></div>
+    <h2 class="head">Skills under control</h2>
+    <p class="sub">Every skill the router serves, with the revision it is serving. Candidate generation
+      is optional and activates nothing: it authors rewrites in parallel, races them on the train tasks,
+      A/Bs the winner on held-out tasks, and leaves the result quarantined for review. Skills without an
+      eval task set can't be measured yet: a CLI run auto-drafts one.</p>
+    <div class="skilllist" id="skills-list"></div>
+    <div class="review-actions"><span class="msg" id="skills-msg"></span></div>
+  </section>
+
+  <section class="band" id="run-section" hidden>
+    <div class="band-head"><span><span class="n">/</span> ACTIVITY</span>
+      <span class="side">candidate generation log</span></div>
+    <h2 class="head">Candidate generation log</h2>
+    <p class="sub">Live output from the background candidate run (search, race, held-out A/B). One runs at a time.</p>
+    <pre class="log" id="log"></pre>
   </section>
 
   <div class="footer">
-    <span><span class="k">ingot</span> · optimize &amp; promote · human-gated promotion</span>
+    <span><span class="k">ingot</span> · evidence-gated change control · atomic promotion, revisioned rollback</span>
     <span>hot-reload on approve</span>
   </div>
 </div>
@@ -374,45 +410,147 @@ const staggerIn = sel => document.querySelectorAll(sel).forEach((el, i) => {
 // skill descriptions come from third-party skill packs / the agent's create_skill — escape before innerHTML
 const esc = t => { const d = document.createElement("div"); d.textContent = t; return d.innerHTML; };
 
-async function j(url, opts) { const r = await fetch(url, opts); if (!r.ok) throw new Error(await r.text()); return r.json(); }
+// Surface the API's own explanation (FastAPI puts it in `detail`) rather than a raw response body:
+// a refused promotion, a stale-evidence 409, or an unknown revision has to be readable in the UI.
+async function j(url, opts) {
+  const r = await fetch(url, opts);
+  const text = await r.text();
+  let data = null;
+  try { data = text ? JSON.parse(text) : null; } catch (_) { /* not JSON: fall back to the text */ }
+  if (!r.ok) throw new Error((data && data.detail) || text || `request failed (${r.status})`);
+  return data;
+}
+
+// `source` separates "this poll could not load" from "your click did this": a recovered poll
+// clears its own banner and leaves the result of the last action on screen.
+function say(sel, text, isError, source) {
+  const el = $(sel);
+  el.textContent = text;
+  el.classList.toggle("err", Boolean(isError));
+  el.dataset.source = text ? (source || "action") : "";
+}
+function clearLoadError(sel) {
+  if ($(sel).dataset.source === "load") say(sel, "", false);
+}
+
+// Every state-changing click reports its own failure. Without this an approval refused by the
+// evidence gate looked identical to one that worked: the button did nothing and said nothing.
+async function act(sel, run) {
+  try {
+    say(sel, await run(), false);
+  } catch (e) {
+    say(sel, `⛔ ${e.message}`, true);
+  }
+  refresh();
+}
 
 const kpi = (cls, n, l, d) =>
   `<div class="kpi ${cls}"><span class="n">${n}</span><span class="l">${l}</span>${d ? `<span class="d">${d}</span>` : ""}</div>`;
 const alert = (cls, tag, txt) =>
   `<div class="alert ${cls}"><span class="atag">${tag}</span><span class="atxt">${txt}</span></div>`;
-const statusChip = s => s.creation ? `<span class="chip rust">new skill ready</span>`
+// String(): the audit trail is a plain JSONL file an operator can edit, so a non-string
+// revision must shorten to nonsense rather than throw and blank the history section
+const shortRev = r => String(r || "").slice(0, 12);
+const statusChip = s => s.creation ? `<span class="chip rust">new skill · awaiting review</span>`
+  : s.pending ? `<span class="chip rust">change awaiting review</span>`
+  : s.status === "running" ? `<span class="chip warn">generating candidate</span>`
   : !s.has_tasks ? `<span class="chip mute">no evals</span>`
-  : s.pending ? `<span class="chip rust">challenger ready</span>`
-  : s.status === "running" ? `<span class="chip warn">optimizing</span>`
-  : `<span class="chip pass">evals</span> <span class="chip mute">at champion</span>`;
+  : `<span class="chip pass">evals</span>`;
 
-function renderBoard(skills, withTasks) {
+// History is a separate endpoint, and it can fail on its own. The two numbers it feeds report
+// that instead of reading as zero, and the rest of the board still renders from the skills
+// payload: a failed history poll used to leave the KPI strip on its "…" placeholder forever.
+function historyKpis(history) {
+  if (!history) {
+    return kpi("", "–", "rollback points", "history unavailable") +
+           kpi("", "–", "recorded decisions", "history unavailable");
+  }
+  const snapshots = Object.values(history.revisions).reduce((n, r) => n + r.length, 0);
+  // the trail below is a capped page; the KPI reports the real total so the two never disagree
+  const shown = history.audit.records.length, decisions = history.audit.total;
+  return kpi("", snapshots, "rollback points", "revision snapshots") +
+    kpi("", decisions, "recorded decisions",
+        decisions > shown ? `approve + rollback · newest ${shown} listed` : "approve + rollback");
+}
+
+function renderBoard(skills, withTasks, history) {
   const pending = skills.filter(s => s.pending).length;
   const running = skills.filter(s => s.status === "running").length;
   $("#kpis").innerHTML =
-    kpi("", withTasks.length, "task sets", "skills with evals") +
-    kpi(pending ? "act" : "", pending, pending === 1 ? "awaiting review" : "awaiting review",
-        pending ? "human decision required" : "none pending") +
-    kpi("", running, "optimizing", running ? "GEPA + A/B running" : "idle") +
-    kpi("", skills.length, "skills visible", "active + pending review");
+    kpi(pending ? "act" : "", pending, "awaiting review",
+        pending ? "human decision required" : "none quarantined") +
+    kpi("", skills.length, "skills tracked", `${withTasks.length} with evals`) +
+    historyKpis(history);
   tickKpis();
   $("#skills-side").textContent = `${withTasks.length} of ${skills.length}`;
   $("#head-side").textContent = pending ? `${pending} to review` : "ingot";
 
   const alerts = [];
   if (pending) alerts.push(alert("act", "REVIEW",
-    `${pending} candidate${pending > 1 ? "s" : ""} awaiting your decision; see Review below.`));
-  if (running) alerts.push(alert("info", "RUNNING", "an optimization is in progress — watch the log."));
-  if (!withTasks.length && !pending) alerts.push(alert("info", "GET STARTED",
-    `${skills.length} skill${skills.length === 1 ? "" : "s"} tracked, none optimizable yet — add an eval task set to a skill below to begin.`));
-  else if (!pending && !running) alerts.push(alert("ok", "IDLE",
-    "every evaluated skill is at its champion; nothing awaiting review."));
+    `${pending} change${pending > 1 ? "s" : ""} quarantined and awaiting your decision.`));
+  if (running) alerts.push(alert("info", "GENERATING",
+    "a background candidate run is in progress; watch the log."));
+  if (!pending && !running) alerts.push(alert("ok", "CLEAR",
+    "nothing quarantined; every skill is serving its approved revision."));
+  if (!withTasks.length) alerts.push(alert("info", "NO EVALS",
+    `${skills.length} skill${skills.length === 1 ? "" : "s"} tracked, none with an eval task set, which candidate generation needs.`));
   $("#attention").innerHTML = alerts.join("");
 
   const pill = $("#status-pill");
   if (pending) { pill.className = "pill act"; pill.textContent = `${pending} to review`; }
-  else if (running) { pill.className = "pill run"; pill.textContent = "optimizing"; }
+  else if (running) { pill.className = "pill run"; pill.textContent = "generating"; }
   else { pill.className = "pill idle"; pill.textContent = "idle"; }
+}
+
+// The board re-polls every 3s. Rebuilding the history rows on every poll reset each revision
+// picker to its first option, so a reviewer who chose an older snapshot lost that choice roughly
+// as fast as they could reach the button. Skip the rebuild when nothing changed, and carry any
+// selection across the rebuilds that do happen.
+let historySignature = null;
+const stamp = seconds => seconds ? new Date(seconds * 1000).toLocaleString() : "time unrecorded";
+
+function renderHistory(h) {
+  const signature = JSON.stringify(h);
+  if (signature === historySignature) return;
+  const chosen = {};
+  document.querySelectorAll("#history select").forEach(el => { chosen[el.id] = el.value; });
+
+  const names = Object.keys(h.revisions).sort();
+  const rows = names.map(name => `
+    <div class="hrow">
+      <span class="hname">${esc(name)}</span>
+      <span class="hmeta">${h.revisions[name].length} snapshot${h.revisions[name].length > 1 ? "s" : ""}</span>
+      <div class="hact">
+        <select id="rev-${esc(name)}" aria-label="revision to restore for ${esc(name)}">
+          ${h.revisions[name].map(r => `<option value="${esc(r.revision)}">${esc(shortRev(r.revision))} · snapshotted ${esc(stamp(r.created))}</option>`).join("")}
+        </select>
+        <button class="btn" onclick="rollback('${esc(name)}')">Roll back</button>
+      </div>
+    </div>`).join("");
+  const trail = h.audit.records.map(r =>
+    `<div><span class="aact">${esc(r.action || "?")}</span> ${esc(r.skill || "?")}
+     @ ${esc(shortRev(r.revision))} · ${esc(stamp(r.ts))}
+     · ${esc(r.actor || "unknown")}</div>`).join("");
+  $("#history").innerHTML =
+    (rows ? `<div class="hlist">${rows}</div>`
+          : `<div class="empty"><div class="et">No snapshots yet.</div>
+             <div class="ed">The first approved promotion snapshots the revision it replaces, and that
+             snapshot becomes a rollback target.</div></div>`) +
+    (trail ? `<div class="audit">${trail}</div>` : "");
+
+  Object.entries(chosen).forEach(([id, value]) => {
+    const el = document.getElementById(id);
+    if (el && [...el.options].some(o => o.value === value)) el.value = value;
+  });
+  historySignature = signature;
+}
+
+async function rollback(skill) {
+  const picker = document.getElementById(`rev-${skill}`);
+  if (!picker) return;
+  const revision = picker.value;
+  await act("#history-msg", async () =>
+    (await j(`/api/rollback/${skill}/${revision}`, {method: "POST"})).result);
 }
 
 function renderSkills(skills) {
@@ -423,42 +561,69 @@ function renderSkills(skills) {
        and they will appear here.</div></div>`;
     return;
   }
-  const ordered = [...skills].sort((a, b) => (b.has_tasks - a.has_tasks) || (b.pending - a.pending));
+  const ordered = [...skills].sort((a, b) => (b.pending - a.pending) || (b.has_tasks - a.has_tasks));
   $("#skills-list").innerHTML = ordered.map(s => `
     <div class="srow${s.pending ? " pend" : ""}${s.has_tasks ? "" : " noev"}">
       <div class="main">
-        <div class="nameline"><span class="sname">${esc(s.name)}</span>${statusChip(s)}</div>
+        <div class="nameline"><span class="sname">${esc(s.name)}</span>${statusChip(s)}
+          ${s.revision ? `<span class="chip mute">rev ${esc(shortRev(s.revision))}</span>` : ""}</div>
         <p class="sdesc">${esc(s.description)}</p>
       </div>
       <div class="sactions">
-        ${s.creation ? "" : `<button class="btn" onclick="optimize('${esc(s.name)}')"
+        ${s.pending ? `<button class="btn primary" onclick="showPending('${esc(s.name)}')">${s.creation ? "Review new skill" : "Review change"}</button>` : ""}
+        ${s.creation ? "" : `<button class="btn" onclick="generateCandidate('${esc(s.name)}')"
           ${s.status === "running" || !s.has_tasks ? "disabled" : ""}
           ${s.has_tasks ? "" : `title="no eval task set; docker compose run --rm optimize ${esc(s.name)} auto-drafts one"`}>
-          ${s.status === "running" ? "optimizing…" : "Optimize"}</button>`}
-        ${s.pending ? `<button class="btn primary" onclick="showPending('${esc(s.name)}')">${s.creation ? "Review new skill" : "Review challenger"}</button>` : ""}
+          ${s.status === "running" ? "generating…" : "Generate candidate"}</button>`}
       </div>
     </div>`).join("");
 }
 
+// One failing endpoint must not blank the board: each section renders from what it got, and says
+// so when its own data is missing, instead of the whole poll rejecting and leaving stale or empty
+// panels with no explanation.
 async function refresh() {
-  const [skills, runs] = await Promise.all([j("/api/skills"), j("/api/runs")]);
-  const withTasks = skills.filter(s => s.has_tasks);
-  renderBoard(skills, withTasks);
-  renderSkills(skills);
-  if (!booted) { staggerIn("#attention .alert"); staggerIn("#skills-list .srow"); booted = true; }
+  const [skills, runs, hist] = (await Promise.allSettled(
+    [j("/api/skills"), j("/api/runs"), j("/api/history")]))
+    .map(r => r.status === "fulfilled" ? r.value : null);
 
-  const active = Object.entries(runs).filter(([, r]) => r.log.length);
+  if (skills) {
+    renderSkills(skills);
+    renderBoard(skills, skills.filter(s => s.has_tasks), hist);
+    clearLoadError("#skills-msg");
+  } else {
+    say("#skills-msg", "⛔ could not load skills; retrying every 3s", true, "load");
+  }
+  if (hist) { renderHistory(hist); clearLoadError("#history-msg"); }
+  else { say("#history-msg", "⛔ could not load history; retrying every 3s", true, "load"); }
+  if (!booted && skills) { staggerIn("#attention .alert"); staggerIn("#skills-list .srow"); booted = true; }
+
+  const active = Object.entries(runs || {}).filter(([, r]) => r.log.length);
   if (active.length) {
     $("#run-section").hidden = false;
     $("#log").textContent = active.map(([s, r]) => r.log.map(l => `[${s}] ${l}`).join("\n")).join("\n");
     $("#log").scrollTop = $("#log").scrollHeight;
   }
-  const pending = skills.find(s => s.pending);
-  if (pending && !currentPending) showPending(pending.name);
-  if (!skills.some(s => s.pending)) { $("#pending-section").hidden = true; currentPending = null; }
+  if (skills) syncReviewCard(skills);
 }
 
-async function optimize(skill) { await j(`/api/optimize/${skill}`, {method: "POST"}); refresh(); }
+// The card on screen can stop being reviewable while the reviewer is looking at it: they approved
+// or rejected it, or another process consumed the slot. Leaving it up with a live Approve button
+// offers a decision that 404s, so follow the queue: show the next quarantined change instead, and
+// carry the last action's result across (the poll did not produce it, so the poll must not eat it).
+function syncReviewCard(skills) {
+  const quarantined = skills.filter(s => s.pending).map(s => s.name);
+  if (!quarantined.length) { showNoPending(); return; }
+  if (!currentPending || !quarantined.includes(currentPending)) {
+    showPending(quarantined[0], {keepMessage: true});
+  }
+}
+
+// the optional background experiment: it only ever writes a quarantined candidate
+async function generateCandidate(skill) {
+  await act("#skills-msg", async () =>
+    `started a candidate run for '${(await j(`/api/optimize/${skill}`, {method: "POST"})).started}'`);
+}
 
 function colorizeDiff(diff) {
   if (!diff) return "(no textual diff)";
@@ -472,21 +637,57 @@ function colorizeDiff(diff) {
   }).join("\n");
 }
 
-async function showPending(skill) {
-  const p = await j(`/api/pending/${skill}`);
+function showNoPending() {
+  currentPending = null;
+  $("#pending-card").hidden = true;
+  $("#review-empty").hidden = false;
+  $("#pending-heading").textContent = "No pending changes";
+  $("#pending-copy").textContent =
+    "Quarantined changes land here with their evidence. Nothing serves traffic until you approve it.";
+}
+
+// The recorded bundle, read back through the API's own containment check. It is advisory
+// rendering: a missing or unreadable bundle must not hide the diff and the decision.
+async function showEvidence(skill) {
+  const pre = $("#evidence");
+  pre.textContent = "loading…";
+  try {
+    const e = await j(`/api/evidence/${skill}`);
+    pre.textContent = `runs/evidence/${e.path}\n\n${e.markdown}`;
+  } catch (err) {
+    pre.textContent = `(no readable evidence bundle: ${err.message})`;
+  }
+}
+
+// `keepMessage` is set when the poll switched cards by itself: a reviewer who just approved a
+// change has to keep reading "Promoted ...", while opening a card by hand clears the previous one.
+async function showPending(skill, {keepMessage = false} = {}) {
+  let p;
+  try {
+    p = await j(`/api/pending/${skill}`);
+  } catch (e) {
+    say("#pending-msg", `⛔ ${e.message}`, true);
+    return;
+  }
   currentPending = skill;
-  $("#pending-section").hidden = false;
-  $("#pending-skill").textContent = skill;
+  $("#pending-card").hidden = false;
+  $("#review-empty").hidden = true;
   const creation = p.kind === "creation";
-  $("#pending-title").textContent = creation ? "New skill candidate" : "Pending challenger";
+  $("#pending-heading").textContent =
+    (creation ? "New skill candidate: " : "Pending change: ") + skill;
   $("#pending-copy").textContent = creation
     ? "Review the proposed routing description and instructions. Approval activates this skill for the first time."
-    : "The challenger was scored against the active skill. Promote only a clear, gate-passing win.";
+    : "Held-out evidence for this change is below. Approval snapshots the current revision and swaps atomically, so promote only a clear, gate-passing win.";
   $("#approve").textContent = creation ? "Approve & activate" : "Approve & promote";
-  $("#approve").disabled = Boolean(p.gate && !p.gate.promotable);
+  // stale evidence describes a champion that has since moved on disk: promotion would refuse it,
+  // so the review card refuses it first rather than after the click
+  $("#approve").disabled = Boolean((p.gate && !p.gate.promotable) || p.stale);
+  // records written before the GEPA body loop was removed carry these scores under `gepa`;
+  // the API normalizes them, and a record with neither simply renders without the line
+  const search = p.inner_loop;
   let detail;
   if (creation) {
-    detail = `<div class="metaline"><b>Agent-authored new skill</b> · not active · human approval required</div>`;
+    detail = `<div class="metaline"><b>Agent-authored new skill</b> · quarantined · human approval required</div>`;
   } else if (p.ab) {  // quality pass: judge scores + token shift through the full agent
     const c = p.ab.champion, ch = p.ab.challenger, chalWins = ch.mean > c.mean;
 
@@ -497,8 +698,10 @@ async function showPending(skill) {
     const duel = `<div class="duel">${cand("champion", c, !chalWins)}
       <span class="versus">vs</span>${cand("challenger", ch, chalWins)}</div>`;
 
-    const meta = `<div class="metaline">inner loop <b>${p.gepa.seed_score.toFixed(2)} → ${p.gepa.best_score.toFixed(2)}</b>
-      · <a href="${langfuseUrl}" target="_blank" rel="noopener">runs in Langfuse: ${esc(p.dataset)} ↗</a></div>`;
+    const meta = `<div class="metaline">${search
+        ? `candidate search <b>${search.seed_score.toFixed(2)} → ${search.best_score.toFixed(2)}</b> · ` : ""}
+      <a href="${langfuseUrl}" target="_blank" rel="noopener">runs in Langfuse: ${esc(p.dataset)} ↗</a>
+      ${p.evidence ? `<br>evidence bundle <b>${esc(p.evidence.markdown)}</b>` : ""}</div>`;
 
     let tok = "";
     if (c.tokens && ch.tokens) {
@@ -518,7 +721,8 @@ async function showPending(skill) {
     detail = `<div class="metaline">routing pass (description) — top-1 ${cell(c.top1, ch.top1)} · ` +
       `recall@3 ${cell(c.recall_at_3, ch.recall_at_3)} · ` +
       `no-route precision ${cell(c.no_route_precision, ch.no_route_precision)}</div>` +
-      `<div class="metaline">embedding router · inner loop <b>${p.gepa.seed_score.toFixed(2)} → ${p.gepa.best_score.toFixed(2)}</b></div>`;
+      (search ? `<div class="metaline">embedding router · candidate search ` +
+        `<b>${search.seed_score.toFixed(2)} → ${search.best_score.toFixed(2)}</b></div>` : "");
   }
 
   const changed = (p.changed && p.changed.length)
@@ -527,31 +731,33 @@ async function showPending(skill) {
     : "";
 
   const gate = p.gate && !p.gate.promotable
-    ? `<div class="gate block">⛔ Promotion gate: ${esc(p.gate.blocked.join("; "))} — review carefully before overriding.</div>`
-    : (p.gate ? `<div class="gate ok">✓ Passes promotion gate</div>` : "");
+    ? `<div class="gate block">⛔ Evidence gate: ${esc(p.gate.blocked.join("; "))}. Approval is refused.</div>`
+    : (p.gate ? `<div class="gate ok">✓ Passes the evidence gate</div>` : "");
 
   const warn = (p.gate && p.gate.warnings && p.gate.warnings.length)
     ? `<div class="gate warn">⚠ ${esc(p.gate.warnings.join("; "))}</div>`
     : "";
 
-  $("#pending-detail").innerHTML = detail + changed + gate + warn;
+  const stale = p.stale
+    ? `<div class="gate block">⛔ Stale evidence: ${esc(p.stale)}. Approval is refused.</div>`
+    : "";
+
+  $("#pending-detail").innerHTML = detail + changed + gate + warn + stale;
   $("#diff").innerHTML = colorizeDiff(p.diff);
-  $("#pending-msg").textContent = "";
+  if (!keepMessage) say("#pending-msg", "", false);
+  // an agent-authored creation has no measured bundle to show: the diff is the whole evidence
+  $("#evidence-label").hidden = $("#evidence").hidden = creation;
+  if (!creation) showEvidence(skill);
 }
 
-$("#approve").onclick = async () => {
-  const r = await j(`/api/promote/${currentPending}`, {method: "POST"});
-  $("#pending-msg").textContent = r.result; refresh();
-};
-$("#reject").onclick = async () => {
-  const r = await j(`/api/reject/${currentPending}`, {method: "POST"});
-  $("#pending-msg").textContent = r.result; refresh();
-};
+$("#approve").onclick = () => act("#pending-msg", async () =>
+  (await j(`/api/promote/${currentPending}`, {method: "POST"})).result);
+$("#reject").onclick = () => act("#pending-msg", async () =>
+  (await j(`/api/reject/${currentPending}`, {method: "POST"})).result);
 
 j("/api/config").then(c => {
   langfuseUrl = c.langfuse_url;
   $("#lf").href = c.langfuse_url; $("#lf2").href = c.langfuse_url;
-  $("#carn-link").hidden = !c.carn_enabled;
 });
 refresh(); setInterval(refresh, 3000);
 

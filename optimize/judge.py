@@ -1,7 +1,7 @@
 """LLM judge: scores an answer 0..1 and — following the SkillForge paper's multi-dimensional Failure
 Analyzer (Liu et al., "SkillForge", arXiv:2604.08618) — classifies each failure across fixed
-dimensions so the optimizer gets *categorized* feedback, not one opaque score. The dimension labels
-also drive success/failure mining (optimize/mine.py) and GEPA's reflective diagnosis.
+dimensions so the search gets *categorized* feedback, not one opaque score. The dimension labels
+also drive success/failure mining (optimize/mine.py) and the candidate search's diagnosis.
 
 Judges against a task `rubric` when given one; with no rubric it grades reference-free (used when
 mining real traces). If a task supplies a `reference` answer, consistency-against-reference is added
@@ -15,16 +15,17 @@ from langchain_openai import ChatOpenAI
 
 from . import usage as usage_ledger
 
-# Reward-hacking guard: the judge must NOT be the same model as GEPA's reflection LM (GEPA_MODEL) —
-# if the author and the grader share blind spots, GEPA learns to please the judge, not improve the
-# skill. Default judge is a model distinct from both the reflection LM (GLM) and the student (Qwen).
+# Reward-hacking guard: the judge must NOT be the same model as the teacher LM (GEPA_MODEL).
+# If the author and the grader share blind spots, the search learns to please the judge instead of
+# improving the skill. Default judge is a model distinct from both the reflection LM (GLM) and the
+# student (Qwen).
 # JUDGE_MODELS (comma-separated) runs an ensemble and averages — harder still to game.
 MODELS = [m.strip() for m in os.environ.get(
     "JUDGE_MODELS", os.environ.get("JUDGE_MODEL", "google/gemini-2.5-flash")).split(",") if m.strip()]
 from . import ZDR_PROVIDER, client_kwargs, teacher_base_url  # noqa: E402  (endpoint + ZDR policy)
 
 if os.environ.get("GEPA_MODEL", "z-ai/glm-5.2") in MODELS:
-    print(f"[judge] WARNING: judge model {MODELS} includes the GEPA reflection model — this invites "
+    print(f"[judge] WARNING: judge model {MODELS} includes the teacher model, which invites "
           f"reward-hacking (author == grader). Set JUDGE_MODEL to a different model.", flush=True)
 
 # Failure dimensions (the general-purpose analogue of the paper's Knowledge/Tool/Clarification/Style).

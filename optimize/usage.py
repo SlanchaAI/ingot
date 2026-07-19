@@ -7,7 +7,7 @@ import threading
 from collections import defaultdict
 
 COUNTS: dict[str, dict[str, int]] = defaultdict(lambda: {"input": 0, "output": 0, "calls": 0})
-_LOCK = threading.RLock()  # GEPA fans rollout+judge across a thread pool; add() re-enters for the cap
+_LOCK = threading.RLock()  # the search fans rollout+judge across a thread pool; add() re-enters for the cap
 _PRICES: dict[str, tuple[float, float]] | None = None
 
 

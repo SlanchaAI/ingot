@@ -1,37 +1,56 @@
 # Ingot
 
-**Mine your traffic. Refine your skills.**
+**Evidence-gated change control for agent instructions.**
 
 [![CI](https://github.com/SlanchaAI/ingot/actions/workflows/ci.yml/badge.svg)](https://github.com/SlanchaAI/ingot/actions/workflows/ci.yml) [![License: MIT](https://img.shields.io/github/license/SlanchaAI/ingot)](LICENSE) [![Python 3.12](https://img.shields.io/badge/Python-3.12-3776AB?logo=python&logoColor=white)](Dockerfile) [![Docker](https://img.shields.io/badge/Docker-Compose-2496ED?logo=docker&logoColor=white)](docker-compose.yml)
 
-**Ingot** is a local-first [Agent Skills](https://github.com/anthropics/skills) library for your
-own agents. Its **MCP server** routes each task to the right skill, letting a cheap or local model
-reuse methods that would otherwise need a frontier model.
+An agent's [skills](https://github.com/anthropics/skills) are instructions it will follow. **Ingot**
+is a local-first library that treats them as what they are: versioned state that needs a review
+process. Every skill folder is content-addressed. Every proposed change to one is quarantined until
+a human reads the evidence and approves it. Promotion is atomic, snapshots what it replaced, and is
+recorded.
 
-When no skill fits, a strong model drafts a candidate. When traffic exposes a weak skill, Ingot
-mines the failure, drafts a challenger, and tests it on held-out tasks. **Nothing promotes
-itself.** Agent-authored skills and optimizer rewrites stay inactive until a human reviews the
-evidence and approves them in the UI. Approved skills hot-reload with no restart.
+An **MCP server** serves the approved revision of the right skill for each task, which is what lets
+a cheap or local model reuse methods that would otherwise need a frontier model.
+
+What the system actually guarantees:
+
+- **A revision names an exact skill.** `skill_revision` hashes every file in the folder, so the
+  revision on a trace, in a piece of evidence, and on disk are comparable.
+- **Changes are quarantined.** Agent-authored skills (`create_skill`) and generated rewrites land
+  in `runs/pending/` and cannot route traffic. One review slot per skill; displaced candidates are
+  archived, not dropped.
+- **Approval needs evidence.** A rewrite carries a bundle in `runs/evidence/<skill>/<ts>/` as
+  `evidence.json` and `EVIDENCE.md`, readable from the review card. A body-pass bundle holds
+  held-out champion-vs-challenger scores, per-case deltas, the first behavioral divergence, token
+  cost, and the gate verdict; a description-pass bundle holds the router metrics that gated it.
+  Promotion re-checks that the evidence still matches the on-disk champion; a challenger that wins
+  the mean but fails the gate is recorded and refused.
+- **Promotion is atomic and reversible.** The displaced revision is snapshotted into
+  `runs/revisions/` and the directory is swapped by rename; a failed swap restores the original.
+  Restore any snapshot from the UI's History section or the CLI.
+- **Decisions are audited.** Approvals and rollbacks append metadata-only records (action, skill,
+  revision, actor, timestamp) to `runs/approval-audit.jsonl`. Never skill text, never credentials.
+  The append is best effort: the record is written after the change is already committed on disk,
+  so a failed write is logged as a warning and leaves the promotion or rollback in place rather
+  than undoing it. Treat the trail as a local operator log, not a tamper-evident ledger.
 
 Built for individual users first:
 
-- **Lite.** `docker compose up` starts just the router and the approval UI. The tracing stack
+- **Lite.** `docker compose up` starts just the router and the change-control UI. The tracing stack
   is an optional upgrade (`--profile langfuse`), not a requirement.
 - **Local.** Point it at Ollama or vLLM and it runs with no API key; skills, traces, and evals
   never leave your machine.
 - **Secure.** Hosted calls default to OpenRouter with zero-data-retention provider routing
   enforced on every request, and no service is reachable off your machine.
-- **Easy.** A skill is a folder with a `SKILL.md`. Drop one in and it is live on the next
-  request; the optimizer auto-drafts eval sets, and `MAX_RUN_USD` hard-caps what a run may spend.
-- **Improvement you can measure.** In the [recorded walkthrough below](#5-optimize-the-body-parallel-candidates--a-held-out-ab),
-  a stale skill's held-out mean judge score rose from 0.133 to 0.767 while output tokens fell
-  from 1,278 to 1,032, for about $0.04.
+- **Easy.** A skill is a folder with a `SKILL.md`. Drop one in and it is live on the next request.
 
-## See the human gate
-
-![Approval UI with a challenger ready for human review](docs/ui-home.png)
-
-Every agent-authored skill and optimizer rewrite lands here before it can route traffic.
+Where do changes come from? Mostly from you and your agents. Ingot also ships an **optional**
+candidate generator: it mines real traces for failing skills, drafts rewrites, and measures them on
+held-out tasks. It is a background experiment that produces proposals, never activations. In the
+[recorded walkthrough below](#5-optional-generate-a-candidate-in-the-background), a stale skill's
+held-out mean judge score rose from 0.133 to 0.767 while output tokens fell from 1,278 to 1,032, for
+about $0.04, and a human still had to approve it.
 
 [Quickstart](#quickstart-lite-mode) · [Full tutorial](#tutorial) ·
 [Architecture](ARCHITECTURE.md) · [Contributing](CONTRIBUTING.md) · [Security](SECURITY.md) ·
@@ -43,8 +62,8 @@ Every agent-authored skill and optimizer rewrite lands here before it can route 
 git clone https://github.com/SlanchaAI/ingot.git && cd ingot
 cp .env.example .env               # add an OpenRouter key, or point BASE_URL at Ollama (no key)
 scripts/fetch_skills.sh all        # fetch ~70 real skills into ./skills (see Skill sources)
-docker compose up                  # lite by default: skill router (localhost:8000) + approval UI
-                                   # (localhost:8080) + one demo agent run
+docker compose up                  # lite by default: skill router (localhost:8000) + change-control
+                                   # UI (localhost:8080) + one demo agent run
 docker compose run --rm agent "How do I merge several PDFs into one and add page numbers?"
 ```
 
@@ -55,8 +74,8 @@ No hosted key? The final command still verifies the router: `suggest_skills` ret
 skill at 0.74, then the agent explains how to configure a model for the full answer.
 
 Every agent run appends to a local trace store (`runs/traces.jsonl`); `optimize-mine` and the
-optimize gate read it whenever Langfuse is unreachable, so the entire improvement loop works in
-lite mode. You lose only the trace browser and experiment UI. Want those?
+held-out A/B read it whenever Langfuse is unreachable, so the whole loop works in lite mode. You
+lose only the trace browser and experiment UI. Want those?
 
 Local trace records use schema version 1. Original unversioned records remain readable. The store
 defaults to secret-pattern redaction, mode `0600`, a mode `0700` parent directory, 10 MiB rotation,
@@ -88,7 +107,7 @@ Three properties, all defaults, none optional:
 
 - **Zero data retention LLM calls.** The default provider is **OpenRouter** with
   [Zero Data Retention (ZDR)](https://openrouter.ai/docs/features/zdr) enforced on every request.
-  Each call (agent runs, optimizer rollouts and reflection, the judge, task drafting) carries a
+  Each call (agent runs, candidate rollouts and reflection, the judge, task drafting) carries a
   hardcoded provider preference:
 
   ```json
@@ -130,9 +149,10 @@ containers, "localhost" is the container itself; use your host's LAN IP (or `172
 
 ## Tutorial
 
-The tutorial runs the whole improvement loop on a skill you write yourself: write the quick
-first-draft skill you'd actually jot down, watch it under-deliver on real traffic, and let the
-system mature it. Every command, number, and screenshot below comes from a real run.
+The tutorial takes one skill through the whole lifecycle: write the quick first-draft skill you'd
+actually jot down, watch it under-deliver on real traffic, diagnose it, generate a candidate change,
+then review, promote, and (if you want it back) roll back. Every command and number below comes
+from a real run.
 
 ### 1. Set up and start the stack
 
@@ -143,13 +163,13 @@ scripts/fetch_skills.sh all        # fetch ~70 real skills into ./skills (see Sk
 docker compose up --build
 ```
 
-This brings up the MCP server (`localhost:8000`) and the approval UI (`localhost:8080`), then
+This brings up the MCP server (`localhost:8000`) and the change-control UI (`localhost:8080`), then
 runs the agent once on a demo task.
 
 No skills are committed to this repo. `fetch_skills.sh` clones each source, copies its skills in,
 and deletes the clone, so everything stays under its own upstream license. Without an API key
-everything still starts and the router still prints suggestions; the agent and optimizer tell you
-what to set and exit cleanly.
+everything still starts and the router still prints suggestions; the agent and the candidate
+generator tell you what to set and exit cleanly.
 
 ### 2. The agent routes to a skill and uses it
 
@@ -258,16 +278,25 @@ the v3 world the stub teaches. The weakest mined tasks are surfaced as eval cand
 `optimize/tasks/<skill>.yaml`; see [Writing eval task sets](#writing-eval-task-sets).
 
 Reference-free judging of live traffic is noisy. Treat mined dimensions as a diagnosis to
-investigate, not a verdict; the optimizer's own gate runs on rubrics.
+investigate, not a verdict; the evidence gate runs on rubrics.
 
-### 5. Optimize the body: parallel candidates + a held-out A/B
+### 5. (Optional) Generate a candidate in the background
+
+At this point you know what is wrong and could fix the body by hand: edit `SKILL.md`, and the router
+serves the new revision on the next request. This step does it the other way, with the optional
+candidate generator, so the change arrives with measured evidence attached.
 
 Write an eval task set for the skill (`optimize/tasks/tailwind.yaml`) with train and holdout tasks
-whose rubrics carry the v4 ground truth (the teacher can also auto-draft one on a skill's first
-CLI optimize run). Then open **http://localhost:8080** and click **Optimize**. The optimizer
-authors several candidate bodies in parallel, races them on the train tasks, and A/Bs the winner
-against the champion through the full agent on the held-out tasks (about two minutes, a few
-cents). The same run works headless: `docker compose run --rm optimize tailwind`. Our run:
+whose rubrics carry the v4 ground truth (the teacher can also auto-draft one on a skill's first CLI
+run). Then run it headless, which is how it is meant to run:
+
+```bash
+docker compose run --rm optimize tailwind
+```
+
+The generator authors several candidate bodies in parallel, races them on the train tasks, and A/Bs
+the winner against the champion through the full agent on the held-out tasks (about two minutes, a
+few cents). The UI's **Generate candidate** button starts the same run. Our run:
 
 ```
 [bestofn] research brief reused from cache (eca23a52979eadc6.json)
@@ -291,12 +320,15 @@ repeat runs cost zero extra searches). That research step is optional: it fires 
 `TAVILY_API_KEY`, and without one the run works identically minus the brief. What it buys you is
 facts that postdate the author model's training — exactly what a version-drift skill like this
 needs, since otherwise the rewrite can only be as current as the author's own knowledge (see
-[Optimization strategies](#optimization-strategies)). The winner distilled a full v4 body. On the held-out A/B
-through the real agent, the stub champion scored 0.133: a small serving model follows the loaded
+[Candidate generation](#candidate-generation)). The winner distilled a full v4 body. On the held-out
+A/B through the real agent, the stub champion scored 0.133: a small serving model follows the loaded
 v3 advice straight into wrong answers, so a stale body actively hurts. The challenger scored
 0.767, a +0.63 margin that clears the default promotion bar (+0.15) with room to spare, and it
 answers with fewer tokens. The ⚠ retention warning is the review system doing its job: this
 challenger replaced the whole body, so a human looks at the diff before anything ships.
+
+Note what the run did *not* do: it did not touch `skills/tailwind/`. It wrote a quarantined record
+and an evidence bundle, and stopped.
 
 The size of the win tracks the serving model: **body-pass wins concentrate where the body carries
 knowledge the serving model doesn't have** (weak or older models, internal tools, your
@@ -307,34 +339,56 @@ rewrite. The gate's refusals are what make the wins trustworthy: in a companion 
 NVIDIA-authored `accelerated-computing-cudf` skill, a challenger that dropped half the champion
 body and regressed a held-out task was blocked, 0.980 vs 0.800.
 
-Optimization is greedy: one component per pass, each scored by its own role's metric:
+Generation is greedy: one component per pass, each scored by its own role's metric:
 
-| pass | command | inner-loop objective | cost |
-|------|---------|---------------------|------|
-| body (default) | the UI's **Optimize** button, or `optimize tailwind` | LLM judge on train tasks; full-agent A/B gate | ~$0.05 (`--gepa`: ~$1) |
+| pass | command | candidate-search objective | cost |
+|------|---------|---------------------------|------|
+| body (default) | `optimize tailwind`, or the UI's **Generate candidate** button | LLM judge on train tasks; full-agent A/B for the evidence | ~$0.05 |
 | description | `optimize tailwind --description` | the routing suite, scored by the real embedding router; no LLM rollouts | ~$0.01, a couple of minutes |
-| scripts | `optimize tailwind --scripts` | refused for now: bundled scripts need execution-grounded evals | n/a |
 
-The split exists because a quality judge can't measure routing and a router can't measure
-quality. The body pass's rollouts serve each candidate under the exact contract the A/B serves, so
-the inner loop can't optimize against different instructions than the outer loop measures.
-`GEPA_ROLLOUTS=agent` runs every rollout through the full agent scaffold instead.
+The split exists because a quality judge can't measure routing and a router can't measure quality.
+There is no scripts pass: bundled files are opt-in text components
+(`OPTIMIZE_COMPONENTS=body,file:<path>`) that are diffed for review and never executed. The body
+pass's rollouts serve each candidate under the exact contract the A/B serves, so the search can't
+optimize against different instructions than the A/B measures. `GEPA_ROLLOUTS=agent` runs every
+rollout through the full agent scaffold instead (a legacy variable name: it predates the removal of
+the GEPA body loop and now selects the best-of-N search's rollout mode).
 
-### 6. Review and promote in the approval UI
+### 6. Review, promote, roll back
 
-Back at **http://localhost:8080**, the header pill flips to **1 to review** and the `tailwind` row
-shows a `challenger ready` chip:
+Back at **http://localhost:8080**, the header pill flips to **1 to review**, the Review section
+leads with the evidence, and the `tailwind` row shows a `change awaiting review` chip. The card
+carries the judge scores, the token shift, the retention warning, the recorded evidence bundle, and
+the component diff (a routing change shows its metric deltas the same way), then **Approve &
+promote** and **Reject**. Snapshots and the approval trail sit below it in **History**.
 
-Click **Review challenger** to see the judge scores, the token shift, the retention warning, and
-the body diff (a routing challenger shows its metric deltas the same way):
+> No screenshot is included here. The last recorded one was taken against a superseded label set
+> ("Pending challenger", "promotion gate"), and this README only carries artifacts from a real run,
+> so it was removed rather than re-captioned or re-drawn. Recapturing it needs a live stack with a
+> real pending change, which is a follow-up.
 
-![approval UI, pending challenger review](docs/ui-review.png)
+**Approve & promote** verifies the evidence still matches the on-disk champion, snapshots the prior
+revision into `runs/revisions/tailwind/<revision>/`, swaps the challenger into `skills/tailwind/` by
+rename, and appends an `approve` record to `runs/approval-audit.jsonl`. The MCP server picks up the
+revision change with no restart. **Reject** discards the candidate.
 
-**Approve & promote** verifies the evidence still matches the on-disk champion, snapshots the
-prior revision, and swaps the challenger into `skills/tailwind/`. The MCP server picks up the
-revision change with no restart. **Reject** discards it. One review slot exists per skill:
-promote or reject before running a different pass, or the displaced challenger is archived beside
-the slot (the run tells you where) rather than reviewed.
+That snapshot is the undo. It appears in the UI's **History** section, and restoring it is one
+click, or one command:
+
+```bash
+# --entrypoint python replaces the service's own `python -m optimize.ab` entrypoint
+docker compose run --rm --entrypoint python optimize -m optimize.promote rollback tailwind <revision>
+```
+
+Rollback snapshots the revision it displaces too, so the round trip is symmetric, and it writes its
+own audit record. The trail records the actor as `local-operator` for every action: the local UI
+has no identity or authentication, so it can record that a local operator approved, not who. Both
+records are appended after the swap has already happened, so an audit write that fails (a full or
+read-only disk) is logged and the change stands: a missing line means the trail is incomplete, not
+that the promotion was rolled back.
+
+One review slot exists per skill: promote or reject before running a different pass, or the
+displaced candidate is archived beside the slot (the run tells you where) rather than reviewed.
 
 ### 7. Fix the routing with the description pass
 
@@ -389,14 +443,14 @@ routed skill at all. Live loading behavior belongs to the serving model; the con
 body-vs-body comparison is the step 5 A/B, which injects the body and guarantees serving. Routing
 puts the right skill in front of the model; the A/B proves what happens when it is actually used.
 
-That's the loop: a first-draft skill → real traffic → mined diagnosis → a body pass gated on
-held-out quality → a description pass gated on routing metrics → human approval at every
-promotion → hot reload.
+That's the lifecycle: a first-draft skill → real traffic → mined diagnosis → a proposed change with
+held-out evidence → human approval → hot reload → a snapshot you can roll back to.
 
-### 9. (Optional) Put it on autopilot
+### 9. (Optional) Run candidate generation unattended
 
-One command mines every skill's real traffic for health and optimizes only the ones actually
-failing, leaving every survivor in the approval UI (nothing auto-promotes):
+This is where candidate generation belongs: in the background, not on the review path. One command mines
+every skill's real traffic for health and proposes changes only for the ones actually failing,
+leaving every survivor quarantined in the review queue (nothing auto-promotes):
 
 ```bash
 docker compose run --rm optimize-loop            # all skills with eval sets; add names to target some
@@ -433,12 +487,14 @@ docker compose run --rm agent "Plan a strict low-FODMAP weekly dinner menu for t
 
 ---
 
-## Keeping the optimizer honest (anti reward-hacking)
+## The evidence gate (anti reward-hacking)
 
-Optimizing against an LLM judge invites the classic failure: the challenger learns to please the
-judge, not to get better. Guards close the obvious paths:
+A generated change is only as trustworthy as the evidence attached to it, and optimizing against an
+LLM judge invites the classic failure: the challenger learns to please the judge, not to get better.
+The gate is what a reviewer is relying on when they read those numbers, so it closes the obvious
+paths:
 
-1. **Judge ≠ author.** The reflection LM (`GEPA_MODEL`) writes the skill; the judge
+1. **Judge ≠ author.** The teacher LM (`GEPA_MODEL`) writes the skill; the judge
    (`JUDGE_MODEL`) is a different model. Set `JUDGE_MODELS=a,b` for an ensemble judge.
 2. **Held-out gate, not a lucky mean.** Promotion requires a margin (`PROMOTE_MIN_MARGIN`, default
    +0.15), enough samples (`PROMOTE_MIN_SAMPLES`), and no catastrophic per-task regression.
@@ -457,7 +513,11 @@ judge, not to get better. Guards close the obvious paths:
 6. **Deletions need evidence.** A challenger that drops most of the champion body (retention below
    `RETENTION_WARN`) gets a ⚠ warning in the review UI with the retention number and sample count.
 7. **Blocked means blocked.** A challenger that wins the mean but fails the gate is still recorded
-   for diagnosis, but the UI refuses approval and shows the exact reasons.
+   for diagnosis, but the UI refuses approval and shows the exact reasons, and `approve_pending`
+   refuses it again server-side.
+8. **Evidence must still describe the skill on disk.** Promotion recomputes the champion and
+   challenger revisions; if the champion changed since the run, approval is refused rather than
+   applied to a skill the evidence never measured.
 
 ```
 [ab] champion 0.55 vs challenger 0.60 -> CHALLENGER WINS
@@ -476,7 +536,7 @@ Set in `.env` (never committed):
 | `AGENT_MODEL` | `qwen/qwen3.6-27b` | the agent: everything that executes skills, incl. rollouts; `MODEL` is the legacy alias |
 | `MODEL_BASE_URL` / `MODEL_API_KEY` | `BASE_URL` / `API_KEY` | serving-role-only overrides for hybrid setups |
 | `OPENROUTER_PROVIDERS` | (none) | OpenRouter only: provider priority (e.g. `fireworks,groq`), tried in order; composes with ZDR, and roles no listed provider serves fall back to the open ZDR pool |
-| `GEPA_MODEL` | `z-ai/glm-5.2` | the reflection LM (the skill author) |
+| `GEPA_MODEL` | `z-ai/glm-5.2` | the teacher model: writes candidate skills, and reflects for the description pass. Legacy name, kept so existing `.env` files work |
 | `STRONG_MODEL` | `GEPA_MODEL` | serves novel requests (no skill matched) and authors the new skill |
 | `JUDGE_MODEL` | `google/gemini-2.5-flash` | the LLM judge; must differ from `GEPA_MODEL` |
 | `MIN_SCORE` | `0.65` | at/above: routable match; below: `related` band or novel |
@@ -484,12 +544,11 @@ Set in `.env` (never committed):
 | `EMBED_MODEL` | `BAAI/bge-small-en-v1.5` | router embedding model; keep in sync with the Dockerfile's build arg |
 | `BODY_TARGET_CHARS` | `6000` | length penalty starts past this body size |
 | `LENGTH_PENALTY` | `0.10` | max score subtracted for a very long body |
-| `LOOP_HEALTH_THRESHOLD` | `0.7` | autopilot re-optimizes skills whose mined mean score is below this |
+| `LOOP_HEALTH_THRESHOLD` | `0.7` | the background loop proposes a change for skills whose mined mean score is below this |
 | `LOOP_PASSES` | `body` | passes the loop runs per unhealthy skill, in order (e.g. `body,description`) |
-| `OPTIMIZE_STRATEGY` | `parallel` | inner-loop strategy: `parallel` (best-of-N + racing) or `gepa` (see [Optimization strategies](#optimization-strategies)) |
-| `OPTIMIZE_CANDIDATES` | `5` | parallel strategy: candidate rewrites per run |
-| `TAVILY_API_KEY` | (none) | optional author-side web research during the parallel pass |
-| `GEPA_ROLLOUTS` | `direct` | `direct` (one call under the serving contract) or `agent` (full scaffold per rollout, ~10× cost) |
+| `OPTIMIZE_CANDIDATES` | `5` | candidate rewrites authored and raced per run |
+| `TAVILY_API_KEY` | (none) | optional author-side web research during candidate generation |
+| `GEPA_ROLLOUTS` | `direct` | how the candidate search rolls out: `direct` (one call under the serving contract) or `agent` (full scaffold per rollout, ~10× cost). Legacy name, kept so existing `.env` files work |
 | `RETENTION_WARN` | `0.5` | review warning when the challenger keeps less than this fraction of the champion body |
 | `OPTIMIZE_COMPONENTS` | `body` | what may be rewritten; add `description` or `file:<path>` entries |
 | `EXEC_SANDBOX` | `docker` | `docker` = locked-down container, `1` = bare subprocess (legacy), `off` = static checks only |
@@ -503,39 +562,38 @@ Set in `.env` (never committed):
 | `LANGFUSE_PUBLIC_KEY` / `LANGFUSE_SECRET_KEY` | `pk-lf-local-demo` / `sk-lf-local-demo` | project keys; defaults are the bundled stack's local demo literals |
 | `LANGFUSE_PUBLIC_URL` | `http://localhost:3100` | where your browser reaches Langfuse (UI trace links) |
 
-Promotion-gate knobs (`PROMOTE_MIN_MARGIN`, `PROMOTE_MIN_SAMPLES`, `COLLISION_SCORE`,
-`JUDGE_MODELS`) are covered in
-[Keeping the optimizer honest](#keeping-the-optimizer-honest-anti-reward-hacking).
+Evidence-gate knobs (`PROMOTE_MIN_MARGIN`, `PROMOTE_MIN_SAMPLES`, `COLLISION_SCORE`,
+`JUDGE_MODELS`) are covered in [The evidence gate](#the-evidence-gate-anti-reward-hacking).
 
-### Optimization strategies
+### Candidate generation
 
-Both strategies feed the same held-out A/B and promotion gate.
-
-**`parallel` (default)**: best-of-N with racing (`optimize/bestofn.py`). The seed is rolled out on
+One candidate search ships: best-of-N with racing (`optimize/bestofn.py`). The seed is rolled out on
 every train task at once and its judge feedback becomes the failure brief, sharpened by a one-call
 diagnostic report that attributes each failure to the skill sections responsible, typed as
 missing / insufficient / incorrect (the SkillForge paper's Skill Diagnostician); N candidate
 rewrites (`OPTIMIZE_CANDIDATES`) are drafted in parallel, each steered by a different angle — one
 of them always the paper's minimal-additive-edit "Do No Harm" discipline, so a clean-diff
 candidate competes in every race; then successive halving over the train tasks drops the bottom
-half each round. The winner's cumulative
-mean (minus the length penalty) must beat the seed. Minutes, not tens of minutes, on ~15 rollouts.
+half each round. The winner's cumulative mean (minus the length penalty) must beat the seed.
+Minutes, not tens of minutes, on ~15 rollouts.
 
-**`gepa`** (`--gepa`, or `OPTIMIZE_STRATEGY=gepa`): the sequential reflective loop
-(`optimize/gepa_loop.py`): propose, evaluate, reflect on observed failures, propose again, under a
-`--budget` of metric calls (default 60). Slower and costlier, but each candidate is informed by
-the failures of earlier candidates; worth it on mature skills where headroom is small.
+A second, sequential GEPA body loop used to sit behind `--gepa` / `OPTIMIZE_STRATEGY=gepa`. It has
+been **removed**: it optimized the same objective for roughly twenty times the cost, was reachable
+only by opt-in, and carried no test coverage of its own. `OPTIMIZE_STRATEGY` is no longer read, and a
+run that finds it set says so rather than ignoring it silently. GEPA itself is still used, for the
+description pass's reflection step (`optimize/routing.py`), and `GEPA_MODEL` / `GEPA_ROLLOUTS` keep
+their names so existing `.env` files work.
 
 The champion's held-out A/B results are cached in `runs/eval-cache/`, keyed by (skill revision,
 holdout tasks, serving model, judge), so repeat runs against an unchanged champion only pay for
 the challenger's side.
 
 **Optional author-side web research** (`TAVILY_API_KEY`): when the seed's failures look like
-knowledge gaps, the parallel pass runs one web research step and hands every author the same
-brief. Research is author-only (the judge never sees it), one shared brief per run, cached
-content-addressed in `runs/research-cache/`. Note the trust boundary: searched content flows into
-a skill body that becomes an agent's system prompt; the human review gate on every promotion is
-what stands between the web and your library.
+knowledge gaps, the run makes one web research step and hands every author the same brief. Research
+is author-only (the judge never sees it), one shared brief per run, cached content-addressed in
+`runs/research-cache/`. Note the trust boundary: searched content flows into a skill body that
+becomes an agent's system prompt; the human review gate on every promotion is what stands between
+the web and your library.
 
 ### Writing eval task sets
 
@@ -546,7 +604,7 @@ candidates. Anatomy:
 
 ```yaml
 skill: accelerated-computing-cudf
-train:                # the optimizer sees these; rubrics are the GROUND TRUTH it distills
+train:                # the candidate search sees these; rubrics are the GROUND TRUTH it distills
 - task: You trained a large XGBoost model, but GPU inference is bottlenecked by Python
     overhead and row-by-row execution. Which RAPIDS feature can run the trained forest
     efficiently without retraining it?
@@ -555,7 +613,7 @@ train:                # the optimizer sees these; rubrics are the GROUND TRUTH i
     batched GPU inference."
   deliverable: text   # optional: text | command | css | anything non-code disables the
                       # static "answer must contain a runnable Python block" check
-holdout:              # the promotion gate ONLY trusts these; the optimizer never sees them
+holdout:              # the evidence gate ONLY trusts these; the candidate search never sees them
 - task: Our fraud team has a LightGBM ensemble trained offline; scoring 200M rows nightly
     is too slow. Without retraining, how do we speed this up with RAPIDS?
   rubric: "Must recommend FIL loading the LightGBM model and discuss two trade-offs."
@@ -618,15 +676,21 @@ One gotcha: `LANGFUSE_BASE_URL` must be reachable from inside the containers (no
   wired to those tools, traced to Langfuse. Serves routed tasks on the weak `AGENT_MODEL` and
   escalates truly novel tasks to `STRONG_MODEL`, which can queue reusable candidates for review.
 - **`skills/<name>/SKILL.md`**: YAML `description` is the routing key; the body is what the agent
-  loads.
-- **`optimize/`**: trace mining (`mine.py`), multi-dimensional LLM judge (`judge.py`), two
-  inner-loop strategies (`bestofn.py`, `gepa_loop.py`), A/B + revisioned evidence (`ab.py`),
-  staged approval with rollback (`promote.py`), token ledger (`usage.py`). Optimizers only write
-  pending records. A/B agents get mutation tools stripped. The mining, categorized-failure, and
-  failure-diagnosis ideas (plus the minimal-edit author angle) are borrowed from
-  [SkillForge (Liu et al., arXiv:2604.08618)](https://arxiv.org/abs/2604.08618).
-- **`ui/`**: FastAPI approval UI (one HTML page, no build step) and the only normal application
-  path that activates pending creations or rewrites.
+  loads. Its folder's content hash is its revision.
+- **`optimize/promote.py`**: the change-control core, and the only module that writes under
+  `skills/`: the pending queue, the evidence check, revision snapshots, the atomic promotion and
+  rollback swaps, and the approval-audit append.
+- **`optimize/`** (the rest, all optional): trace mining (`mine.py`), multi-dimensional LLM judge
+  (`judge.py`), the candidate search (`bestofn.py`) and its rollout/teacher plumbing (`rollout.py`),
+  held-out A/B (`ab.py`), the portable evidence bundle (`evidence.py`), the routing pass
+  (`routing.py`), the background loop (`loop.py`), token ledger (`usage.py`). None of these can
+  activate anything: they write pending records. A/B agents get mutation tools stripped. The mining,
+  categorized-failure, and failure-diagnosis ideas (plus the minimal-edit author angle) are borrowed
+  from [SkillForge (Liu et al., arXiv:2604.08618)](https://arxiv.org/abs/2604.08618).
+- **`ui/`**: FastAPI change-control UI (one HTML page, no build step): evidence and the approve /
+  reject decision first, then revision history and rollback, then the library and the optional
+  candidate runs. It is the only normal application path that activates a pending creation or
+  rewrite.
 
 ### Bring your own agent (MCP only)
 
@@ -694,8 +758,14 @@ Write paths, and what guards each:
   name/description limits, an instruction-override / prompt-injection phrase check
   (`mcp_server/safety.py`), an embedding collision check that blocks route-shadowing, and an
   optional ML classifier (below). Accepted skills are tagged `source: agent`.
-- **Optimizer rewrites and canary recommendations** land in `runs/pending/` and cannot activate
-  themselves. Rewrites also require matching Behavioral CI evidence before UI approval.
+- **Generated rewrites** land in `runs/pending/` and cannot activate themselves. They also require
+  evidence whose champion and challenger revisions still match the skill on disk before UI approval.
+- **Approval and rollback** are the only application paths that write under `skills/`. Both go
+  through `optimize/promote.py`, both snapshot what they displace, and both append an audit record
+  on a best-effort basis (a failed append is logged and does not undo the committed change).
+  The UI endpoints that trigger them carry a same-origin check, because a cross-site page can POST
+  to localhost even though it cannot read the response, and only one of them runs at a time in a
+  given UI process: a second approval or rollback is refused with HTTP 409 rather than interleaved.
 - **Direct filesystem edits** let an operator control trusted state under `skills/`. This explicit
   escape hatch sits outside the application approval guarantee.
 - **Third-party skills** are unaudited but not attacker-controlled at runtime; review them as you
@@ -721,9 +791,10 @@ CPU). If the model is missing it degrades silently to the regex heuristic. In Do
 
 ### Network exposure
 
-**Everything is localhost-only by default, because nothing is authenticated.** The MCP tools and
-the approval UI's endpoints (which can trigger paid optimization runs and activate skills) have no
-auth of their own; the demo's protection is that no service is reachable off the machine:
+**Everything is localhost-only by default, because nothing is authenticated.** The MCP tools and the
+change-control UI's endpoints (which can trigger paid candidate runs, activate a skill, or roll one
+back) have no auth of their own; the demo's protection is that no service is reachable off the
+machine:
 
 - `docker-compose.yml` publishes every port on loopback only (`127.0.0.1:8000` MCP,
   `127.0.0.1:8080` UI, `127.0.0.1:3100` Langfuse).
@@ -731,8 +802,8 @@ auth of their own; the demo's protection is that no service is reachable off the
 
 To expose a service, change its port mapping in `docker-compose.yml` from `"127.0.0.1:8000:8000"`
 to `"8000:8000"` (or bind a specific interface). Do this knowingly: anyone who can reach those
-ports can queue candidates, approve activations, and spend your API budget. For anything beyond a
-trusted LAN, put an authenticating reverse proxy in front.
+ports can queue candidates, approve activations, roll skills back, and spend your API budget. For
+anything beyond a trusted LAN, put an authenticating reverse proxy in front.
 
 Deliberately not done: we do not denylist shell commands, `.env` mentions, or `curl … | sh` in
 skill bodies, because legitimate skills routinely contain code and install steps. Contain the
@@ -741,7 +812,7 @@ paths. Further reading: [OpenAI on prompt injection](https://openai.com/safety/p
 
 ## Tracing from your own harness (MCP only)
 
-The optimizer reads traces from Langfuse over its public API; it does not care who wrote them. An
+Trace mining reads from Langfuse over its public API; it does not care who wrote the traces. An
 MCP-only deployment gets full mining parity by logging one trace per request that follows two
 conventions:
 
@@ -768,7 +839,7 @@ with lf.propagate_attributes(tags=tags):
         span.update(output=answer)
 ```
 
-With traces flowing, `docker compose run --rm optimize-mine <skill>` and the autopilot loop work
-unchanged. Two caveats: mining re-judges traffic with `JUDGE_MODEL` (on your API bill), and the
-optimizer's rollouts still execute on the bundled scaffold, so set `AGENT_MODEL` to your
-production serving model.
+With traces flowing, `docker compose run --rm optimize-mine <skill>` and the background loop work
+unchanged. Two caveats: mining re-judges traffic with `JUDGE_MODEL` (on your API bill), and
+candidate rollouts still execute on the bundled scaffold, so set `AGENT_MODEL` to your production
+serving model.
