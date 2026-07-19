@@ -47,31 +47,35 @@ def _rotate(path: Path) -> None:
     path.replace(path.with_name(f"{path.name}.1"))
 
 
+def _parse_trace_record(line: str) -> dict | None:
+    try:
+        record = json.loads(line)
+    except json.JSONDecodeError:
+        return None
+    return record if isinstance(record, dict) else None
+
+
+def _retain_trace_line(line: str, cutoff: int) -> bool:
+    record = _parse_trace_record(line)
+    return record is None or record.get("ts", cutoff) >= cutoff
+
+
+def _rewrite_traces(path: Path, lines: list[str]) -> None:
+    temporary = path.with_suffix(f"{path.suffix}.retention.tmp")
+    temporary.write_text("\n".join(lines) + ("\n" if lines else ""))
+    os.chmod(temporary, 0o600)
+    temporary.replace(path)
+
+
 def _expire(path: Path) -> None:
     days = max(0, int(os.environ.get("LOCAL_TRACE_MAX_AGE_DAYS", "30")))
     if not path.exists() or not days:
         return
     cutoff = int(time.time()) - days * 86400
-    kept = []
-    changed = False
-    for line in path.read_text().splitlines():
-        try:
-            record = json.loads(line)
-        except json.JSONDecodeError:
-            kept.append(line)
-            continue
-        if not isinstance(record, dict):
-            kept.append(line)
-            continue
-        if record.get("ts", cutoff) >= cutoff:
-            kept.append(line)
-        else:
-            changed = True
-    if changed:
-        temporary = path.with_suffix(f"{path.suffix}.retention.tmp")
-        temporary.write_text("\n".join(kept) + ("\n" if kept else ""))
-        os.chmod(temporary, 0o600)
-        temporary.replace(path)
+    lines = path.read_text().splitlines()
+    kept = [line for line in lines if _retain_trace_line(line, cutoff)]
+    if len(kept) != len(lines):
+        _rewrite_traces(path, kept)
 
 
 def write(task: str, answer: str, tags: list[str]) -> bool:
