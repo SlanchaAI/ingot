@@ -9,7 +9,7 @@ OPENROUTER_URL = "https://openrouter.ai/api/v1"
 ZDR_PROVIDER = {"provider": {"zdr": True, "data_collection": "deny"}}
 
 _KEY_HELP = """\
-error: no API key is set for your LLM endpoint — the optimizer needs one.
+error: no API key is set for your LLM endpoint, and candidate generation needs one.
 
   1. cp .env.example .env
   2. put your key in it (OpenRouter: https://openrouter.ai/keys — or set BASE_URL + API_KEY for
@@ -23,21 +23,22 @@ OpenAI-compatible endpoint — no key is required then.)
 
 def agent_model() -> str:
     """The serving/agent model — everything that *executes* skills (agent runs, A/B eval agents,
-    GEPA rollouts). AGENT_MODEL wins; MODEL is the legacy alias so existing .env files keep
+    candidate rollouts). AGENT_MODEL wins; MODEL is the legacy alias so existing .env files keep
     working."""
     return os.environ.get("AGENT_MODEL") or os.environ.get("MODEL") or "qwen/qwen3.6-27b"
 
 
 def model_base_url() -> str:
-    """Endpoint for the serving-model role (agent runs, A/B eval agents, GEPA rollouts).
+    """Endpoint for the serving-model role (agent runs, A/B eval agents, candidate rollouts).
     MODEL_BASE_URL lets this role run against a different provider (local vLLM/Ollama, or e.g.
     Fireworks direct) while the teacher and judge stay wherever BASE_URL points."""
     return os.environ.get("MODEL_BASE_URL") or teacher_base_url()
 
 
 def teacher_base_url() -> str:
-    """Endpoint for the teacher-side roles (GEPA reflection, judge, task drafting). Generic
-    BASE_URL wins (any OpenAI-compatible provider); OPENROUTER_BASE_URL is the legacy alias."""
+    """Endpoint for the teacher-side roles (candidate authoring, reflection, judge, task drafting).
+    Generic BASE_URL wins (any OpenAI-compatible provider); OPENROUTER_BASE_URL is the legacy
+    alias."""
     return (os.environ.get("BASE_URL") or os.environ.get("OPENROUTER_BASE_URL") or OPENROUTER_URL)
 
 
@@ -177,8 +178,8 @@ def preflight_provider_pins() -> list[str]:
 
 
 # The serving contract: how a skill body is presented to the model that executes it. The quality
-# A/B serves variants with exactly this template, and GEPA's default rollouts optimize against the
-# same text — inner and outer loops must never disagree about the contract.
+# A/B serves variants with exactly this template, and the candidate search's rollouts optimize
+# against the same text: search and A/B must never disagree about the contract.
 SERVE_TEMPLATE = """You are a deep agent serving a user request. The following skill has been
 loaded for this task — follow its instructions. Keep the final answer concise.
 Your final answer must contain the complete deliverable itself — e.g. full runnable code inline —

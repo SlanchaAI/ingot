@@ -12,10 +12,10 @@ langgraph==1.2.9
 langchain-mcp-adapters==0.3.0
 langchain-openai==1.3.5
 
-# Tracing + skill optimization (GEPA A/B) + approval UI
+# Tracing + candidate generation + change-control UI
 langfuse==4.14.0
-gepa==0.1.1
-litellm==1.93.0   # gepa's reflection LM plumbing (openrouter/... model strings)
+gepa==0.1.1       # the description (routing) pass's reflective loop
+litellm==1.93.0   # teacher-model plumbing (openrouter/... model strings)
 fastapi==0.139.2
 uvicorn==0.51.0
 

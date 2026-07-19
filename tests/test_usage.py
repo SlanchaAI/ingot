@@ -29,7 +29,8 @@ def test_reset_clears_the_ledger():
 
 
 def test_concurrent_adds_are_thread_safe():
-    # GEPA fans rollout+judge across a thread pool — the lock must prevent lost increments
+    # the candidate search fans rollout+judge across a thread pool, so the lock has to prevent
+    # lost increments
     usage.reset()
 
     def worker():

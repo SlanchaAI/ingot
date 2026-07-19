@@ -15,13 +15,14 @@ See [ARCHITECTURE.md](ARCHITECTURE.md) for component flows, stores, invariants, 
 
 Ingot is a local development system, not a hardened multi-tenant service.
 
-- MCP and approval UI endpoints have no built-in authentication. Docker publishes them on
-  `127.0.0.1` by default. Add authenticated transport before exposing them to a network.
+- MCP and change-control UI endpoints have no built-in authentication. Docker publishes them on
+  `127.0.0.1` by default. Add authenticated transport before exposing them to a network. Anyone who
+  can reach the UI can approve a change or roll a skill back.
 - Agent-authored `create_skill` calls only queue inactive candidates. A normal application flow can
-  activate a new skill or rewrite only through an explicit approval UI action.
+  activate a new skill or rewrite only through an explicit approval action in the UI.
 - Content checks on agent-authored skills are defense in depth, not proof that a skill is safe.
-- Optimizer-generated changes only create pending recommendations. Reviewers own every
-  activation decision.
+- Candidate generation only creates quarantined pending records. Reviewers own every activation
+  decision.
 - Fetched third-party skills are dependencies. Review their code, instructions, and licenses.
 - Run agents without sensitive host mounts. Keep real keys only in the gitignored `.env` file.
 - The execution sandbox reduces risk; it does not make arbitrary instructions trustworthy.
@@ -30,8 +31,6 @@ Ingot is a local development system, not a hardened multi-tenant service.
   or isolated host for stronger separation, and remove the mount when static judging is sufficient.
 - Hosted providers receive prompts, skill instructions, and outputs. OpenRouter requests enforce
   ZDR routing, but operators must evaluate every configured provider's policy and jurisdiction.
-- `CARN_DIR` causes an in-process dynamic import from an operator-selected checkout. Never point it
-  at unreviewed or user-uploaded content. Leave it unset to disable all CARN routes.
 - Local traces contain task and answer text. Secret-pattern redaction, restrictive permissions,
   rotation, and opt-out are available, but callers should avoid submitting secrets. Protect and
   back up the `runs/` directory according to its data sensitivity.
@@ -45,3 +44,13 @@ trusted-administrator action, not a human-presence guarantee enforced by Ingot.
 Approval and rollback actions write metadata-only records to `runs/approval-audit.jsonl`. These
 records provide local accountability, not tamper-proof audit storage. Forward them to an append-only
 system if regulatory or multi-user assurance is required.
+
+Every record's `actor` is the constant `local-operator`. The local UI has no identity or
+authentication, so the trail can record that a local operator approved a change, never who did.
+Attributing a decision to a person requires an authenticating proxy in front of the UI and an
+identity carried into the record, neither of which Ingot provides.
+
+The review surface reads recorded evidence bundles through one read-only endpoint. It opens only
+the path a pending record wrote, resolves it, and refuses anything that lands outside
+`runs/evidence/`, including `..` segments and symlinks out of the tree. Nothing a request carries
+selects a file.

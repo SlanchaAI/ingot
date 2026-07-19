@@ -1,11 +1,12 @@
 """Routing-objective GEPA pass over a skill's `description` (component-pass spec, pass 2).
 
 The inner loop never calls an LLM: each candidate description is scored by the real embedding
-router against the skill's `routing:` cases — top-1 / recall@3 on expected matches, precision on
-expected-no-route negatives. GEPA's reflection (the only model calls; ZDR like everything else)
+router against the skill's `routing:` cases (top-1 and recall@3 on expected matches, precision on
+expected-no-route negatives). GEPA's reflection (the only model calls; ZDR like everything else)
 turns per-case routing failures into better trigger phrasing. Gate: no regression on any routing
 metric vs the champion, at least one strict improvement, no collision with another skill's
-description — then the same human-gated pending/approval flow as the body pass."""
+description, then the same quarantined pending record and human approval as the body pass."""
+import time
 from dataclasses import replace
 from pathlib import Path
 
@@ -18,8 +19,11 @@ from mcp_server.router import Router
 
 from . import usage as usage_ledger
 from .ab import COLLISION_SCORE, TASKS_DIR, _description_shadows
-from .gepa_loop import make_reflection_lm
+from .evidence import RoutingRun, build_routing_evidence, recorded_path, write_evidence
 from .promote import save_pending
+from .rollout import make_reflection_lm
+
+EVIDENCE_DIR = Path(__file__).resolve().parent.parent / "runs" / "evidence"
 
 _DIAGNOSIS = ("The `description` is a routing trigger matched by embedding similarity against the "
               "user's task. Adjust trigger phrases so expected tasks match and unrelated ones "
@@ -139,16 +143,32 @@ def run_routing(skill: str, budget: int = 60, log=print) -> dict:
         log(f"[routing] ⛔ gate blocked the new description: {'; '.join(blocked)}")
 
     current = next(item for item in load_skills() if item.name == skill)
+    challenger_revision = skill_revision(Path(current.root), challenger)
     gate = {"promotable": promotable, "blocked": blocked, "warnings": []}
+    inner_loop = {"seed_score": seed_score, "best_score": best_score, "budget": budget}
+    created = int(time.time())
+    dataset = f"{skill}-routing"
+
+    # The same portable bundle the body pass writes, so a reviewer reads routing changes and
+    # quality changes from one place instead of trusting a claim about one of them.
+    evidence = build_routing_evidence(RoutingRun(
+        skill=skill, created=created, dataset=dataset, metrics=metrics,
+        champion_revision=current.revision, challenger_revision=challenger_revision,
+        inner_loop=inner_loop, gate=gate))
+    evidence_json, evidence_markdown = write_evidence(evidence, EVIDENCE_DIR / skill / str(created))
+    log(f"[ci] routing evidence: {evidence_json} and {evidence_markdown}")
+
     pending = {
-        "skill": skill, "kind": "routing", "improved": promotable,
-        "gepa": {"seed_score": seed_score, "best_score": best_score, "budget": budget},
-        "routing": metrics, "dataset": f"{skill}-routing", "gate": gate,
+        "skill": skill, "kind": "routing", "improved": promotable, "created": created,
+        "inner_loop": inner_loop,
+        "routing": metrics, "dataset": dataset, "gate": gate,
         "changed_components": ["description"],
         "champion_components": champion, "challenger_components": challenger,
         "evidence": {"champion": {"revision": current.revision},
-                     "challenger": {"revision": skill_revision(Path(current.root), challenger)},
+                     "challenger": {"revision": challenger_revision},
                      "gate": gate},
+        "evidence_paths": {"json": recorded_path(evidence_json),
+                           "markdown": recorded_path(evidence_markdown)},
     }
     path = save_pending(skill, pending)
     log(f"[routing] pending description written to {path} — review + promote at http://localhost:8080")

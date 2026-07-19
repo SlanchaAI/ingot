@@ -1,5 +1,16 @@
 # Skills-Only Scope Correction Implementation Plan
 
+> **Superseded in part.** This is the dated record of a 2026-07-15 plan and is kept as written,
+> including the two unchecked boxes in Task 4: they record where that PR's process stopped, not open
+> work. Two things it describes have since changed. `GEPA` in the tech stack means the sequential
+> body loop, which was removed: the body pass is now the parallel best-of-N search in
+> `optimize/bestofn.py`, and GEPA remains only as the description pass's reflection step.
+> `create_skill`, listed as preserved, survives by name but no longer activates anything: it writes
+> a quarantined pending record that a human approves in the UI, per
+> [the 2026-07-17 human-gated skill lifecycle plan](2026-07-17-human-gated-skill-lifecycle.md).
+> The additive `route_and_load` scope this plan argues for is what shipped. See
+> [ARCHITECTURE.md](../../../ARCHITECTURE.md) for the current design.
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** Shrink PR #2 to additive MCP routing and safe skill improvement while preserving the existing Docker product.

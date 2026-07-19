@@ -53,7 +53,8 @@ def test_race_picks_best_and_halves(monkeypatch):
     assert best == {"body": "CAND-1"}
     assert seed_score == pytest.approx(0.2)
     assert best_score == pytest.approx(0.9)
-    # rollout budget: 4 seed + racing 3+2+2+2 (min-2 floor) = 13 — far under GEPA's 60
+    # rollout budget: 4 seed + racing 3+2+2+2 (min-2 floor) = 13, far under the 60 metric calls
+    # the removed sequential body loop spent for the same objective
     assert len(calls) == 13
 
 

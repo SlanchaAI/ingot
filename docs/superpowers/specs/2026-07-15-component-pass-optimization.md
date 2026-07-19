@@ -2,6 +2,13 @@
 
 Status: DRAFT for review — no further optimization runs until this is agreed.
 
+> **Superseded in part.** This is the dated record of a 2026-07-15 decision and is kept as written.
+> Two things it describes have since changed: the sequential GEPA body loop it assumes was removed,
+> so the body pass is now the parallel best-of-N search in `optimize/bestofn.py` (GEPA remains only
+> as the description pass's reflection step), and both passes now write a portable evidence bundle
+> under `runs/evidence/`. The component-role split it argues for is what shipped. See
+> [ARCHITECTURE.md](../../../ARCHITECTURE.md) for the current design.
+
 ## Problem
 
 A skill has three kinds of text component, each with a different production role:
