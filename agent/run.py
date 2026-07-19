@@ -53,12 +53,14 @@ def instructions_for_route(routed: dict) -> str:
     """Render the canonical route result into the serving prompt without re-routing in the model."""
     if routed.get("match"):
         context = (f"# Loaded skill: {routed['match']}\n\n{routed.get('skill_body', '')}")
+    elif routed.get("related_match"):
+        context = (f"# Loaded related skill: {routed['related_match']}\n\n"
+                   "Use these compatible instructions as a starting point. Compose or extend "
+                   f"them for the task.\n\n{routed.get('skill_body', '')}")
     elif routed.get("novel"):
         context = "# Routing result\n\nNovel task. No compatible or related skill is available."
     else:
-        names = ", ".join(item["name"] for item in routed.get("alternatives", [])) or "none"
-        context = ("# Routing result\n\nNo compatible skill cleared the serving threshold. "
-                   f"Related compatible alternatives (not loaded): {names}.")
+        context = "# Routing result\n\nNo compatible skill body is available."
     return INSTRUCTIONS.format(routing_context=context)
 
 
@@ -205,6 +207,9 @@ def _print_route(routed: dict) -> None:
     """Display the selected route and any compatible alternatives."""
     proposals = ([{"name": routed["match"], "score": routed["score"],
                    "description": routed["reason"]}] if routed.get("match") else [])
+    if routed.get("related_match"):
+        proposals.append({"name": routed["related_match"], "score": routed["score"],
+                          "description": routed["reason"], "related": True})
     proposals.extend(routed.get("alternatives", []))
     print("\nCOMPATIBLE ROUTE (MCP route_and_load):")
     for proposal in proposals:
@@ -216,11 +221,11 @@ def _print_route(routed: dict) -> None:
 
 def _route_identity(routed: dict) -> str | None:
     """Return the served skill identity, including its revision when available."""
-    match = routed.get("match")
-    if not match:
+    selected = routed.get("match") or routed.get("related_match")
+    if not selected:
         return None
     revision = routed.get("revision")
-    return f"{match}@{revision}" if revision else match
+    return f"{selected}@{revision}" if revision else selected
 
 
 def _trace_tags(routed: dict, escalate: bool) -> list[str]:
@@ -228,7 +233,9 @@ def _trace_tags(routed: dict, escalate: bool) -> list[str]:
     tags = ["demo", "novel"] if escalate else ["demo"]
     identity = _route_identity(routed)
     if identity:
-        tags.append(routed["match"])
+        tags.append(routed.get("match") or routed["related_match"])
+    if routed.get("related_match"):
+        tags.append("related")
     if identity and routed.get("revision"):
         tags.append(f"revision={identity}")
     return tags

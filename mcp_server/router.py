@@ -108,7 +108,8 @@ class Router:
             s, harness.lower(), cwd, set(available_tools), set(available_mcps), self._platform(platform)
         )]
         empty = {
-            "match": None, "score": 0.0, "reason": "no compatible skill candidates",
+            "match": None, "related_match": None, "score": 0.0,
+            "reason": "no compatible skill candidates",
             "skill_body": "", "skill_root": None, "revision": None, "alternatives": [],
             "novel": True,
         }
@@ -137,13 +138,29 @@ class Router:
             for skill, candidate_score in conflict_free[1:3]
         ]
         if score < min_score:
-            related = [{"name": top.name, "score": round(score, 3),
-                        "reason": f"best compatible candidate; cosine {score:.3f}"}, *alternatives]
-            return {**empty, "score": round(score, 3),
-                    "reason": f"best compatible score {score:.3f} below threshold {min_score:.3f}",
-                    "alternatives": related[:3], "novel": score < related_score}
+            if score < related_score:
+                related = [{"name": top.name, "score": round(score, 3),
+                            "reason": f"best compatible candidate; cosine {score:.3f}"},
+                           *alternatives]
+                return {**empty, "score": round(score, 3),
+                        "reason": (f"best compatible score {score:.3f} below related threshold "
+                                   f"{related_score:.3f}"),
+                        "alternatives": related[:3]}
+            return {
+                "match": None,
+                "related_match": top.name,
+                "score": round(score, 3),
+                "reason": (f"best compatible score {score:.3f} below direct threshold "
+                           f"{min_score:.3f}; loaded for compose or extend"),
+                "skill_body": top.body_for(harness.lower()),
+                "skill_root": top.root or str(os.path.dirname(top.path)),
+                "revision": top.revision or None,
+                "alternatives": alternatives,
+                "novel": False,
+            }
         return {
             "match": top.name,
+            "related_match": None,
             "score": round(score, 3),
             "reason": f"compatible {harness.lower()} skill; cosine {score:.3f}",
             "skill_body": top.body_for(harness.lower()),

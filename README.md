@@ -612,7 +612,8 @@ One gotcha: `LANGFUSE_BASE_URL` must be reachable from inside the containers (no
     or overwrites)
   - `reload_skills()`: hot reload after approval or direct operator edits
   - `route_and_load(task, harness, cwd, available_tools, available_mcps)`: one-round-trip
-    selection for external clients (see [Bring your own agent](#bring-your-own-agent-mcp-only))
+    selection and loading for direct or related compatible routes (see
+    [Bring your own agent](#bring-your-own-agent-mcp-only))
 - **`agent/run.py`**: [deepagents](https://github.com/langchain-ai/deepagents) LangGraph agent
   wired to those tools, traced to Langfuse. Serves routed tasks on the weak `AGENT_MODEL` and
   escalates truly novel tasks to `STRONG_MODEL`, which can queue reusable candidates for review.
@@ -633,9 +634,10 @@ Most deployments use just the MCP server with their own harness (Claude Code, Co
 agent); the bundled `agent/run.py` is a reference client, not a requirement. Point your harness at
 `http://localhost:8000/mcp` and call `route_and_load` once per request:
 
-- **`match`**: follow `skill_body`; a weak/cheap model suffices, the skill carries the method.
-- **no match, `novel: false`**: related skills exist; call `suggest_skills` and compose or extend
-  the closest instead of authoring a duplicate.
+- **`match`**: a direct match. Follow `skill_body`; a weak/cheap model suffices.
+- **`related_match`, `novel: false`**: the closest compatible skill is below the direct-match
+  threshold. Its identity, revision, root, and sole body are loaded so the weak model can compose
+  or extend it. `alternatives` remain body-free.
 - **`novel: true`**: nothing even related. Serve with your strong model, then call `create_skill`
   to queue a reusable candidate. It remains inactive until UI approval.
 
@@ -757,7 +759,9 @@ from langfuse import get_client
 
 lf = get_client()  # LANGFUSE_BASE_URL / _PUBLIC_KEY / _SECRET_KEY, same values as the compose stack
 r = route_and_load(task, harness="claude", cwd=cwd)             # via MCP
-tags = [r["match"], f"revision={r['match']}@{r['revision']}"] if r["match"] else ["novel"]
+selected = r["match"] or r["related_match"]
+tags = ([selected, f"revision={selected}@{r['revision']}"] +
+        (["related"] if r["related_match"] else [])) if selected else ["novel"]
 with lf.propagate_attributes(tags=tags):
     with lf.start_as_current_observation(name="serve", input={"task": task}) as span:
         answer = my_agent(task, r["skill_body"])                # your harness, your models

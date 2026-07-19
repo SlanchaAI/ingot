@@ -3,7 +3,7 @@ import asyncio
 import json
 from types import SimpleNamespace
 
-from agent.run import _print_route, behavior_events, run_task
+from agent.run import (_print_route, _route_identity, _trace_tags, behavior_events, run_task)
 
 
 class _Msg:
@@ -170,6 +170,17 @@ def test_canonical_route_controls_body_and_weak_strong_escalation():
     assert "trusted compatible body" in prompt
     assert should_escalate(matched) is False
 
+    related = {"match": None, "related_match": "pdf", "revision": "r1",
+               "skill_body": "compatible compose body", "novel": False,
+               "alternatives": [{"name": "other"}]}
+    related_prompt = instructions_for_route(related)
+    assert "Loaded related skill: pdf" in related_prompt
+    assert "compatible compose body" in related_prompt
+    assert "other" not in related_prompt
+    assert should_escalate(related) is False
+    assert _route_identity(related) == "pdf@r1"
+    assert _trace_tags(related, False) == ["demo", "pdf", "related", "revision=pdf@r1"]
+
     # An unconstrained suggestion may exist, but an incompatible canonical route remains novel.
     incompatible_suggestions = [{"name": "codex-only", "score": 0.99}]
     routed = {"match": None, "skill_body": "", "alternatives": [], "novel": True}
@@ -189,6 +200,17 @@ def test_print_route_renders_alternative_reason(capsys):
     assert "pdf" in output
     assert "Compatible with this harness" in output
     assert "None" not in output
+
+
+def test_print_route_marks_loaded_related_match(capsys):
+    routed = {"match": None, "related_match": "pdf", "score": 0.6,
+              "reason": "loaded for compose or extend", "alternatives": []}
+
+    _print_route(routed)
+
+    output = capsys.readouterr().out
+    assert "pdf (related, compose/extend)" in output
+    assert "loaded for compose or extend" in output
 
 
 def test_main_routes_with_connected_capabilities_and_reuses_tools(monkeypatch):
