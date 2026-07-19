@@ -90,9 +90,10 @@ def test_route_returns_one_body_and_bounded_bodyless_alternatives():
 
 def test_route_returns_clean_no_match_below_threshold():
     result = Router([_skill("pdf", "Merge PDF documents.")]).route(
-        "photosynthesis", "codex", "/tmp", min_score=0.99
+        "photosynthesis", "codex", "/tmp", min_score=0.99, related_score=0.99
     )
     assert result["match"] is None
+    assert result["related_match"] is None
     assert result["skill_body"] == "" and result["skill_root"] is None
     assert "threshold" in result["reason"]
     assert result["alternatives"][0]["name"] == "pdf"
@@ -104,11 +105,17 @@ def test_route_novel_flag_signals_weak_strong_escalation():
     # no match but still related -> compose/extend territory, weak model keeps serving
     related = router.route("split a PDF into chapters", "codex", "/tmp",
                            min_score=0.99, related_score=0.0)
-    assert related["match"] is None and related["novel"] is False
+    assert related["match"] is None and related["related_match"] == "pdf"
+    assert related["novel"] is False
+    assert related["skill_body"] == "pdf body"
+    assert related["skill_root"] == "/pdf"
+    assert related["revision"] == "rev-pdf"
+    assert all("skill_body" not in item for item in related["alternatives"])
     # nothing even related -> the harness should escalate to its strong model + create_skill
     novel = router.route("photosynthesis in plants", "codex", "/tmp",
                          min_score=0.99, related_score=0.98)
     assert novel["match"] is None and novel["novel"] is True
+    assert novel["related_match"] is None and novel["skill_body"] == ""
     # an empty/incompatible candidate set is also novel
     assert Router([]).route("anything", "codex", "/tmp")["novel"] is True
 
@@ -126,7 +133,9 @@ def test_route_filters_incompatible_skills_before_ranking(skill_metadata, contex
     router = Router([_skill("blocked", "Merge PDF documents.", **skill_metadata)])
     args = {"task": "merge PDF", "harness": "codex", "cwd": "/tmp/project", "platform": "macos",
             "min_score": 0.0, **context}
-    assert router.route(**args)["match"] is None
+    result = router.route(**args)
+    assert result["match"] is None and result["related_match"] is None
+    assert result["skill_body"] == "" and result["skill_root"] is None
 
 
 def test_route_uses_harness_variant_body():

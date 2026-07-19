@@ -140,10 +140,9 @@ def route_and_load(task: str, harness: str, cwd: str, available_tools: list[str]
                    available_mcps: list[str] | None = None) -> dict:
     """Select one compatible skill for a task and return its instructions, or return no match.
     The result's `novel` flag is the weak/strong routing signal for the calling harness:
-    a `match` -> follow `skill_body` (a weak/cheap model suffices); no match with `novel` false ->
-    related skills exist (see suggest_skills) to compose or extend; `novel` true -> nothing even
-    related, so serve with your strong model; the caller may use create_skill to queue a candidate
-    for human review."""
+    a direct `match` -> follow `skill_body`; a `related_match` with `novel` false -> use its loaded
+    body to compose or extend; `novel` true -> nothing even related, so serve with your strong
+    model. Only the selected compatible match can carry a body; alternatives are metadata-only."""
     STATE.refresh_if_changed()
     return STATE.router.route(task, harness, cwd, available_tools or [], available_mcps or [],
                               min_score=MIN_SCORE, related_score=RELATED_SCORE)

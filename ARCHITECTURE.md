@@ -9,8 +9,9 @@ service. The default Compose deployment exposes only loopback ports.
 2. The router refreshes the skill registry when files change, filters by harness, platform, scope,
    tools, MCPs, activation, and trust, then ranks compatible descriptions. Description embeddings
    are cached across refreshes.
-3. One response is authoritative for the match, loaded body, revision, alternatives, and `novel`
-   escalation signal. The agent uses the weak model unless `novel` is true.
+3. One response is authoritative for the direct `match` or explicit `related_match`, loaded body,
+   revision, root, body-free alternatives, and `novel` escalation signal. A related match is loaded
+   for compose-or-extend use. The agent uses the weak model unless `novel` is true.
 4. The run can be recorded in local JSONL and, when configured, Langfuse. Hosted model calls use
    the configured OpenAI-compatible endpoint. OpenRouter calls always request ZDR providers.
 5. Mining selects difficult, semantically diverse failures. Optimization writes a quarantined
