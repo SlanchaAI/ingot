@@ -3,14 +3,16 @@ stubbed so the orchestration — accept on improvement, keep the seed otherwise,
 edits back into the next reflection — is exercised deterministically."""
 import json
 
+import pytest
+
 from optimize import rollout as R
 from optimize import skillopt_loop as S
 
 
 def _fake_lm(reply_for):
     """Route each call to a canned reply by which vendored prompt is in the system message, and
-    record every analyst (reflect) user-message for buffer assertions."""
-    seen = {"reflect_user_msgs": []}
+    record every analyst (reflect) user-message + slow-update invocation for assertions."""
+    seen = {"reflect_user_msgs": [], "slow_calls": 0}
 
     def lm(messages):
         system = messages[0]["content"]
@@ -22,7 +24,8 @@ def _fake_lm(reply_for):
             return reply_for.get("lr", json.dumps({"learning_rate": 1}))
         if "RANK" in system:                        # ranking.md
             return reply_for.get("ranking", json.dumps({"selected_indices": [0]}))
-        return reply_for.get("slow", json.dumps({"guidance": "g"}))  # slow_update.md
+        seen["slow_calls"] += 1                      # slow_update.md
+        return reply_for.get("slow", json.dumps({"guidance": "consolidated guidance"}))
 
     lm.seen = seen
     return lm
@@ -73,3 +76,108 @@ def test_rejected_edit_is_buffered_into_next_reflection(monkeypatch):
     S.run_skillopt({"body": "SEED"}, TRAIN, log=lambda *a: None)
     # the first step's rejected edit must surface in a later reflection's step-buffer section
     assert any("REJECTED edit" in msg for msg in lm.seen["reflect_user_msgs"][1:])
+
+
+def test_edits_over_budget_are_clipped(monkeypatch):
+    monkeypatch.setenv("SKILLOPT_EPOCHS", "1")
+    monkeypatch.setenv("SKILLOPT_MINIBATCH", "10")
+    monkeypatch.setenv("SKILLOPT_MAX_EDITS", "1")     # budget 1, analyst proposes 2 -> ranking clips
+    lm = _fake_lm({"analyst": json.dumps({"failure_summary": [], "patch": {"edits": [
+                       {"op": "append", "content": "AAA"}, {"op": "append", "content": "BBB"}]}}),
+                   "ranking": json.dumps({"selected_indices": [0]})})   # keep only the first
+    _install(monkeypatch, lm, scorer=lambda system: 1.0 if "AAA" in system else 0.0)
+    best, _, _ = S.run_skillopt({"body": "SEED"}, TRAIN, log=lambda *a: None)
+    assert "AAA" in best["body"] and "BBB" not in best["body"]
+
+
+def test_length_penalty_reduces_the_returned_score(monkeypatch):
+    monkeypatch.setenv("SKILLOPT_EPOCHS", "1")
+    monkeypatch.setenv("SKILLOPT_MINIBATCH", "10")
+    monkeypatch.setattr(S, "length_penalty", lambda body: 0.2 if "BLOAT" in body else 0.0)
+    lm = _fake_lm({"analyst": json.dumps(
+        {"failure_summary": [], "patch": {"edits": [{"op": "append", "content": "BLOAT FIX"}]}})})
+    _install(monkeypatch, lm, scorer=lambda system: 1.0 if "BLOAT" in system else 0.0)
+    best, _, best_score = S.run_skillopt({"body": "SEED"}, TRAIN, log=lambda *a: None)
+    assert "BLOAT" in best["body"]
+    assert best_score == pytest.approx(0.8)          # judge 1.0 minus the 0.2 length penalty
+
+
+def test_frozen_components_are_rendered_into_rollouts(monkeypatch):
+    monkeypatch.setenv("SKILLOPT_EPOCHS", "1")
+    monkeypatch.setenv("SKILLOPT_MINIBATCH", "10")
+    seen = {}
+    lm = _fake_lm({"analyst": json.dumps(
+        {"failure_summary": [], "patch": {"edits": [{"op": "append", "content": "FIX"}]}})})
+
+    def scorer(system):
+        seen["had_frozen"] = "TRIGGER-DESC" in system
+        return 1.0 if "FIX" in system else 0.0
+    _install(monkeypatch, lm, scorer=scorer)
+    S.run_skillopt({"body": "SEED"}, TRAIN, frozen={"description": "TRIGGER-DESC"}, log=lambda *a: None)
+    assert seen["had_frozen"]                          # adapter.serve() renders the frozen description
+
+
+def test_second_epoch_runs_slow_update(monkeypatch):
+    monkeypatch.setenv("SKILLOPT_EPOCHS", "2")
+    monkeypatch.setenv("SKILLOPT_MINIBATCH", "10")
+    lm = _fake_lm({"analyst": json.dumps(
+        {"failure_summary": [], "patch": {"edits": [{"op": "append", "content": "GOOD"}]}})})
+    _install(monkeypatch, lm, scorer=lambda system: 1.0 if "GOOD" in system else 0.0)
+    S.run_skillopt({"body": "SEED"}, TRAIN, log=lambda *a: None)
+    assert lm.seen["slow_calls"] >= 1                  # epoch-end consolidation fired after an accept
+
+
+def test_empty_tasks_keeps_seed():
+    best, seed_score, best_score = S.run_skillopt({"body": "SEED"}, [], log=lambda *a: None)
+    assert best == {"body": "SEED"} and (seed_score, best_score) == (0.0, 0.0)
+
+
+def test_zero_learning_rate_applies_no_edit(monkeypatch):
+    monkeypatch.setenv("SKILLOPT_EPOCHS", "1")
+    monkeypatch.setenv("SKILLOPT_MINIBATCH", "10")
+    monkeypatch.setenv("SKILLOPT_MAX_EDITS", "3")     # >1 so the learning-rate controller is consulted
+    lm = _fake_lm({"analyst": json.dumps({"failure_summary": [], "patch": {"edits": [
+                       {"op": "append", "content": "X1"}, {"op": "append", "content": "X2"}]}}),
+                   "lr": json.dumps({"learning_rate": 0})})   # apply nothing this step
+    _install(monkeypatch, lm, scorer=lambda system: 1.0 if "X1" in system else 0.0)
+    best, _, _ = S.run_skillopt({"body": "SEED"}, TRAIN, log=lambda *a: None)
+    assert best == {"body": "SEED"}                   # LR 0 -> no edit applied, seed kept
+
+
+def test_reflection_with_no_edits_keeps_seed(monkeypatch):
+    monkeypatch.setenv("SKILLOPT_EPOCHS", "1")
+    monkeypatch.setenv("SKILLOPT_MINIBATCH", "10")
+    lm = _fake_lm({"analyst": json.dumps(
+        {"failure_summary": [{"description": "d"}], "patch": {"edits": []}})})  # nothing proposed
+    _install(monkeypatch, lm, scorer=lambda system: 0.0)   # failing, but reflection is empty
+    best, _, _ = S.run_skillopt({"body": "SEED"}, TRAIN, log=lambda *a: None)
+    assert best == {"body": "SEED"}
+
+
+# ── pure helper functions ──────────────────────────────────────────────────────
+
+def test_format_buffer_shows_failures_and_rejected_edits():
+    buffer = [{"failures": [{"description": "misses @import"}], "rejected": []},
+              {"failures": [], "rejected": [{"op": "append", "content": "BAD RULE", "target": ""}]}]
+    txt = S._format_buffer(buffer)
+    assert "recurring failure: misses @import" in txt
+    assert "REJECTED edit" in txt and "BAD RULE" in txt
+
+
+def test_longitudinal_categorizes_task_transitions():
+    tasks = [{"task": "a"}, {"task": "b"}, {"task": "c"}, {"task": "d"}]
+    before = {"a": True, "b": True, "c": False, "d": False}
+    after = {"a": True, "b": False, "c": True, "d": False}
+    txt = S._longitudinal(tasks, before, after)
+    assert "stable successes (1)" in txt              # a: pass -> pass
+    assert "regressions (1)" in txt                   # b: pass -> fail
+    assert "improvements (1)" in txt                  # c: fail -> pass
+    assert "persistent failures (1)" in txt           # d: fail -> fail
+
+
+def test_inject_slow_update_appends_then_replaces_the_region():
+    once = S._inject_slow_update("# Skill\nrules", "guidance one")
+    assert S._SLOW_START in once and "guidance one" in once
+    twice = S._inject_slow_update(once, "guidance two")
+    assert "guidance two" in twice and "guidance one" not in twice   # replaced, not duplicated
+    assert twice.count(S._SLOW_START) == 1

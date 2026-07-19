@@ -80,4 +80,33 @@ def test_decide_edit_budget_clamps_and_falls_back():
 
 def test_slow_update_returns_guidance_or_empty():
     assert sk.slow_update("A", "B", "compare", _lm(json.dumps({"guidance": "do X"}))) == "do X"
+    assert sk.slow_update("A", "B", "compare", _lm(json.dumps({"updated_guidance": "do Y"}))) == "do Y"
     assert sk.slow_update("A", "B", "compare", _lm("not json")) == ""
+
+    def boom(messages):
+        raise RuntimeError("provider down")
+    assert sk.slow_update("A", "B", "compare", boom) == ""   # a failing LM never breaks the epoch
+
+
+def test_apply_edits_skips_the_protected_slow_update_region():
+    # skillopt's patch application treats the SLOW_UPDATE region as read-only for step edits
+    doc = "# Skill\nrule one\n<!-- SLOW_UPDATE_START -->\nprotected line\n<!-- SLOW_UPDATE_END -->"
+    new, report = sk.apply_edits(doc, [{"op": "replace", "target": "protected line",
+                                        "content": "HACKED"}])
+    assert "HACKED" not in new and "protected line" in new
+    assert any("protected" in r["status"] for r in report)
+
+
+def test_reflect_edits_passes_the_step_buffer_into_the_prompt():
+    captured = {}
+
+    def lm(messages):
+        captured["user"] = messages[1]["content"]
+        return json.dumps({"patch": {"edits": []}})
+    sk.reflect_edits("SKILL", [{"task": "t", "feedback": "f"}], "PRIOR-REJECTED-EDIT-X", 3, lm)
+    assert "PRIOR-REJECTED-EDIT-X" in captured["user"]
+
+
+def test_describe_summarizes_an_edit():
+    d = sk._describe({"op": "replace", "target": "old text", "content": "new text"})
+    assert "op=replace" in d and "old text" in d and "new text" in d
