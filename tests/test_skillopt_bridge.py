@@ -107,6 +107,18 @@ def test_reflect_edits_passes_the_step_buffer_into_the_prompt():
     assert "PRIOR-REJECTED-EDIT-X" in captured["user"]
 
 
+def test_reflect_edits_always_steers_toward_removal_of_wrong_guidance():
+    # standing signal for every skill (no acceptance criteria needed): the judge feedback is the
+    # always-present cue that existing guidance is wrong, so removal is always encouraged.
+    captured = {}
+
+    def lm(messages):
+        captured["user"] = messages[1]["content"]
+        return json.dumps({"patch": {"edits": []}})
+    sk.reflect_edits("SKILL", [{"task": "t", "feedback": "used the deprecated directive"}], "", 3, lm)
+    assert "replace/delete" in captured["user"] and "do not merely append" in captured["user"]
+
+
 def test_describe_summarizes_an_edit():
     d = sk._describe({"op": "replace", "target": "old text", "content": "new text"})
     assert "op=replace" in d and "old text" in d and "new text" in d

@@ -86,6 +86,12 @@ def reflect_edits(skill: str, trajectories: list[dict], buffer_context: str, bud
             f"## Failed trajectories in this minibatch ({len(trajectories)})\n{traj_lines}\n\n"
             f"## Step buffer — failure patterns and rejected edits from prior steps\n"
             f"{buffer_context or '(none yet)'}\n\n"
+            # General removal steering (every skill, no acceptance criteria needed): the judge
+            # feedback above is the always-present signal for *wrong* existing guidance.
+            f"When the judge feedback shows the skill's CURRENT guidance is wrong, outdated, or "
+            f"contradicted by the correct answer, prefer replace/delete edits that fix or remove the "
+            f"offending lines — do not merely append a correction beside stale content, which leaves "
+            f"the model free to keep following the old guidance.\n\n"
             f"Maximum number of edits (the budget L): {budget}")
     obj = extract_json(reflection_lm([{"role": "system", "content": load_prompt("analyst_error")},
                                       {"role": "user", "content": user}])) or {}
