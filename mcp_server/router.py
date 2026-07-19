@@ -7,6 +7,7 @@ A stronger model like Qwen3-Embedding-0.6B belongs on the GPU/vLLM path, not thi
 from __future__ import annotations
 import os
 import sys
+import threading
 from pathlib import Path
 
 import numpy as np
@@ -18,13 +19,25 @@ _MODEL = os.environ.get("EMBED_MODEL", "BAAI/bge-small-en-v1.5")
 
 
 class Router:
+    _vector_cache: dict[tuple[str, str], np.ndarray] = {}
+    _cache_lock = threading.Lock()
+
     def __init__(self, skills: list[Skill]):
         self.skills = skills
         self._embed = TextEmbedding(model_name=_MODEL)
         if not skills:  # empty library — don't normalize an empty matrix
             self._mat = np.zeros((0, 0), dtype=np.float32)
             return
-        mat = np.array(list(self._embed.embed([s.description for s in skills])), dtype=np.float32)
+        keys = [(_MODEL, skill.description) for skill in skills]
+        with self._cache_lock:
+            missing = list(dict.fromkeys(key for key in keys if key not in self._vector_cache))
+        if missing:
+            vectors = self._embed.embed([description for _, description in missing])
+            with self._cache_lock:
+                for key, vector in zip(missing, vectors):
+                    self._vector_cache[key] = np.asarray(vector, dtype=np.float32)
+        with self._cache_lock:
+            mat = np.array([self._vector_cache[key] for key in keys], dtype=np.float32)
         self._mat = mat / (np.linalg.norm(mat, axis=1, keepdims=True) + 1e-8)
 
     def nearest(self, text: str) -> tuple[str, float]:
@@ -84,6 +97,74 @@ class Router:
                 return False
         return True
 
+    def _eligible_ranking(self, task: str, harness: str, cwd: str,
+                          available_tools: set[str], available_mcps: set[str],
+                          platform: str) -> list[tuple[Skill, float]]:
+        eligible = [skill for skill in self.skills if self._compatible(
+            skill, harness, cwd, available_tools, available_mcps, platform
+        )]
+        if not eligible:
+            return []
+        query = np.array(next(iter(self._embed.embed([task]))), dtype=np.float32)
+        query = query / (np.linalg.norm(query) + 1e-8)
+        index_by_name = {skill.name: index for index, skill in enumerate(self.skills)}
+        return sorted(
+            ((skill, float(self._mat[index_by_name[skill.name]] @ query)) for skill in eligible),
+            key=lambda pair: (-pair[1], -int(pair[0].metadata.get("priority", 50)), pair[0].name),
+        )
+
+    @staticmethod
+    def _without_conflicts(ranked: list[tuple[Skill, float]]) -> list[tuple[Skill, float]]:
+        selected = []
+        for candidate in ranked:
+            skill = candidate[0]
+            if any(skill.name in set(existing.metadata.get("conflicts", [])) or
+                   existing.name in set(skill.metadata.get("conflicts", []))
+                   for existing, _ in selected):
+                continue
+            selected.append(candidate)
+        return selected
+
+    @staticmethod
+    def _alternatives(ranked: list[tuple[Skill, float]]) -> list[dict]:
+        return [
+            {"name": skill.name, "score": round(score, 3),
+             "reason": f"compatible alternative; cosine {score:.3f}"}
+            for skill, score in ranked[1:3]
+        ]
+
+    @staticmethod
+    def _novel_response(score: float = 0.0, reason: str = "no compatible skill candidates",
+                        alternatives: list[dict] | None = None) -> dict:
+        return {
+            "match": None, "related_match": None, "score": round(score, 3),
+            "reason": reason, "skill_body": "", "skill_root": None, "revision": None,
+            "alternatives": alternatives or [], "novel": True,
+        }
+
+    @staticmethod
+    def _related_response(skill: Skill, score: float, harness: str, min_score: float,
+                          alternatives: list[dict]) -> dict:
+        return {
+            "match": None, "related_match": skill.name, "score": round(score, 3),
+            "reason": (f"best compatible score {score:.3f} below direct threshold "
+                       f"{min_score:.3f}; loaded for compose or extend"),
+            "skill_body": skill.body_for(harness),
+            "skill_root": skill.root or str(os.path.dirname(skill.path)),
+            "revision": skill.revision or None, "alternatives": alternatives, "novel": False,
+        }
+
+    @staticmethod
+    def _direct_response(skill: Skill, score: float, harness: str,
+                         alternatives: list[dict]) -> dict:
+        return {
+            "match": skill.name, "related_match": None, "score": round(score, 3),
+            "reason": f"compatible {harness} skill; cosine {score:.3f}",
+            "skill_body": skill.body_for(harness),
+            "skill_root": skill.root or str(os.path.dirname(skill.path)),
+            "revision": skill.revision or None, "alternatives": alternatives, "novel": False,
+        }
+
     def route(self, task: str, harness: str, cwd: str, available_tools=(), available_mcps=(),
               platform: str | None = None, min_score: float = 0.65,
               related_score: float = 0.45) -> dict:
@@ -91,49 +172,22 @@ class Router:
         `novel` is the escalation signal for the calling harness: True when nothing compatible is
         even related (best score below `related_score`) — the case where a weak/strong setup should
         serve with the strong model, then queue a candidate for human review."""
-        eligible = [s for s in self.skills if self._compatible(
-            s, harness.lower(), cwd, set(available_tools), set(available_mcps), self._platform(platform)
-        )]
-        empty = {
-            "match": None, "score": 0.0, "reason": "no compatible skill candidates",
-            "skill_body": "", "skill_root": None, "revision": None, "alternatives": [],
-            "novel": True,
-        }
-        if not eligible:
-            return empty
-
-        q = np.array(next(iter(self._embed.embed([task]))), dtype=np.float32)
-        q = q / (np.linalg.norm(q) + 1e-8)
-        index_by_name = {skill.name: i for i, skill in enumerate(self.skills)}
-        ranked = sorted(
-            ((skill, float(self._mat[index_by_name[skill.name]] @ q)) for skill in eligible),
-            key=lambda pair: (-pair[1], -int(pair[0].metadata.get("priority", 50)), pair[0].name),
+        harness = harness.lower()
+        ranked = self._eligible_ranking(
+            task, harness, cwd, set(available_tools), set(available_mcps), self._platform(platform)
         )
-        conflict_free = []
-        for candidate in ranked:
-            skill = candidate[0]
-            if any(skill.name in set(selected.metadata.get("conflicts", [])) or
-                   selected.name in set(skill.metadata.get("conflicts", []))
-                   for selected, _ in conflict_free):
-                continue
-            conflict_free.append(candidate)
-        top, score = conflict_free[0]
-        alternatives = [
-            {"name": skill.name, "score": round(candidate_score, 3),
-             "reason": f"compatible alternative; cosine {candidate_score:.3f}"}
-            for skill, candidate_score in conflict_free[1:3]
-        ]
+        if not ranked:
+            return self._novel_response()
+        ranked = self._without_conflicts(ranked)
+        top, score = ranked[0]
+        alternatives = self._alternatives(ranked)
         if score < min_score:
-            return {**empty, "score": round(score, 3),
-                    "reason": f"best compatible score {score:.3f} below threshold {min_score:.3f}",
-                    "alternatives": alternatives, "novel": score < related_score}
-        return {
-            "match": top.name,
-            "score": round(score, 3),
-            "reason": f"compatible {harness.lower()} skill; cosine {score:.3f}",
-            "skill_body": top.body_for(harness.lower()),
-            "skill_root": top.root or str(os.path.dirname(top.path)),
-            "revision": top.revision or None,
-            "alternatives": alternatives,
-            "novel": False,
-        }
+            if score < related_score:
+                related = [{"name": top.name, "score": round(score, 3),
+                            "reason": f"best compatible candidate; cosine {score:.3f}"},
+                           *alternatives]
+                reason = (f"best compatible score {score:.3f} below related threshold "
+                          f"{related_score:.3f}")
+                return self._novel_response(score, reason, related[:3])
+            return self._related_response(top, score, harness, min_score, alternatives)
+        return self._direct_response(top, score, harness, alternatives)

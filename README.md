@@ -34,7 +34,8 @@ Built for individual users first:
 Every agent-authored skill and optimizer rewrite lands here before it can route traffic.
 
 [Quickstart](#quickstart-lite-mode) · [Full tutorial](#tutorial) ·
-[Contributing](CONTRIBUTING.md) · [Security](SECURITY.md) · [MIT license](LICENSE)
+[Architecture](ARCHITECTURE.md) · [Contributing](CONTRIBUTING.md) · [Security](SECURITY.md) ·
+[MIT license](LICENSE)
 
 ## Quickstart (lite mode)
 
@@ -56,6 +57,23 @@ skill at 0.74, then the agent explains how to configure a model for the full ans
 Every agent run appends to a local trace store (`runs/traces.jsonl`); `optimize-mine` and the
 optimize gate read it whenever Langfuse is unreachable, so the entire improvement loop works in
 lite mode. You lose only the trace browser and experiment UI. Want those?
+
+Local trace records use schema version 1. Original unversioned records remain readable. The store
+defaults to secret-pattern redaction, mode `0600`, a mode `0700` parent directory, 10 MiB rotation,
+and three backups. Configure it in `.env`:
+
+```bash
+LOCAL_TRACE_ENABLED=false          # complete local trace opt-out
+LOCAL_TRACE_REDACT=true            # redact common token, key, password, and secret assignments
+LOCAL_TRACE_MAX_AGE_DAYS=30        # prune older records on append; 0 disables age retention
+LOCAL_TRACE_MAX_BYTES=10485760     # rotate before the next append after this size
+LOCAL_TRACE_BACKUPS=3              # retained rotated files; 0 truncates on rotation
+TRACES_FILE=/app/runs/traces.jsonl # optional alternate path
+```
+
+Redaction is defense in depth, not a data-loss-prevention system. Avoid placing secrets in tasks,
+review trace access, and delete old backups according to your retention requirements. Langfuse has
+separate retention controls.
 
 ```bash
 docker compose --profile langfuse up   # adds the self-hosted Langfuse stack (localhost:3100)
@@ -140,20 +158,21 @@ docker compose run --rm agent "How do I merge several PDFs into one and add page
 ```
 
 ```
-PROPOSED SKILLS (MCP suggest_skills):
-    0.74  pdf - Use this skill whenever the user wants to do anything with PDF files...
+COMPATIBLE ROUTE (MCP route_and_load):
+    0.74  pdf: Use this skill whenever the user wants to do anything with PDF files...
 
 SERVING MODEL: accounts/fireworks/models/qwen3p7-plus
 
-LOADED SKILLS (MCP get_skill): ['pdf@83a75cf1f9b5…']
+LOADED SKILLS (MCP route_and_load): ['pdf@83a75cf1f9b5…']
 TOKENS: 23233 in / 698 out
 
 RESULT:
 ... (working pypdf + reportlab code, following the loaded skill)
 ```
 
-The agent asked the router (`suggest_skills`), loaded the top match (`get_skill`), and followed
-it. The `@…` suffix is the skill's content-hash revision, which also lands on the trace as a tag.
+The agent asked the canonical router (`route_and_load`), received one compatible skill body, and
+followed it. The `@…` suffix is the skill's content-hash revision, which also lands on the trace as
+a tag. Unconstrained suggestions never control the serving model or loaded instructions.
 A routed task runs on the cheap `AGENT_MODEL` because the skill carries the method; only truly
 novel tasks escalate to `STRONG_MODEL` (step 10). Steps 2 to 4 were recorded on Fireworks model
 IDs and steps 5 to 8 on the OpenRouter defaults (`qwen/qwen3-32b` serving); the `SERVING MODEL`
@@ -593,7 +612,8 @@ One gotcha: `LANGFUSE_BASE_URL` must be reachable from inside the containers (no
     or overwrites)
   - `reload_skills()`: hot reload after approval or direct operator edits
   - `route_and_load(task, harness, cwd, available_tools, available_mcps)`: one-round-trip
-    selection for external clients (see [Bring your own agent](#bring-your-own-agent-mcp-only))
+    selection and loading for direct or related compatible routes (see
+    [Bring your own agent](#bring-your-own-agent-mcp-only))
 - **`agent/run.py`**: [deepagents](https://github.com/langchain-ai/deepagents) LangGraph agent
   wired to those tools, traced to Langfuse. Serves routed tasks on the weak `AGENT_MODEL` and
   escalates truly novel tasks to `STRONG_MODEL`, which can queue reusable candidates for review.
@@ -614,9 +634,10 @@ Most deployments use just the MCP server with their own harness (Claude Code, Co
 agent); the bundled `agent/run.py` is a reference client, not a requirement. Point your harness at
 `http://localhost:8000/mcp` and call `route_and_load` once per request:
 
-- **`match`**: follow `skill_body`; a weak/cheap model suffices, the skill carries the method.
-- **no match, `novel: false`**: related skills exist; call `suggest_skills` and compose or extend
-  the closest instead of authoring a duplicate.
+- **`match`**: a direct match. Follow `skill_body`; a weak/cheap model suffices.
+- **`related_match`, `novel: false`**: the closest compatible skill is below the direct-match
+  threshold. Its identity, revision, root, and sole body are loaded so the weak model can compose
+  or extend it. `alternatives` remain body-free.
 - **`novel: true`**: nothing even related. Serve with your strong model, then call `create_skill`
   to queue a reusable candidate. It remains inactive until UI approval.
 
@@ -738,7 +759,9 @@ from langfuse import get_client
 
 lf = get_client()  # LANGFUSE_BASE_URL / _PUBLIC_KEY / _SECRET_KEY, same values as the compose stack
 r = route_and_load(task, harness="claude", cwd=cwd)             # via MCP
-tags = [r["match"], f"revision={r['match']}@{r['revision']}"] if r["match"] else ["novel"]
+selected = r["match"] or r["related_match"]
+tags = ([selected, f"revision={selected}@{r['revision']}"] +
+        (["related"] if r["related_match"] else [])) if selected else ["novel"]
 with lf.propagate_attributes(tags=tags):
     with lf.start_as_current_observation(name="serve", input={"task": task}) as span:
         answer = my_agent(task, r["skill_body"])                # your harness, your models

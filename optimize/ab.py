@@ -155,8 +155,9 @@ def promotion_gate(skill: str, champ_scores: list[float], chall_scores: list[flo
 
 EVAL_INSTRUCTIONS = """You are a deep agent with access to a read-only skill router over MCP.
 For every task, call `route_and_load` once with the full task, harness `codex`, current working
-directory, and available tools/MCPs. Follow `skill_body` when a match is returned. With no match,
-solve directly. Never request a skill catalog. Keep the final answer concise.
+directory, and available tools/MCPs. Follow `skill_body` for a direct `match`. For a
+`related_match`, use its loaded `skill_body` as a starting point to compose or extend. Only solve
+directly when neither is returned. Never request a skill catalog. Keep the final answer concise.
 Your final answer must contain the complete deliverable itself — e.g. full runnable code inline —
 never just a description of, or reference to, files you created in your workspace: the user cannot
 see your workspace."""

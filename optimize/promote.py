@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import json
+import logging
 import os
 import shutil
 import uuid
@@ -16,6 +17,7 @@ RUNS_DIR = Path(__file__).resolve().parent.parent / "runs"
 PENDING_DIR = RUNS_DIR / "pending"
 REVISIONS_DIR = RUNS_DIR / "revisions"
 COLLISION_SCORE = float(os.environ.get("COLLISION_SCORE", "0.93"))
+logger = logging.getLogger(__name__)
 
 
 def check_slug(skill: str) -> str:
@@ -104,6 +106,33 @@ def _snapshot(skill_dir: Path, skill: str, revision: str) -> Path:
         shutil.copytree(skill_dir, temporary, symlinks=True)
         temporary.rename(destination)
     return destination
+
+
+def _audit(action: str, skill: str, revision: str, actor: str = "local-operator") -> None:
+    """Append a minimal approval trail without recording skill bodies or credentials."""
+    import time
+    audit_root = PENDING_DIR.parent
+    audit_root.mkdir(parents=True, exist_ok=True, mode=0o700)
+    os.chmod(audit_root, 0o700)
+    audit_file = audit_root / "approval-audit.jsonl"
+    fd = os.open(audit_file, os.O_APPEND | os.O_CREAT | os.O_WRONLY, 0o600)
+    try:
+        record = {"schema_version": 1, "ts": int(time.time()), "action": action,
+                  "skill": skill, "revision": revision, "actor": actor}
+        os.write(fd, (json.dumps(record, separators=(",", ":")) + "\n").encode())
+    finally:
+        os.close(fd)
+
+
+def _audit_best_effort(action: str, skill: str, revision: str, actor: str) -> None:
+    """Record a committed transition without changing its successful outcome."""
+    try:
+        _audit(action, skill, revision, actor)
+    except Exception:
+        logger.warning(
+            "Committed %s for skill %r at revision %s, but the audit write failed",
+            action, skill, revision, exc_info=True,
+        )
 
 
 def _require_promotable(pending: dict) -> None:
@@ -225,7 +254,7 @@ def _activate_rewrite(skill: str, pending: dict) -> str:
     return f"Promoted '{skill}' from revision {current.revision}; previous revision snapshotted."
 
 
-def approve_pending(skill: str) -> str:
+def approve_pending(skill: str, actor: str = "local-operator") -> str:
     """Activate one pending creation or tested rewrite after an explicit approval action."""
     skill = check_slug(skill)
     pending = load_pending(skill)
@@ -233,5 +262,71 @@ def approve_pending(skill: str) -> str:
         raise ValueError(f"no pending challenger for '{skill}'")
     _require_promotable(pending)
     if pending.get("kind") == "creation":
-        return _activate_creation(skill, pending)
-    return _activate_rewrite(skill, pending)
+        result = _activate_creation(skill, pending)
+        revision = skill_revision(SKILLS_DIR / skill)
+    else:
+        result = _activate_rewrite(skill, pending)
+        revision = _current_skill(skill).revision
+    _audit_best_effort("approve", skill, revision, actor)
+    return result
+
+
+def _rollback_source(skill: str, revision: str) -> Path:
+    """Validate a rollback request and return its snapshot directory."""
+    skill = check_slug(skill)
+    if not SLUG_RE.fullmatch(revision):
+        raise ValueError(f"invalid revision: {revision!r}")
+    source = REVISIONS_DIR / skill / revision
+    if not source.is_dir():
+        raise ValueError(f"no snapshot for '{skill}' at revision {revision}")
+    return source
+
+
+def _stage_rollback(source: Path, skill_dir: Path) -> Path:
+    """Copy a rollback snapshot beside the live skill for an atomic rename."""
+    stage = skill_dir.with_name(f".{skill_dir.name}.{uuid.uuid4().hex}.rollback")
+    shutil.copytree(source, stage, symlinks=True)
+    return stage
+
+
+def _swap_rollback(skill_dir: Path, stage: Path) -> None:
+    """Atomically install a staged rollback, restoring the live directory on failure."""
+    previous = skill_dir.with_name(f".{skill_dir.name}.{uuid.uuid4().hex}.previous")
+    try:
+        skill_dir.rename(previous)
+        try:
+            stage.rename(skill_dir)
+        except BaseException:
+            previous.rename(skill_dir)
+            raise
+        shutil.rmtree(previous, ignore_errors=True)
+    except BaseException:
+        shutil.rmtree(stage, ignore_errors=True)
+        raise
+
+
+def rollback(skill: str, revision: str, actor: str = "local-operator") -> str:
+    """Atomically restore a snapshot while preserving the displaced current revision."""
+    source = _rollback_source(skill, revision)
+    current = _current_skill(skill)
+    skill_dir = Path(current.root)
+    _snapshot(skill_dir, skill, current.revision)
+    stage = _stage_rollback(source, skill_dir)
+    _swap_rollback(skill_dir, stage)
+    restored = _current_skill(skill)
+    _audit_best_effort("rollback", skill, restored.revision, actor)
+    return f"Rolled back '{skill}' from {current.revision} to {restored.revision}."
+
+
+if __name__ == "__main__":
+    import argparse
+    parser = argparse.ArgumentParser(description="Approve or roll back a revisioned skill")
+    sub = parser.add_subparsers(dest="command", required=True)
+    approve_parser = sub.add_parser("approve")
+    approve_parser.add_argument("skill")
+    rollback_parser = sub.add_parser("rollback")
+    rollback_parser.add_argument("skill")
+    rollback_parser.add_argument("revision")
+    args = parser.parse_args()
+    print(approve_pending(args.skill) if args.command == "approve"
+          else rollback(args.skill, args.revision))

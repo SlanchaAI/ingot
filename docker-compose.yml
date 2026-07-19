@@ -205,7 +205,7 @@ services:
 
   clickhouse:
     profiles: ["langfuse"]   # full observability stack: docker compose --profile langfuse up
-    image: docker.io/clickhouse/clickhouse-server
+    image: docker.io/clickhouse/clickhouse-server:25.3
     restart: always
     user: "101:101"
     environment:

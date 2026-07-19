@@ -17,6 +17,8 @@ import json
 import os
 import urllib.request
 from collections import Counter, defaultdict
+from pathlib import Path
+from typing import Callable, NamedTuple
 
 from .judge import DIMENSIONS, failed_dimensions, judge
 
@@ -49,16 +51,56 @@ def fetch_traces(limit: int) -> list[dict]:
 def _local_traces(limit: int, err: OSError) -> list[dict]:
     """The last `limit` records of the local JSONL trace store (written by agent/run.py), in
     the same shape fetch_traces returns from Langfuse."""
+    from agent.traces import configured_trace_files
     from optimize import traces_file
     path = traces_file()
-    if not path.exists():
+    paths = _local_trace_paths(path, configured_trace_files)
+    if not paths:
         raise SystemExit(f"Langfuse unreachable ({err}) and no local trace store at {path} — "
                          "run the agent first to generate traffic.")
-    records = [json.loads(line) for line in path.read_text().splitlines() if line.strip()]
+    records = [record for trace_path in paths for record in _decode_local_trace(trace_path)]
+    selected = _select_local_traces(records, limit)
     print(f"[mine] Langfuse unreachable — using local trace store {path} "
-          f"({min(len(records), limit)} of {len(records)} traces)")
-    return [{"task": r["task"], "rubric": r.get("rubric", ""), "answer": r["answer"],
-             "tags": r.get("tags", [])} for r in records[-limit:] if r.get("answer")]
+          f"({len(selected)} of {len(records)} usable traces)")
+    return [_local_trace_output(record) for record in selected]
+
+
+def _local_trace_paths(path: Path, configured_trace_files: Callable) -> list[Path]:
+    """Existing trace files in chronological order, from oldest backup to active store."""
+    return [candidate for candidate in configured_trace_files(path, oldest_first=True)
+            if candidate.exists()]
+
+
+def _decode_local_trace(path: Path) -> list[dict]:
+    """Decode the supported records in one local JSONL trace file."""
+    records = []
+    for line in path.read_text().splitlines():
+        try:
+            record = json.loads(line)
+        except json.JSONDecodeError:
+            continue
+        # Records without schema_version are the original schema and remain supported.
+        if _supported_local_record(record):
+            records.append(record)
+    return records
+
+
+def _select_local_traces(records: list[dict], limit: int) -> list[dict]:
+    """Select up to `limit` of the newest usable records, retaining chronological order."""
+    return records[-limit:] if limit > 0 else []
+
+
+def _local_trace_output(record: dict) -> dict:
+    """Map a local record to the public trace shape returned by fetch_traces."""
+    return {"task": record["task"], "rubric": record.get("rubric", ""),
+            "answer": record["answer"], "tags": record.get("tags", [])}
+
+
+def _supported_local_record(record) -> bool:
+    """Whether a decoded local record is safe and useful as optimization evidence."""
+    return (isinstance(record, dict) and record.get("schema_version", 1) == 1
+            and isinstance(record.get("task"), str) and bool(record["task"].strip())
+            and isinstance(record.get("answer"), str) and bool(record["answer"].strip()))
 
 
 def _task_answer(inp, ans):
@@ -136,9 +178,8 @@ def _train_dupes(vecs, skill: str, norm_embed, log):
     return dupes
 
 
-def _select_candidates(traces: list[dict], scores: list[float], skill: str, log=print) -> list[int]:
-    """Pick eval candidates from mined traces: difficulty from the judge (1 - score), spread
-    by embedding coverage, and never a near-duplicate of the skill's existing train set."""
+def _normalized_embedder():
+    """Return an embedding function that produces row-normalized float vectors."""
     import numpy as np
     from fastembed import TextEmbedding
     from mcp_server.router import _MODEL
@@ -146,15 +187,53 @@ def _select_candidates(traces: list[dict], scores: list[float], skill: str, log=
     embedder = TextEmbedding(model_name=_MODEL)
 
     def norm_embed(texts):
-        m = np.array(list(embedder.embed(texts)), dtype=np.float32)
-        return m / np.linalg.norm(m, axis=1, keepdims=True)
+        matrix = np.array(list(embedder.embed(texts)), dtype=np.float32)
+        return matrix / np.linalg.norm(matrix, axis=1, keepdims=True)
 
-    vecs = norm_embed([t["task"] for t in traces])
-    difficulty = 1.0 - np.asarray(scores, dtype=np.float32)
-    dupes = _train_dupes(vecs, skill, norm_embed, log)
+    return norm_embed
+
+
+def _candidate_representatives(traces: list[dict], scores: list[float], log) -> list[int]:
+    """Keep the lowest-scoring representative of each formatting-equivalent task."""
+    representatives = {}
+    for index, trace in enumerate(traces):
+        key = " ".join(trace["task"].casefold().split())
+        previous = representatives.get(key)
+        if previous is None or scores[index] < scores[previous]:
+            representatives[key] = index
+    indices = list(representatives.values())
+    collapsed = len(traces) - len(indices)
+    if collapsed:
+        log(f"[mine] {collapsed} duplicate candidate(s) collapsed")
+    return indices
+
+
+class _RankingContext(NamedTuple):
+    skill: str
+    norm_embed: Callable
+    log: Callable
+
+
+def _rank_candidates(traces, scores, indices, context: _RankingContext) -> list[int]:
+    """Rank representative tasks by failure difficulty and embedding coverage."""
+    import numpy as np
+
+    vecs = context.norm_embed([traces[index]["task"] for index in indices])
+    difficulty = 1.0 - np.asarray([scores[index] for index in indices], dtype=np.float32)
+    dupes = _train_dupes(vecs, context.skill, context.norm_embed, context.log)
     if dupes is not None:
         difficulty[dupes] = -1.0
-    return _greedy_pick(difficulty, vecs, MINED_CANDIDATES)
+    return [indices[index] for index in _greedy_pick(difficulty, vecs, MINED_CANDIDATES)]
+
+
+def _select_candidates(traces: list[dict], scores: list[float], skill: str, log=print) -> list[int]:
+    """Pick eval candidates from mined traces: difficulty from the judge (1 - score), spread
+    by embedding coverage, and never a near-duplicate of the skill's existing train set."""
+    # Collapse exact and formatting-only duplicates before semantic coverage selection. Keep the
+    # lowest-scoring occurrence because it provides the strongest failure evidence.
+    indices = _candidate_representatives(traces, scores, log)
+    context = _RankingContext(skill, _normalized_embedder(), log)
+    return _rank_candidates(traces, scores, indices, context)
 
 
 def mine(skill: str, limit: int = 50, log=print) -> dict:

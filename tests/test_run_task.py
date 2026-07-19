@@ -1,7 +1,9 @@
 """Unit tests for agent.run.run_task message parsing (the agent LLM is faked)."""
 import asyncio
+import json
+from types import SimpleNamespace
 
-from agent.run import behavior_events, run_task
+from agent.run import (_print_route, _route_identity, _trace_tags, behavior_events, run_task)
 
 
 class _Msg:
@@ -115,7 +117,7 @@ def test_build_agent_strong_flag_selects_model_and_endpoint(monkeypatch):
     monkeypatch.setenv("STRONG_MODEL", "strong/model")
 
     agent = run_mod.build_agent([])
-    assert agent == {"prompt": run_mod.INSTRUCTIONS}
+    assert agent == {"prompt": run_mod.INSTRUCTIONS.format(routing_context="")}
     assert captured == {"model": run_mod.MODEL, "base_url": "http://weak:8000/v1",
                         "api_key": "weak-key"}
 
@@ -158,3 +160,99 @@ def test_serving_contract_requires_inline_deliverables():
     for contract in (INSTRUCTIONS, EVAL_INSTRUCTIONS):
         assert "final answer must contain the complete deliverable" in contract
         assert "cannot" in contract and "workspace" in contract
+
+
+def test_canonical_route_controls_body_and_weak_strong_escalation():
+    from agent.run import instructions_for_route, should_escalate
+    matched = {"match": "pdf", "skill_body": "trusted compatible body", "novel": False,
+               "alternatives": [{"name": "other"}]}
+    prompt = instructions_for_route(matched)
+    assert "trusted compatible body" in prompt
+    assert should_escalate(matched) is False
+
+    related = {"match": None, "related_match": "pdf", "revision": "r1",
+               "skill_body": "compatible compose body", "novel": False,
+               "alternatives": [{"name": "other"}]}
+    related_prompt = instructions_for_route(related)
+    assert "Loaded related skill: pdf" in related_prompt
+    assert "compatible compose body" in related_prompt
+    assert "other" not in related_prompt
+    assert should_escalate(related) is False
+    assert _route_identity(related) == "pdf@r1"
+    assert _trace_tags(related, False) == ["demo", "pdf", "related", "revision=pdf@r1"]
+
+    # An unconstrained suggestion may exist, but an incompatible canonical route remains novel.
+    incompatible_suggestions = [{"name": "codex-only", "score": 0.99}]
+    routed = {"match": None, "skill_body": "", "alternatives": [], "novel": True}
+    assert incompatible_suggestions
+    assert should_escalate(routed) is True
+    assert "codex-only" not in instructions_for_route(routed)
+
+
+def test_print_route_renders_alternative_reason(capsys):
+    routed = {"match": None, "alternatives": [
+        {"name": "pdf", "score": 0.91, "reason": "Compatible with this harness"}
+    ]}
+
+    _print_route(routed)
+
+    output = capsys.readouterr().out
+    assert "pdf" in output
+    assert "Compatible with this harness" in output
+    assert "None" not in output
+
+
+def test_print_route_marks_loaded_related_match(capsys):
+    routed = {"match": None, "related_match": "pdf", "score": 0.6,
+              "reason": "loaded for compose or extend", "alternatives": []}
+
+    _print_route(routed)
+
+    output = capsys.readouterr().out
+    assert "pdf (related, compose/extend)" in output
+    assert "loaded for compose or extend" in output
+
+
+def test_main_routes_with_connected_capabilities_and_reuses_tools(monkeypatch):
+    import agent.run as run_mod
+
+    route_calls = []
+    served = []
+
+    class RouteTool:
+        name = "route_and_load"
+
+        async def ainvoke(self, arguments):
+            route_calls.append(arguments)
+            return [{"type": "text", "text": json.dumps(
+                {"match": None, "alternatives": [], "novel": True})}]
+
+    connected = [RouteTool(), SimpleNamespace(name="create_skill"),
+                 SimpleNamespace(name="reload_skills")]
+    connect_calls = 0
+
+    async def connect():
+        nonlocal connect_calls
+        connect_calls += 1
+        return connected
+
+    async def serve(task, routed, tools):
+        served.append((task, routed, tools))
+
+    monkeypatch.setattr(run_mod, "_connect", connect)
+    monkeypatch.setattr(run_mod, "_serve", serve)
+    monkeypatch.setattr(run_mod, "_print_route", lambda routed: None)
+    monkeypatch.setattr("optimize.openrouter_key_missing", lambda: False)
+
+    asyncio.run(run_mod.main("write a skill"))
+
+    assert connect_calls == 1
+    assert route_calls == [{
+        "task": "write a skill",
+        "harness": "claude",
+        "cwd": "/app",
+        "available_tools": ["create_skill", "reload_skills"],
+        "available_mcps": ["skills"],
+    }]
+    assert served[0][2] == connected[1:]
+    assert all(served[0][2][index] is connected[index + 1] for index in range(2))
