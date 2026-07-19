@@ -154,6 +154,7 @@ async def run_task(agent, task: str, config: dict | None = None, include_behavio
 
 
 _AGENT_TOOL_DENYLIST = {"list_skills", "suggest_skills", "get_skill", "route_and_load"}
+_MCP_SERVER_NAMES = ["skills"]
 
 
 async def _connect(retries: int = 20, delay: float = 1.5):
@@ -162,7 +163,7 @@ async def _connect(retries: int = 20, delay: float = 1.5):
     client = MultiServerMCPClient({"skills": {"url": MCP_URL, "transport": "streamable_http"}})
     for i in range(retries):
         try:
-            return [tool for tool in await client.get_tools() if tool.name not in _AGENT_TOOL_DENYLIST]
+            return await client.get_tools()
         except Exception as e:  # MCP server may still be starting
             if i == retries - 1:
                 raise
@@ -170,12 +171,34 @@ async def _connect(retries: int = 20, delay: float = 1.5):
             await asyncio.sleep(delay)
 
 
-async def _route(task: str) -> dict:
+def _serving_tools(tools) -> list:
+    """Return exactly the connected tools exposed to the serving agent."""
+    return [tool for tool in tools if tool.name not in _AGENT_TOOL_DENYLIST]
+
+
+def _route_result(value) -> dict:
+    """Decode the MCP adapter's text content blocks into the router's response object."""
+    if isinstance(value, dict):
+        return value
+    if isinstance(value, list):
+        text = "".join(block.get("text", "") for block in value if isinstance(block, dict))
+        decoded = json.loads(text)
+        if isinstance(decoded, dict):
+            return decoded
+    raise ValueError("route_and_load returned an invalid response")
+
+
+async def _route(task: str, tools, available_tools) -> dict:
     """Request the single canonical route used for both prompting and trace attribution."""
-    from fastmcp import Client
-    async with Client(MCP_URL) as client:
-        return (await client.call_tool(
-            "route_and_load", {"task": task, "harness": "claude", "cwd": "/app"})).data
+    route_tool = next(tool for tool in tools if tool.name == "route_and_load")
+    result = await route_tool.ainvoke({
+        "task": task,
+        "harness": "claude",
+        "cwd": "/app",
+        "available_tools": sorted({tool.name for tool in available_tools}),
+        "available_mcps": _MCP_SERVER_NAMES,
+    })
+    return _route_result(result)
 
 
 def _print_route(routed: dict) -> None:
@@ -211,14 +234,14 @@ def _trace_tags(routed: dict, escalate: bool) -> list[str]:
     return tags
 
 
-async def _serve(task: str, routed: dict) -> None:
+async def _serve(task: str, routed: dict, tools) -> None:
     """Serve a routed task, record its trace, and print the result."""
     escalate = should_escalate(routed)
     if escalate:
         print(f"\nSERVING MODEL: {strong_model()} (strong: no skill matched)")
     else:
         print(f"\nSERVING MODEL: {MODEL}")
-    agent = build_agent(await _connect(), instructions=instructions_for_route(routed), strong=escalate)
+    agent = build_agent(tools, instructions=instructions_for_route(routed), strong=escalate)
     # Trace tags: plain skill name feeds mine.py's relevance filter, revision=name@rev pins the
     # exact version served, novel marks strong-model escalations, the convention documented for
     # external harnesses (README: Tracing from your own harness).
@@ -246,7 +269,9 @@ async def main(task: str):
     print(f"TASK: {task}")
     print("=" * 64)
 
-    routed = await _route(task)
+    connected_tools = await _connect()
+    serving_tools = _serving_tools(connected_tools)
+    routed = await _route(task, connected_tools, serving_tools)
     _print_route(routed)
 
     from optimize import openrouter_key_missing
@@ -255,7 +280,7 @@ async def main(task: str):
         print("        Set OPENROUTER_API_KEY in .env to run the deep agent (or point")
         print("        MODEL_BASE_URL at a local vLLM/Ollama endpoint, no key needed).")
         return
-    await _serve(task, routed)
+    await _serve(task, routed, serving_tools)
 
 
 def _log_local_trace(task: str, answer: str, tags: list[str]) -> None:

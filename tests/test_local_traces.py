@@ -77,6 +77,34 @@ def test_trace_opt_out_redaction_schema_permissions_and_rotation(tmp_path, monke
     assert path.with_name("traces.jsonl.1").exists()
 
 
+def test_trace_writer_retries_short_writes(tmp_path, monkeypatch):
+    import agent.traces as traces_mod
+
+    path = tmp_path / "traces.jsonl"
+    monkeypatch.setenv("TRACES_FILE", str(path))
+    real_write = traces_mod.os.write
+    write_sizes = []
+
+    def short_write(fd, data):
+        limited = data[:max(1, len(data) // 2)]
+        write_sizes.append((len(data), len(limited)))
+        return real_write(fd, limited)
+
+    monkeypatch.setattr(traces_mod.os, "write", short_write)
+
+    assert traces_mod.write("short write task", "complete answer", ["demo"])
+
+    assert len(write_sizes) > 1
+    assert json.loads(path.read_text()) == {
+        "schema_version": 1,
+        "ts": pytest.approx(traces_mod.time.time(), abs=1),
+        "task": "short write task",
+        "answer": "complete answer",
+        "tags": ["demo"],
+    }
+    assert path.stat().st_mode & 0o777 == 0o600
+
+
 def test_local_reader_accepts_original_and_versioned_records_and_skips_bad_lines(
         tmp_path, monkeypatch):
     path = tmp_path / "traces.jsonl"

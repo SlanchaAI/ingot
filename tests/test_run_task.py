@@ -1,5 +1,7 @@
 """Unit tests for agent.run.run_task message parsing (the agent LLM is faked)."""
 import asyncio
+import json
+from types import SimpleNamespace
 
 from agent.run import _print_route, behavior_events, run_task
 
@@ -187,3 +189,48 @@ def test_print_route_renders_alternative_reason(capsys):
     assert "pdf" in output
     assert "Compatible with this harness" in output
     assert "None" not in output
+
+
+def test_main_routes_with_connected_capabilities_and_reuses_tools(monkeypatch):
+    import agent.run as run_mod
+
+    route_calls = []
+    served = []
+
+    class RouteTool:
+        name = "route_and_load"
+
+        async def ainvoke(self, arguments):
+            route_calls.append(arguments)
+            return [{"type": "text", "text": json.dumps(
+                {"match": None, "alternatives": [], "novel": True})}]
+
+    connected = [RouteTool(), SimpleNamespace(name="create_skill"),
+                 SimpleNamespace(name="reload_skills")]
+    connect_calls = 0
+
+    async def connect():
+        nonlocal connect_calls
+        connect_calls += 1
+        return connected
+
+    async def serve(task, routed, tools):
+        served.append((task, routed, tools))
+
+    monkeypatch.setattr(run_mod, "_connect", connect)
+    monkeypatch.setattr(run_mod, "_serve", serve)
+    monkeypatch.setattr(run_mod, "_print_route", lambda routed: None)
+    monkeypatch.setattr("optimize.openrouter_key_missing", lambda: False)
+
+    asyncio.run(run_mod.main("write a skill"))
+
+    assert connect_calls == 1
+    assert route_calls == [{
+        "task": "write a skill",
+        "harness": "claude",
+        "cwd": "/app",
+        "available_tools": ["create_skill", "reload_skills"],
+        "available_mcps": ["skills"],
+    }]
+    assert served[0][2] == connected[1:]
+    assert all(served[0][2][index] is connected[index + 1] for index in range(2))

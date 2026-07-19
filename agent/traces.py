@@ -96,6 +96,19 @@ def _expire(path: Path) -> None:
         _expire_file(trace_path, cutoff, remove_empty=trace_path != path)
 
 
+def _write_all(fd: int, data: bytes) -> None:
+    """Write one complete record. The local trace store has a single writer by contract."""
+    remaining = memoryview(data)
+    while remaining:
+        try:
+            written = os.write(fd, remaining)
+        except InterruptedError:
+            continue
+        if written <= 0:
+            raise OSError("local trace write made no progress")
+        remaining = remaining[written:]
+
+
 def write(task: str, answer: str, tags: list[str]) -> bool:
     """Append a versioned record. Failures and an explicit opt-out never affect serving."""
     if not _enabled("LOCAL_TRACE_ENABLED", True):
@@ -110,8 +123,8 @@ def write(task: str, answer: str, tags: list[str]) -> bool:
               "task": redact(task), "answer": redact(answer), "tags": tags}
     fd = os.open(path, os.O_APPEND | os.O_CREAT | os.O_WRONLY, 0o600)
     try:
-        os.write(fd, (json.dumps(record, separators=(",", ":")) + "\n").encode())
+        os.fchmod(fd, 0o600)
+        _write_all(fd, (json.dumps(record, separators=(",", ":")) + "\n").encode())
     finally:
         os.close(fd)
-    os.chmod(path, 0o600)
     return True
