@@ -78,6 +78,29 @@ def test_trace_opt_out_redaction_schema_permissions_and_rotation(tmp_path, monke
     assert path.with_name("traces.jsonl.1").exists()
 
 
+def test_trace_writer_makes_new_parent_private(tmp_path, monkeypatch):
+    path = tmp_path / "new-private-parent" / "traces.jsonl"
+    monkeypatch.setenv("TRACES_FILE", str(path))
+
+    _log_local_trace("task", "answer", [])
+
+    assert path.parent.stat().st_mode & 0o777 == 0o700
+    assert path.stat().st_mode & 0o777 == 0o600
+
+
+def test_trace_writer_preserves_existing_parent_mode(tmp_path, monkeypatch):
+    parent = tmp_path / "operator-shared"
+    parent.mkdir(mode=0o750)
+    parent.chmod(0o750)
+    path = parent / "traces.jsonl"
+    monkeypatch.setenv("TRACES_FILE", str(path))
+
+    _log_local_trace("task", "answer", [])
+
+    assert parent.stat().st_mode & 0o777 == 0o750
+    assert path.stat().st_mode & 0o777 == 0o600
+
+
 @pytest.mark.parametrize(("value", "secret", "expected"), [
     ('{"api_key":"secret"}', "secret", '{"api_key":"[REDACTED]"}'),
     ('{"password": "hunter2"}', "hunter2", '{"password": "[REDACTED]"}'),

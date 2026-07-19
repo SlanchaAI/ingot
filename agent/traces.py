@@ -121,8 +121,12 @@ def write(task: str, answer: str, tags: list[str]) -> bool:
         return False
     from optimize import traces_file
     path = traces_file()
-    path.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
-    os.chmod(path.parent, 0o700)
+    try:
+        path.parent.mkdir(parents=True, mode=0o700)
+    except FileExistsError:
+        pass
+    else:
+        os.chmod(path.parent, 0o700)
     _expire(path)
     _rotate(path)
     record = {"schema_version": SCHEMA_VERSION, "ts": int(time.time()),
