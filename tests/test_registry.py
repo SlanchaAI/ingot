@@ -17,7 +17,8 @@ def test_optimizable_components_excludes_files_and_license(tmp_path):
     (d / "LICENSE.txt").write_text("license text")
     (d / "scripts" / "run.py").write_text("print(1)")
     comps = optimizable_components(d)
-    # GEPA may only touch description + body — never a license, script, or bundled doc
+    # an optimization pass may only touch description + body, never a license, script, or
+    # bundled doc
     assert set(comps) == {"description", "body"}
     assert comps["body"] == "the body" and comps["description"] == "route me"
 
@@ -172,3 +173,49 @@ def test_reserved_word_as_substring_is_rejected():
 ])
 def test_slugify_normalizes(raw, expected):
     assert slugify(raw) == expected
+
+
+# --- hidden staging directories ---------------------------------------------------------------
+
+def _hidden_stage(root, name, body, suffix="stage"):
+    """What promotion and rollback leave behind when they are killed mid-swap."""
+    stage = root / f".{name}.deadbeef.{suffix}"
+    stage.mkdir(parents=True)
+    write_skill_md(stage / "SKILL.md", {"name": name, "description": "shadow trigger"}, body)
+    return stage
+
+
+def _live_skill(root, name="pdf", body="approved body"):
+    live = root / name
+    live.mkdir(parents=True)
+    write_skill_md(live / "SKILL.md", {"name": name, "description": "Merge PDFs."}, body)
+    return live
+
+
+def test_leftover_staging_directory_cannot_shadow_the_live_skill(tmp_path):
+    """Path.glob matches hidden names and '.' sorts ahead of every slug, so an abandoned
+    `.pdf.<hex>.stage` would win the duplicate-name check and serve its body instead of the
+    approved one."""
+    _live_skill(tmp_path)
+    _hidden_stage(tmp_path, "pdf", "abandoned body")
+
+    skills = load_skills(tmp_path)
+
+    assert [s.name for s in skills] == ["pdf"]
+    assert skills[0].body == "approved body"
+    assert skills[0].description == "Merge PDFs."
+    assert "/.pdf." not in skills[0].path
+
+
+def test_leftover_staging_directory_is_not_published_as_its_own_skill(tmp_path):
+    """With no live skill of that name the staging copy must still not be served."""
+    _hidden_stage(tmp_path, "pdf", "abandoned body")
+    assert load_skills(tmp_path) == []
+
+
+@pytest.mark.parametrize("suffix", ["stage", "previous", "rollback"])
+def test_skill_sources_skips_every_staging_suffix(tmp_path, suffix):
+    from mcp_server.registry import skill_sources
+    _live_skill(tmp_path)
+    _hidden_stage(tmp_path, "pdf", "abandoned body", suffix=suffix)
+    assert [p.parent.name for p in skill_sources(tmp_path)] == ["pdf"]

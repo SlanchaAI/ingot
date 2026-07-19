@@ -1,7 +1,6 @@
-"""Parallel best-of-N with racing — the default body-pass strategy (OPTIMIZE_STRATEGY=parallel).
+"""Candidate generation for the body pass: parallel best-of-N with racing.
 
-Where GEPA serializes ~10-15 propose→evaluate→reflect iterations (tens of minutes wall-clock),
-this runs three concurrent waves and stops:
+This is the only candidate search Ingot ships. It runs three concurrent waves and stops:
 
 1. baseline  — the seed skill is rolled out on every train task at once; its judge feedback
                becomes the failure evidence the authors write against, sharpened by one
@@ -12,10 +11,9 @@ this runs three concurrent waves and stops:
                concurrent), the bottom half is dropped, repeat until the tasks run out
 
 The finalists' cumulative mean (minus the shared length penalty) picks the winner; a winner that
-doesn't beat the seed returns the seed unchanged. The trade against GEPA is deliberate: no
-failure-driven refinement between candidates, in exchange for wall-clock bounded by the slowest
-single call per wave. The held-out A/B gate in optimize.ab is unchanged either way — this module
-only replaces the inner loop. Set OPTIMIZE_STRATEGY=gepa (or --gepa) for the reflective loop.
+doesn't beat the seed returns the seed unchanged. Wall-clock is bounded by the slowest single call
+per wave rather than by a sequence of refinement iterations. Nothing here decides anything: the
+winner is only a proposal, gated by the held-out A/B in optimize.ab and then by a human.
 """
 import hashlib
 import json
@@ -24,13 +22,13 @@ import urllib.request
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 
-from .gepa_loop import SkillAdapter, SERVE_TEMPLATE, assemble, length_penalty, make_reflection_lm
+from .rollout import SkillAdapter, length_penalty, make_reflection_lm
 
 # Optional author-side web research (Tavily). Opt-in via TAVILY_API_KEY / TAVILY_KEY; without a
 # key it is a silent no-op. Research runs ONCE per optimize run (a shared brief all authors
 # receive — five authors independently searching would return five conflicting snapshots), only
 # when the seed's failures look like knowledge gaps (correctness/completeness), and briefs are
-# cached content-addressed so the autopilot re-optimizing the same skill costs zero extra
+# cached content-addressed so the background loop re-running the same skill costs zero extra
 # searches. The judge NEVER gets research — rubrics stay the fixed measuring stick.
 _RESEARCH_CACHE = Path(__file__).resolve().parent.parent / "runs" / "research-cache"
 _RESEARCH_DIMS = ("correctness", "completeness")
@@ -224,8 +222,8 @@ def _score_remaining(field, survivors, remaining, rollout, scores, round_no, log
 
 def run_bestofn(seed: dict[str, str], tasks: list[dict], frozen: dict[str, str] | None = None,
                 candidates: int | None = None, log=print) -> tuple[dict[str, str], float, float]:
-    """Drop-in for gepa_loop.run_gepa: returns (best_components, seed_score, best_score) where both
-    scores are means over the full train set (the seed from wave 1, the winner from the race)."""
+    """Returns (best_components, seed_score, best_score) where both scores are means over the full
+    train set (the seed from wave 1, the winner from the race)."""
     candidates = candidates or int(os.environ.get("OPTIMIZE_CANDIDATES", "5"))
     if not tasks:
         log("[bestofn] no train tasks — nothing to race, keeping the seed.")
@@ -233,8 +231,8 @@ def run_bestofn(seed: dict[str, str], tasks: list[dict], frozen: dict[str, str] 
     adapter = SkillAdapter(frozen)
 
     def rollout(components: dict[str, str], ex: dict):
-        system = SERVE_TEMPLATE.format(body=assemble({**(frozen or {}), **components}))
-        return adapter._rollout(system, ex)   # (answer, judge score, trajectory w/ feedback)
+        # adapter.serve renders the one serving contract the held-out A/B also serves
+        return adapter._rollout(adapter.serve(components), ex)   # (answer, score, trajectory)
 
     # wave 1 — seed baseline on every train task at once; its failures brief the authors
     with ThreadPoolExecutor(max_workers=min(_MAX_WORKERS, len(tasks))) as pool:

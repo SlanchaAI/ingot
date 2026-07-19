@@ -28,7 +28,7 @@ MODEL = agent_model()
 
 def strong_model() -> str:
     """Serve a request when no skill matches; optional authoring is separately gated by the MCP
-    server. Defaults to the offline teacher (the GEPA skill author)."""
+    server. Defaults to the offline teacher (the model that authors skills)."""
     return os.environ.get("STRONG_MODEL") or os.environ.get("GEPA_MODEL", "z-ai/glm-5.2")
 
 INSTRUCTIONS = """You are a deep agent. Skill selection has already been performed by the
@@ -70,7 +70,7 @@ def should_escalate(routed: dict) -> bool:
 
 
 def build_agent(tools, instructions: str | None = None, strong: bool = False):
-    """The deep agent, wired to the given tools. Reused by the A/B optimizer and GEPA rollouts,
+    """The deep agent, wired to the given tools. Reused by the A/B and by candidate rollouts,
     which must stay on the weak MODEL (skills are optimized for the model that serves them),
     only the serving entrypoint passes strong=True, for novel tasks with no skill to load."""
     from langchain_openai import ChatOpenAI

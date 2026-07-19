@@ -1,6 +1,8 @@
-"""Unit tests for optimizer pure-logic (no network/LLM): the promotion gate and the
-multi-dimensional judge's failure parsing."""
+"""Unit tests for candidate-generation pure logic (no network/LLM): the promotion gate, the CLI
+contract, and the multi-dimensional judge's failure parsing."""
 import inspect
+
+import pytest
 
 from optimize import ab as ab_mod
 from optimize import judge as judge_mod
@@ -148,7 +150,7 @@ def test_save_pending_archives_a_displaced_cross_pass_challenger(tmp_path, monke
 
 
 def test_length_penalty_is_zero_under_target_and_grows_above():
-    from optimize.gepa_loop import BODY_TARGET_CHARS, LENGTH_PENALTY, length_penalty
+    from optimize.rollout import BODY_TARGET_CHARS, LENGTH_PENALTY, length_penalty
     assert length_penalty("x" * (BODY_TARGET_CHARS // 2)) == 0.0            # concise -> no penalty
     assert length_penalty("x" * BODY_TARGET_CHARS) == 0.0                   # exactly at target -> no penalty
     assert length_penalty("x" * (BODY_TARGET_CHARS * 2)) > 0.0             # bloated -> penalized
@@ -236,14 +238,13 @@ def test_optimize_split_env_can_widen(monkeypatch):
 
 
 def test_optimize_split_rejects_unknown_component(monkeypatch):
-    import pytest
     monkeypatch.setattr(ab_mod, "OPTIMIZE_COMPONENTS", ["bodyy"])
     with pytest.raises(SystemExit, match="bodyy"):
         ab_mod.optimize_split({"description": "d", "body": "b"})
 
 
 def test_skill_adapter_renders_frozen_components():
-    from optimize.gepa_loop import assemble
+    from optimize.rollout import assemble
     frozen, candidate = {"description": "when to use me"}, {"body": "the rules"}
     text = assemble({**frozen, **candidate})
     assert "when to use me" in text and "the rules" in text
@@ -266,7 +267,7 @@ def test_eval_serve_template_injects_body_and_contract():
 
 def test_rollouts_serve_the_exact_serving_contract(monkeypatch):
     from optimize import SERVE_TEMPLATE
-    from optimize import gepa_loop as G
+    from optimize import rollout as R
     captured = {}
 
     class FakeLLM:
@@ -276,23 +277,24 @@ def test_rollouts_serve_the_exact_serving_contract(monkeypatch):
                 content = "an answer"
                 usage_metadata = None
             return Msg()
-    adapter = G.SkillAdapter(frozen={"description": "trigger words"})
+    adapter = R.SkillAdapter(frozen={"description": "trigger words"})
     adapter._llm = FakeLLM()
-    monkeypatch.setattr(G, "judge",
+    monkeypatch.setattr(R, "judge",
                         lambda t, r, a, reference="", check=None, deliverable=None:
                         {"score": 1.0, "feedback": "f", "dimensions": {}})
-    batch = adapter.evaluate([{"task": "t", "rubric": "r"}], {"body": "the rules"})
-    assert batch.scores == [1.0]
-    # inner loop and outer A/B must serve the identical contract text
+    candidate = {"body": "the rules"}
+    answer, score, _ = adapter._rollout(adapter.serve(candidate), {"task": "t", "rubric": "r"})
+    assert (answer, score) == ("an answer", 1.0)
+    # candidate search and the held-out A/B must serve the identical contract text
     assert captured["system"] == SERVE_TEMPLATE.format(
-        body=G.assemble({"description": "trigger words", "body": "the rules"}))
+        body=R.assemble({"description": "trigger words", "body": "the rules"}))
     assert "complete deliverable" in captured["system"]
 
 
 def test_agent_rollout_mode_routes_through_the_scaffold(monkeypatch):
-    from optimize import gepa_loop as G
-    monkeypatch.setattr(G, "GEPA_ROLLOUTS", "agent")
-    monkeypatch.setattr(G, "judge",
+    from optimize import rollout as R
+    monkeypatch.setattr(R, "GEPA_ROLLOUTS", "agent")
+    monkeypatch.setattr(R, "judge",
                         lambda t, r, a, reference="", check=None, deliverable=None:
                         {"score": 0.5, "feedback": "f", "dimensions": {}})
     seen = {}
@@ -301,9 +303,57 @@ def test_agent_rollout_mode_routes_through_the_scaffold(monkeypatch):
         seen["task"] = task
         seen["system_has_contract"] = "complete deliverable" in system
         return "scaffold answer"
-    monkeypatch.setattr(G.SkillAdapter, "_agent_rollout", fake_agent_rollout)
-    adapter = G.SkillAdapter()
+    monkeypatch.setattr(R.SkillAdapter, "_agent_rollout", fake_agent_rollout)
+    adapter = R.SkillAdapter()
     adapter._llm = None  # direct-mode client must not be touched in agent mode
-    batch = adapter.evaluate([{"task": "t1", "rubric": "r"}], {"body": "b"})
-    assert batch.outputs == ["scaffold answer"] and seen["task"] == "t1"
+    answer, _, _ = adapter._rollout(adapter.serve({"body": "b"}), {"task": "t1", "rubric": "r"})
+    assert answer == "scaffold answer" and seen["task"] == "t1"
     assert seen["system_has_contract"]
+
+
+def test_removed_gepa_body_loop_leaves_one_candidate_search():
+    """The sequential GEPA body loop is gone: best-of-N is the only candidate search, and an
+    inherited OPTIMIZE_STRATEGY must say so rather than silently mean nothing."""
+    from optimize import rollout as R
+    assert not hasattr(R, "run_gepa")
+    with pytest.raises(ImportError):
+        import optimize.gepa_loop  # noqa: F401
+    assert "strategy" not in inspect.signature(ab_mod.run_ab).parameters
+
+
+def test_removed_strategy_env_var_is_reported_once(monkeypatch):
+    lines = []
+    monkeypatch.delenv("OPTIMIZE_STRATEGY", raising=False)
+    assert ab_mod.warn_removed_strategy(lines.append) is False and lines == []
+    monkeypatch.setenv("OPTIMIZE_STRATEGY", "gepa")
+    assert ab_mod.warn_removed_strategy(lines.append) is True
+    assert "OPTIMIZE_STRATEGY is no longer read" in lines[0]
+
+
+@pytest.mark.parametrize("flag", ["--scripts", "--gepa", "--skip-gepa", "--strategy"])
+def test_cli_rejects_flags_for_passes_that_do_not_exist(flag):
+    """A flag naming a removed or never-shipped pass must fail the parse, not be quietly ignored.
+    Asserting on the parser rather than the source text is what proves the refusal."""
+    with pytest.raises(SystemExit):
+        ab_mod.parse_args(["pdf", flag])
+
+
+def test_cli_accepts_the_passes_that_do_exist():
+    body = ab_mod.parse_args(["pdf"])
+    assert body.description is False and body.skill == "pdf"
+    assert ab_mod.parse_args(["pdf", "--description"]).description is True
+    assert ab_mod.parse_args(["pdf", "--candidates", "3"]).candidates == 3
+
+
+def test_cli_refuses_a_budget_the_body_pass_would_ignore():
+    """--budget only bounds the routing pass's metric calls. Accepting it on the body pass would
+    promise a limit nothing enforces."""
+    with pytest.raises(SystemExit):
+        ab_mod.parse_args(["pdf", "--budget", "10"])
+    assert ab_mod.parse_args(["pdf", "--description", "--budget", "10"]).budget == 10
+    assert ab_mod.parse_args(["pdf", "--description"]).budget == ab_mod.DEFAULT_ROUTING_BUDGET
+
+
+def test_cli_refuses_both_passes_at_once():
+    with pytest.raises(SystemExit):
+        ab_mod.parse_args(["pdf", "--body", "--description"])

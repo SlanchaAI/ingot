@@ -85,6 +85,20 @@ def parse_skill(md: str, fallback_name: str) -> tuple[dict, str]:
     return meta, m.group(2).strip()
 
 
+def skill_sources(library_root: Path) -> list[Path]:
+    """Every SKILL.md a library root publishes, in a stable order.
+
+    Dot-prefixed directories are skipped: promotion and rollback stage a skill beside the live one
+    as `.<name>.<hex>.stage` / `.previous` / `.rollback`, and those carry a complete SKILL.md.
+    `Path.glob` matches hidden names (unlike a shell), and '.' sorts ahead of every slug, so an
+    abandoned staging directory would otherwise win the duplicate-name check and shadow the live
+    skill. Nothing legitimate publishes a skill from a hidden directory."""
+    if not library_root.exists():
+        return []
+    return sorted(path for path in library_root.glob("*/SKILL.md")
+                  if not path.parent.name.startswith("."))
+
+
 def configured_roots(explicit: Iterable[str | Path] | None = None) -> list[Path]:
     """Canonical skill-library roots. Explicit CLI roots replace the environment configuration."""
     values = list(explicit) if explicit is not None else [
@@ -175,9 +189,7 @@ def load_skills(skills_dir: Path | None = None, *, roots: Iterable[str | Path] |
     skills: list[Skill] = []
     by_name: dict[str, Path] = {}
     for library_root in selected_roots:
-        if not library_root.exists():
-            continue
-        for source_path in sorted(library_root.glob("*/SKILL.md")):
+        for source_path in skill_sources(library_root):
             skill_root = source_path.parent.resolve()
             sk = _contained_file(skill_root, source_path)
             meta, body = parse_skill(sk.read_text(encoding="utf-8", errors="ignore"), skill_root.name)
@@ -209,7 +221,7 @@ def load_skills(skills_dir: Path | None = None, *, roots: Iterable[str | Path] |
     return skills
 
 
-# --- writing / full-skill components (used by create_skill, the optimizer, and promotion) ---
+# --- writing / full-skill components (used by create_skill, candidate generation, and promotion) ---
 
 _TEXT_SUFFIXES = {".md", ".txt", ".py", ".sh", ".js", ".ts", ".json", ".yaml", ".yml", ".toml", ".cfg"}
 
@@ -226,7 +238,7 @@ def write_skill_md(path: Path, meta: dict, body: str) -> None:
 
 def read_components(skill_dir: Path) -> dict[str, str]:
     """Every optimizable text component of a skill: its routing `description`, its SKILL.md `body`,
-    and each bundled text file as `file:<relpath>`. This is the unit GEPA evolves for a full skill."""
+    and each bundled text file as `file:<relpath>`. This is the unit a candidate rewrite works on."""
     skill_root = skill_dir.resolve()
     md_path = _contained_file(skill_root, skill_dir / "SKILL.md")
     meta, body = parse_skill(md_path.read_text(encoding="utf-8", errors="ignore"), skill_dir.name)
@@ -240,11 +252,11 @@ def read_components(skill_dir: Path) -> dict[str, str]:
 
 
 def optimizable_components(skill_dir: Path) -> dict[str, str]:
-    """The components GEPA may rewrite: just the routing `description` and the SKILL.md `body` — what
-    the agent actually loads and what the A/B measures. Bundled files (reference docs, scripts,
-    LICENSE) are deliberately excluded: they aren't served/executed in the A/B, and a text optimizer
-    has no business touching a license or unrun code. write_components leaves them untouched on disk,
-    so they're preserved across a promotion."""
+    """The components a candidate may rewrite: just the routing `description` and the SKILL.md
+    `body`, which is what the agent actually loads and what the A/B measures. Bundled files
+    (reference docs, scripts, LICENSE) are deliberately excluded: they aren't served or executed in
+    the A/B, and a text rewriter has no business touching a license or unrun code. write_components
+    leaves them untouched on disk, so they're preserved across a promotion."""
     c = read_components(skill_dir)
     return {"description": c["description"], "body": c["body"]}
 

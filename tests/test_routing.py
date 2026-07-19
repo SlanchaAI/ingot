@@ -107,3 +107,54 @@ def test_run_routing_auto_drafts_missing_cases(monkeypatch, tmp_path):
     import pytest
     with pytest.raises(RuntimeError, match="drafter invoked"):
         R.run_routing("sk")
+
+
+def test_run_routing_writes_an_evidence_bundle_and_records_relative_paths(monkeypatch, tmp_path):
+    """A routing change is promoted from the same review card as a body change, so it has to ship
+    the same portable bundle rather than a claim that one exists."""
+    import json
+
+    from optimize import promote as P
+    root = tmp_path / "skills"
+    skill = root / "sk"
+    skill.mkdir(parents=True)
+    (skill / "SKILL.md").write_text("---\nname: sk\ndescription: old trigger.\n---\nbody\n")
+    monkeypatch.setenv("SKILL_ROUTER_PATHS", str(root))
+    monkeypatch.setattr(R, "SKILLS_DIR", root)
+    tasks = tmp_path / "tasks"
+    tasks.mkdir()
+    (tasks / "sk.yaml").write_text(
+        "routing:\n  - task: use sk please\n    expected: sk\n  - task: unrelated\n    expected: null\n")
+    monkeypatch.setattr(R, "TASKS_DIR", tasks, raising=False)
+    evidence_root = tmp_path / "runs" / "evidence"
+    monkeypatch.setattr(R, "EVIDENCE_DIR", evidence_root)
+    monkeypatch.setattr(P, "PENDING_DIR", tmp_path / "pending")
+
+    class _Result:
+        best_candidate = {"description": "new trigger."}
+        val_aggregate_scores = [0.5, 0.9]
+        best_idx = 1
+
+    monkeypatch.setattr(R.gepa, "optimize", lambda **kwargs: _Result())
+    monkeypatch.setattr(R, "make_reflection_lm", lambda: None)
+    monkeypatch.setattr(R, "_description_shadows", lambda skill, desc: ("", 0.0))
+    from optimize import ab as A
+    monkeypatch.setattr(A, "_routing_metrics", lambda skill, champ, chall: {
+        "champion": {"top1": 0.5, "recall_at_3": 0.5, "no_route_precision": 1.0},
+        "challenger": {"top1": 1.0, "recall_at_3": 1.0, "no_route_precision": 1.0},
+        "parity": {"rate": 1.0, "total": 2}})
+
+    pending = R.run_routing("sk", log=lambda *a: None)
+
+    bundles = list(evidence_root.glob("sk/*/EVIDENCE.md"))
+    assert len(bundles) == 1
+    recorded = pending["evidence_paths"]
+    # recorded_path is exercised for the in-repo case in test_evidence; here the fixture root is
+    # outside the checkout, so the record must still name the file that was actually written
+    assert recorded["markdown"].endswith(str(bundles[0].relative_to(tmp_path)))
+    assert recorded["json"].endswith("evidence.json")
+    text = bundles[0].read_text()
+    assert "Routing evidence: sk" in text and "PASS" in text
+    data = json.loads(bundles[0].with_name("evidence.json").read_text())
+    assert data["schema_version"] == "skill-router/evidence/routing/v1"
+    assert data["challenger"]["revision"] == pending["evidence"]["challenger"]["revision"]
