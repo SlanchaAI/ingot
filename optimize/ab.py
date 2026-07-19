@@ -469,6 +469,7 @@ def run_ab(skill: str, skip_search: bool = False, challenger_file: str | None = 
         "challenger_components": challenger,
         "harness": "codex",
         "model": agent_model(),
+        "judge": os.environ.get("JUDGE_MODELS") or os.environ.get("JUDGE_MODEL", ""),
         "behavior": {variant: result["behavior"] for variant, result in results.items()},
         "routing_failures": route_failures,
         "routing": route_metrics,

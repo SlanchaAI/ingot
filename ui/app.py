@@ -191,6 +191,7 @@ def pending(skill: str):
     return {"skill": skill, "kind": p.get("kind", "quality"), "inner_loop": _inner_loop(p),
             "ab": p.get("ab"), "routing": p.get("routing"), "dataset": p.get("dataset"),
             "evidence": p.get("evidence_paths"), "stale": _stale_reason(skill, p),
+            "model": p.get("model"), "judge": p.get("judge"),
             "gate": p.get("gate", {"promotable": True, "blocked": []}),
             "changed": [_label(c) for c in p.get("changed_components", [])], "diff": "\n\n".join(blocks)}
 

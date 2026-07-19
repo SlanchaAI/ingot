@@ -152,6 +152,36 @@
   .btn.primary { border-color: var(--rust); background: var(--rust); color: var(--paper); }
   .btn.primary:hover:not(:disabled) { background: var(--rust-2); border-color: var(--rust-2); color: var(--paper); }
   .btn:disabled { opacity: .45; cursor: default; }
+  .btn.danger { border-color: #b3261e; background: #b3261e; color: var(--paper); }
+  .btn.danger:hover:not(:disabled) { background: #8f1d17; border-color: #8f1d17; }
+
+  /* Promotion comparison modal (two-step approve) */
+  .cmp-overlay { position: fixed; inset: 0; background: rgba(20,16,12,.55); z-index: 50;
+    display: flex; align-items: center; justify-content: center; padding: 1.5rem; }
+  .cmp-overlay[hidden] { display: none; }
+  .cmp-modal { background: var(--paper); border: 1px solid var(--line-2); border-radius: 10px;
+    width: min(640px, 96vw); max-height: 90vh; overflow: auto; padding: 1.3rem 1.5rem 1.2rem;
+    box-shadow: 0 20px 60px rgba(20,16,12,.35); }
+  .cmp-head { display: flex; align-items: center; justify-content: space-between; gap: 1rem;
+    font: 600 .95rem/1.3 var(--sans); color: var(--ink); margin-bottom: 1rem; }
+  .cmp-head b { font-family: var(--mono); color: var(--rust); }
+  .cmp-x { border: 0; background: none; font-size: 1.4rem; line-height: 1; color: var(--ink-2);
+    cursor: pointer; padding: 0 .2rem; }
+  .cmp-sec { margin-bottom: 1.1rem; }
+  .cmp-sec h4 { font: 600 .68rem/1 var(--mono); letter-spacing: .06em; text-transform: uppercase;
+    color: var(--ink-2); margin: 0 0 .5rem; }
+  .cmp-kv { display: flex; justify-content: space-between; gap: 1rem; font-size: .82rem;
+    padding: .25rem 0; border-bottom: 1px dotted var(--line); }
+  .cmp-kv code { font-family: var(--mono); color: var(--ink); }
+  .cmp-tbl { width: 100%; border-collapse: collapse; font-size: .82rem; }
+  .cmp-tbl th, .cmp-tbl td { text-align: right; padding: .32rem .5rem; border-bottom: 1px solid var(--line); }
+  .cmp-tbl th:first-child, .cmp-tbl td:first-child { text-align: left; color: var(--ink-2); }
+  .cmp-tbl th { font: 600 .66rem/1 var(--mono); text-transform: uppercase; letter-spacing: .05em;
+    color: var(--ink-2); }
+  .cmp-tbl .win { color: #1a7f37; font-weight: 700; }
+  .cmp-tbl .lose { color: #b3261e; font-weight: 700; }
+  .cmp-pertask { font-family: var(--mono); font-size: .72rem; color: var(--ink-2); text-align: left !important; }
+  .cmp-actions { display: flex; align-items: center; gap: .7rem; margin-top: 1.1rem; flex-wrap: wrap; }
 
   /* ---- skills list ---- */
   .skilllist { margin-top: 1.1rem; border-top: 1px solid var(--line); }
@@ -342,6 +372,20 @@
     <div class="review-actions"><span class="msg" id="pending-msg"></span></div>
   </section>
 
+  <div class="cmp-overlay" id="cmp-overlay" hidden>
+    <div class="cmp-modal" role="dialog" aria-modal="true" aria-labelledby="cmp-title">
+      <div class="cmp-head"><span id="cmp-title">Confirm promotion — <b id="cmp-skill"></b></span>
+        <button class="cmp-x" id="cmp-cancel" aria-label="Close">×</button></div>
+      <div class="cmp-body" id="cmp-body"></div>
+      <div class="cmp-actions">
+        <button class="btn" id="cmp-cancel2">Cancel</button>
+        <button class="btn primary" id="cmp-approve">Approve &amp; promote</button>
+        <button class="btn danger" id="cmp-confirm" hidden>Confirm — promote now</button>
+      </div>
+      <span class="msg" id="cmp-msg"></span>
+    </div>
+  </div>
+
   <section class="band reveal" id="history-section">
     <div class="band-head"><span><span class="n">/</span> HISTORY</span>
       <span class="side">snapshots and audit trail</span></div>
@@ -381,7 +425,7 @@
 
 <script>
 const $ = s => document.querySelector(s);
-let langfuseUrl = "#", currentPending = null;
+let langfuseUrl = "#", currentPending = null, currentPendingData = null;
 let booted = false;  // entrance animations run on first paint only; 3s refreshes stay still
 const REDUCED = matchMedia("(prefers-reduced-motion: reduce)").matches;
 
@@ -671,6 +715,7 @@ async function showPending(skill, {keepMessage = false} = {}) {
     return;
   }
   currentPending = skill;
+  currentPendingData = p;
   $("#pending-card").hidden = false;
   $("#review-empty").hidden = true;
   const creation = p.kind === "creation";
@@ -751,8 +796,59 @@ async function showPending(skill, {keepMessage = false} = {}) {
   if (!creation) showEvidence(skill);
 }
 
-$("#approve").onclick = () => act("#pending-msg", async () =>
-  (await j(`/api/promote/${currentPending}`, {method: "POST"})).result);
+// Approve opens a larger comparison panel (model breakdown, token usage, judge scores) with a
+// two-step confirm, so a promotion is never one careless click.
+const num = x => (x == null ? "—" : Number(x).toFixed(0));
+const sc = x => (x == null ? "—" : Number(x).toFixed(3));
+function delta(before, after, lowerBetter) {
+  if (before == null || after == null) return "";
+  const d = after - before, cls = d === 0 ? "" : ((lowerBetter ? d < 0 : d > 0) ? "win" : "lose");
+  const v = Math.abs(d) % 1 ? d.toFixed(3) : d.toFixed(0);
+  return `<span class="${cls}">${d >= 0 ? "+" : ""}${v}</span>`;
+}
+function buildCompare(p) {
+  const ab = p.ab || {}, c = ab.champion || {}, ch = ab.challenger || {};
+  const ct = c.tokens || {}, cht = ch.tokens || {};
+  const models = `<div class="cmp-sec"><h4>Model breakdown</h4>
+    <div class="cmp-kv"><span>Serving model (runs the skill)</span><code>${esc(p.model || "—")}</code></div>
+    <div class="cmp-kv"><span>Judge (LLM-as-a-judge)</span><code>${esc(p.judge || "—")}</code></div></div>`;
+  const scores = `<div class="cmp-sec"><h4>LLM-as-a-judge score · ${(c.scores || []).length} held-out tasks</h4>
+    <table class="cmp-tbl"><tr><th></th><th>champion</th><th>challenger</th><th>Δ</th></tr>
+      <tr><td>mean</td><td>${sc(c.mean)}</td><td>${sc(ch.mean)}</td><td>${delta(c.mean, ch.mean, false)}</td></tr>
+      <tr><td>per-task</td><td colspan="3" class="cmp-pertask">${(c.scores || []).map(sc).join("  ")}<br>→ ${(ch.scores || []).map(sc).join("  ")}</td></tr>
+    </table></div>`;
+  const tokens = `<div class="cmp-sec"><h4>Token usage / task — before → after</h4>
+    <table class="cmp-tbl"><tr><th></th><th>before</th><th>after</th><th>Δ</th></tr>
+      <tr><td>output</td><td>${num(ct.mean_output)}</td><td>${num(cht.mean_output)}</td><td>${delta(ct.mean_output, cht.mean_output, true)}</td></tr>
+      <tr><td>input</td><td>${num(ct.mean_input)}</td><td>${num(cht.mean_input)}</td><td>${delta(ct.mean_input, cht.mean_input, true)}</td></tr>
+    </table></div>`;
+  return models + scores + tokens;
+}
+function openCompare() {
+  const p = currentPendingData;
+  if (!p) return;
+  $("#cmp-skill").textContent = currentPending;
+  $("#cmp-body").innerHTML = buildCompare(p);
+  $("#cmp-approve").hidden = false;
+  $("#cmp-confirm").hidden = true;
+  say("#cmp-msg", "", false);
+  $("#cmp-overlay").hidden = false;
+}
+function closeCompare() { $("#cmp-overlay").hidden = true; }
+$("#approve").onclick = openCompare;
+$("#cmp-cancel").onclick = closeCompare;
+$("#cmp-cancel2").onclick = closeCompare;
+$("#cmp-approve").onclick = () => {   // step 1 -> reveal the final confirm
+  $("#cmp-approve").hidden = true;
+  $("#cmp-confirm").hidden = false;
+  say("#cmp-msg", "This promotes the challenger and swaps the live skill. Confirm to proceed.", false);
+};
+$("#cmp-confirm").onclick = () => act("#cmp-msg", async () => {
+  const r = (await j(`/api/promote/${currentPending}`, {method: "POST"})).result;
+  closeCompare();
+  say("#pending-msg", r, false);
+  return r;
+});
 $("#reject").onclick = () => act("#pending-msg", async () =>
   (await j(`/api/reject/${currentPending}`, {method: "POST"})).result);
 
