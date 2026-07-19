@@ -30,6 +30,14 @@ def _rotation_due(path: Path, max_bytes: int) -> bool:
     return path.stat().st_size >= max_bytes
 
 
+def configured_trace_files(path: Path, oldest_first: bool = False) -> list[Path]:
+    """Active trace file and configured backups, optionally in chronological file order."""
+    backups = max(0, int(os.environ.get("LOCAL_TRACE_BACKUPS", "3")))
+    rotated = [path.with_name(f"{path.name}.{number}")
+               for number in range(1, backups + 1)]
+    return [*reversed(rotated), path] if oldest_first else [path, *rotated]
+
+
 def _rotate(path: Path) -> None:
     max_bytes = max(0, int(os.environ.get("LOCAL_TRACE_MAX_BYTES", "10485760")))
     backups = max(0, int(os.environ.get("LOCAL_TRACE_BACKUPS", "3")))
@@ -57,7 +65,8 @@ def _parse_trace_record(line: str) -> dict | None:
 
 def _retain_trace_line(line: str, cutoff: int) -> bool:
     record = _parse_trace_record(line)
-    return record is None or record.get("ts", cutoff) >= cutoff
+    timestamp = record.get("ts") if record is not None else None
+    return not isinstance(timestamp, (int, float)) or timestamp >= cutoff
 
 
 def _rewrite_traces(path: Path, lines: list[str]) -> None:
@@ -67,15 +76,24 @@ def _rewrite_traces(path: Path, lines: list[str]) -> None:
     temporary.replace(path)
 
 
-def _expire(path: Path) -> None:
-    days = max(0, int(os.environ.get("LOCAL_TRACE_MAX_AGE_DAYS", "30")))
-    if not path.exists() or not days:
+def _expire_file(path: Path, cutoff: int, remove_empty: bool) -> None:
+    if not path.exists():
         return
-    cutoff = int(time.time()) - days * 86400
     lines = path.read_text().splitlines()
     kept = [line for line in lines if _retain_trace_line(line, cutoff)]
-    if len(kept) != len(lines):
+    if not kept and remove_empty:
+        path.unlink()
+    elif len(kept) != len(lines):
         _rewrite_traces(path, kept)
+
+
+def _expire(path: Path) -> None:
+    days = max(0, int(os.environ.get("LOCAL_TRACE_MAX_AGE_DAYS", "30")))
+    if not days:
+        return
+    cutoff = int(time.time()) - days * 86400
+    for trace_path in configured_trace_files(path):
+        _expire_file(trace_path, cutoff, remove_empty=trace_path != path)
 
 
 def write(task: str, answer: str, tags: list[str]) -> bool:

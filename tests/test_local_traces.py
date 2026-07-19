@@ -32,7 +32,22 @@ def test_local_fallback_honors_limit_and_skips_empty_answers(tmp_path, monkeypat
     records[3]["answer"] = ""                       # judged nothing: not minable
     p.write_text("\n".join(json.dumps(r) for r in records))
     traces = mine_mod.fetch_traces(limit=3)
-    assert [t["task"] for t in traces] == ["t2", "t4"]   # last 3, minus the empty answer
+    assert [t["task"] for t in traces] == ["t1", "t2", "t4"]
+
+
+def test_local_fallback_reads_backups_oldest_to_active_before_limiting(tmp_path, monkeypatch):
+    path = tmp_path / "traces.jsonl"
+    monkeypatch.setenv("TRACES_FILE", str(path))
+    monkeypatch.setenv("LOCAL_TRACE_BACKUPS", "2")
+    _kill_langfuse(monkeypatch)
+    path.with_name("traces.jsonl.2").write_text(json.dumps({"task": "old", "answer": "a"}))
+    path.with_name("traces.jsonl.1").write_text("bad-json\n" + json.dumps(
+        {"task": "middle", "answer": "b"}))
+    path.write_text("[]\n" + json.dumps({"task": "new", "answer": "c"}))
+
+    traces = mine_mod.fetch_traces(limit=2)
+
+    assert [trace["task"] for trace in traces] == ["middle", "new"]
 
 
 def test_missing_local_store_explains_itself(tmp_path, monkeypatch):
@@ -83,6 +98,37 @@ def test_trace_age_retention_prunes_expired_records(tmp_path, monkeypatch):
     monkeypatch.setenv("LOCAL_TRACE_MAX_AGE_DAYS", "1")
     _log_local_trace("current", "b", [])
     assert [json.loads(line)["task"] for line in path.read_text().splitlines()] == ["current"]
+
+
+def test_trace_age_retention_prunes_backups_and_preserves_malformed_lines(tmp_path, monkeypatch):
+    path = tmp_path / "traces.jsonl"
+    backup = path.with_name("traces.jsonl.1")
+    oldest_backup = path.with_name("traces.jsonl.2")
+    backup.write_text("not-json\n[]\n" + json.dumps(
+        {"ts": 1, "task": "expired secret", "answer": "sensitive"}) + "\n" + json.dumps(
+        {"task": "undated", "answer": "preserved"}) + "\n")
+    oldest_backup.write_text(json.dumps(
+        {"ts": 1, "task": "older secret", "answer": "sensitive"}) + "\n")
+    monkeypatch.setenv("TRACES_FILE", str(path))
+    monkeypatch.setenv("LOCAL_TRACE_BACKUPS", "2")
+    monkeypatch.setenv("LOCAL_TRACE_MAX_AGE_DAYS", "1")
+
+    _log_local_trace("current", "answer", [])
+
+    assert backup.read_text().splitlines() == [
+        "not-json", "[]", json.dumps({"task": "undated", "answer": "preserved"})]
+    assert not oldest_backup.exists()
+
+
+def test_trace_retention_failure_does_not_break_serving(tmp_path, monkeypatch, capsys):
+    path = tmp_path / "traces.jsonl"
+    path.write_bytes(b"\xff")
+    monkeypatch.setenv("TRACES_FILE", str(path))
+    monkeypatch.setenv("LOCAL_TRACE_MAX_AGE_DAYS", "1")
+
+    _log_local_trace("current", "answer", [])
+
+    assert "local trace store unavailable" in capsys.readouterr().out
 
 
 @pytest.mark.parametrize("malformed_record", [None, [], "text", 42, 3.5])

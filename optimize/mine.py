@@ -50,24 +50,36 @@ def fetch_traces(limit: int) -> list[dict]:
 def _local_traces(limit: int, err: OSError) -> list[dict]:
     """The last `limit` records of the local JSONL trace store (written by agent/run.py), in
     the same shape fetch_traces returns from Langfuse."""
+    from agent.traces import configured_trace_files
     from optimize import traces_file
     path = traces_file()
-    if not path.exists():
+    paths = [candidate for candidate in configured_trace_files(path, oldest_first=True)
+             if candidate.exists()]
+    if not paths:
         raise SystemExit(f"Langfuse unreachable ({err}) and no local trace store at {path} — "
                          "run the agent first to generate traffic.")
     records = []
-    for line in path.read_text().splitlines():
-        try:
-            record = json.loads(line)
-        except json.JSONDecodeError:
-            continue
-        # Records without schema_version are the original schema and remain supported.
-        if isinstance(record, dict) and record.get("schema_version", 1) == 1:
-            records.append(record)
+    for trace_path in paths:
+        for line in trace_path.read_text().splitlines():
+            try:
+                record = json.loads(line)
+            except json.JSONDecodeError:
+                continue
+            # Records without schema_version are the original schema and remain supported.
+            if _supported_local_record(record):
+                records.append(record)
+    selected = records[-max(0, limit):] if limit > 0 else []
     print(f"[mine] Langfuse unreachable — using local trace store {path} "
-          f"({min(len(records), limit)} of {len(records)} traces)")
+          f"({len(selected)} of {len(records)} usable traces)")
     return [{"task": r["task"], "rubric": r.get("rubric", ""), "answer": r["answer"],
-             "tags": r.get("tags", [])} for r in records[-limit:] if r.get("answer")]
+             "tags": r.get("tags", [])} for r in selected]
+
+
+def _supported_local_record(record) -> bool:
+    """Whether a decoded local record is safe and useful as optimization evidence."""
+    return (isinstance(record, dict) and record.get("schema_version", 1) == 1
+            and isinstance(record.get("task"), str) and bool(record["task"].strip())
+            and isinstance(record.get("answer"), str) and bool(record["answer"].strip()))
 
 
 def _task_answer(inp, ans):
