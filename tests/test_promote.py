@@ -102,6 +102,35 @@ def test_promote_snapshots_previous_revision_and_swaps_challenger(tmp_path, monk
     assert [record["action"] for record in records] == ["approve", "rollback"]
 
 
+def test_approval_succeeds_when_audit_write_fails(tmp_path, monkeypatch, caplog):
+    skill = _library(tmp_path, monkeypatch)
+    pending = _pending(skill)
+    P.save_pending("pdf", pending)
+    monkeypatch.setattr(P, "_audit", lambda *args: (_ for _ in ()).throw(OSError("disk full")))
+
+    result = P.approve_pending("pdf")
+
+    assert "Promoted 'pdf'" in result
+    assert "new body" in (skill / "SKILL.md").read_text()
+    assert not P.pending_path("pdf").exists()
+    assert "audit write failed" in caplog.text
+
+
+def test_rollback_succeeds_when_audit_write_fails(tmp_path, monkeypatch, caplog):
+    skill = _library(tmp_path, monkeypatch)
+    pending = _pending(skill)
+    old_revision = pending["evidence"]["champion"]["revision"]
+    P.save_pending("pdf", pending)
+    P.approve_pending("pdf")
+    monkeypatch.setattr(P, "_audit", lambda *args: (_ for _ in ()).throw(OSError("disk full")))
+
+    result = P.rollback("pdf", old_revision)
+
+    assert "Rolled back" in result
+    assert "old body" in (skill / "SKILL.md").read_text()
+    assert "audit write failed" in caplog.text
+
+
 def test_failed_stage_write_leaves_live_skill_untouched(tmp_path, monkeypatch):
     skill = _library(tmp_path, monkeypatch)
     P.save_pending("pdf", _pending(skill))

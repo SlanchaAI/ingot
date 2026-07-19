@@ -60,6 +60,9 @@ def _expire(path: Path) -> None:
         except json.JSONDecodeError:
             kept.append(line)
             continue
+        if not isinstance(record, dict):
+            kept.append(line)
+            continue
         if record.get("ts", cutoff) >= cutoff:
             kept.append(line)
         else:

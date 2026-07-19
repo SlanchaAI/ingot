@@ -83,3 +83,18 @@ def test_trace_age_retention_prunes_expired_records(tmp_path, monkeypatch):
     monkeypatch.setenv("LOCAL_TRACE_MAX_AGE_DAYS", "1")
     _log_local_trace("current", "b", [])
     assert [json.loads(line)["task"] for line in path.read_text().splitlines()] == ["current"]
+
+
+@pytest.mark.parametrize("malformed_record", [None, [], "text", 42, 3.5])
+def test_trace_age_retention_preserves_non_object_json(tmp_path, monkeypatch, malformed_record):
+    path = tmp_path / "traces.jsonl"
+    original = json.dumps(malformed_record)
+    path.write_text(original + "\n")
+    monkeypatch.setenv("TRACES_FILE", str(path))
+    monkeypatch.setenv("LOCAL_TRACE_MAX_AGE_DAYS", "1")
+
+    _log_local_trace("current", "answer", [])
+
+    lines = path.read_text().splitlines()
+    assert lines[0] == original
+    assert json.loads(lines[1])["task"] == "current"

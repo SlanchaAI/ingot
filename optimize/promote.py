@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import json
+import logging
 import os
 import shutil
 import uuid
@@ -16,6 +17,7 @@ RUNS_DIR = Path(__file__).resolve().parent.parent / "runs"
 PENDING_DIR = RUNS_DIR / "pending"
 REVISIONS_DIR = RUNS_DIR / "revisions"
 COLLISION_SCORE = float(os.environ.get("COLLISION_SCORE", "0.93"))
+logger = logging.getLogger(__name__)
 
 
 def check_slug(skill: str) -> str:
@@ -120,6 +122,17 @@ def _audit(action: str, skill: str, revision: str, actor: str = "local-operator"
         os.write(fd, (json.dumps(record, separators=(",", ":")) + "\n").encode())
     finally:
         os.close(fd)
+
+
+def _audit_best_effort(action: str, skill: str, revision: str, actor: str) -> None:
+    """Record a committed transition without changing its successful outcome."""
+    try:
+        _audit(action, skill, revision, actor)
+    except Exception:
+        logger.warning(
+            "Committed %s for skill %r at revision %s, but the audit write failed",
+            action, skill, revision, exc_info=True,
+        )
 
 
 def _require_promotable(pending: dict) -> None:
@@ -254,7 +267,7 @@ def approve_pending(skill: str, actor: str = "local-operator") -> str:
     else:
         result = _activate_rewrite(skill, pending)
         revision = _current_skill(skill).revision
-    _audit("approve", skill, revision, actor)
+    _audit_best_effort("approve", skill, revision, actor)
     return result
 
 
@@ -301,7 +314,7 @@ def rollback(skill: str, revision: str, actor: str = "local-operator") -> str:
     stage = _stage_rollback(source, skill_dir)
     _swap_rollback(skill_dir, stage)
     restored = _current_skill(skill)
-    _audit("rollback", skill, restored.revision, actor)
+    _audit_best_effort("rollback", skill, restored.revision, actor)
     return f"Rolled back '{skill}' from {current.revision} to {restored.revision}."
 
 
