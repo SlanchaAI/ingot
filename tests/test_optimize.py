@@ -78,6 +78,13 @@ def test_gate_blocks_description_that_regresses_routing():
     assert not ok and any("routing regression" in reason for reason in reasons)
 
 
+def test_gate_blocks_acceptance_violation():
+    # a clean mean win, but a holdout answer violated a hard invariant -> blocked regardless
+    ok, reasons = promotion_gate("pdf", [0.2, 0.2, 0.2], [0.9, 0.9, 0.9], changed=[], challenger={},
+                                 acceptance_violations=["acceptance 'no_init': 1/3 holdout answer(s) matched"])
+    assert not ok and any("acceptance" in reason for reason in reasons)
+
+
 def test_gate_blocks_training_holdout_leakage():
     ok, reasons = promotion_gate("pdf", [0.2, 0.2, 0.2], [0.9, 0.9, 0.9],
                                  changed=[], challenger={}, leakage=True)
@@ -148,7 +155,7 @@ def test_save_pending_archives_a_displaced_cross_pass_challenger(tmp_path, monke
 
 
 def test_length_penalty_is_zero_under_target_and_grows_above():
-    from optimize.gepa_loop import BODY_TARGET_CHARS, LENGTH_PENALTY, length_penalty
+    from optimize.rollout import BODY_TARGET_CHARS, LENGTH_PENALTY, length_penalty
     assert length_penalty("x" * (BODY_TARGET_CHARS // 2)) == 0.0            # concise -> no penalty
     assert length_penalty("x" * BODY_TARGET_CHARS) == 0.0                   # exactly at target -> no penalty
     assert length_penalty("x" * (BODY_TARGET_CHARS * 2)) > 0.0             # bloated -> penalized
@@ -243,7 +250,7 @@ def test_optimize_split_rejects_unknown_component(monkeypatch):
 
 
 def test_skill_adapter_renders_frozen_components():
-    from optimize.gepa_loop import assemble
+    from optimize.rollout import assemble
     frozen, candidate = {"description": "when to use me"}, {"body": "the rules"}
     text = assemble({**frozen, **candidate})
     assert "when to use me" in text and "the rules" in text
@@ -264,9 +271,9 @@ def test_eval_serve_template_injects_body_and_contract():
     assert "# Loaded skill" in text
 
 
-def test_rollouts_serve_the_exact_serving_contract(monkeypatch):
+def test_rollout_serves_the_system_it_is_handed(monkeypatch):
     from optimize import SERVE_TEMPLATE
-    from optimize import gepa_loop as G
+    from optimize import rollout as R
     captured = {}
 
     class FakeLLM:
@@ -276,23 +283,25 @@ def test_rollouts_serve_the_exact_serving_contract(monkeypatch):
                 content = "an answer"
                 usage_metadata = None
             return Msg()
-    adapter = G.SkillAdapter(frozen={"description": "trigger words"})
+    adapter = R.SkillAdapter(frozen={"description": "trigger words"})
     adapter._llm = FakeLLM()
-    monkeypatch.setattr(G, "judge",
+    monkeypatch.setattr(R, "judge",
                         lambda t, r, a, reference="", check=None, deliverable=None:
                         {"score": 1.0, "feedback": "f", "dimensions": {}})
-    batch = adapter.evaluate([{"task": "t", "rubric": "r"}], {"body": "the rules"})
-    assert batch.scores == [1.0]
-    # inner loop and outer A/B must serve the identical contract text
-    assert captured["system"] == SERVE_TEMPLATE.format(
-        body=G.assemble({"description": "trigger words", "body": "the rules"}))
+    # skillopt_loop assembles this exact serving contract before calling _rollout; _rollout must
+    # forward it verbatim so the inner loop and outer A/B serve identical text.
+    system = SERVE_TEMPLATE.format(body=R.assemble({"description": "trigger words", "body": "the rules"}))
+    answer, score, _traj = adapter._rollout(system, {"task": "t", "rubric": "r"})
+    assert (answer, score) == ("an answer", 1.0)
+    assert captured["system"] == system
     assert "complete deliverable" in captured["system"]
 
 
 def test_agent_rollout_mode_routes_through_the_scaffold(monkeypatch):
-    from optimize import gepa_loop as G
-    monkeypatch.setattr(G, "GEPA_ROLLOUTS", "agent")
-    monkeypatch.setattr(G, "judge",
+    from optimize import SERVE_TEMPLATE
+    from optimize import rollout as R
+    monkeypatch.setattr(R, "GEPA_ROLLOUTS", "agent")
+    monkeypatch.setattr(R, "judge",
                         lambda t, r, a, reference="", check=None, deliverable=None:
                         {"score": 0.5, "feedback": "f", "dimensions": {}})
     seen = {}
@@ -301,9 +310,9 @@ def test_agent_rollout_mode_routes_through_the_scaffold(monkeypatch):
         seen["task"] = task
         seen["system_has_contract"] = "complete deliverable" in system
         return "scaffold answer"
-    monkeypatch.setattr(G.SkillAdapter, "_agent_rollout", fake_agent_rollout)
-    adapter = G.SkillAdapter()
+    monkeypatch.setattr(R.SkillAdapter, "_agent_rollout", fake_agent_rollout)
+    adapter = R.SkillAdapter()
     adapter._llm = None  # direct-mode client must not be touched in agent mode
-    batch = adapter.evaluate([{"task": "t1", "rubric": "r"}], {"body": "b"})
-    assert batch.outputs == ["scaffold answer"] and seen["task"] == "t1"
+    answer, score, _traj = adapter._rollout(SERVE_TEMPLATE.format(body="b"), {"task": "t1", "rubric": "r"})
+    assert answer == "scaffold answer" and seen["task"] == "t1"
     assert seen["system_has_contract"]

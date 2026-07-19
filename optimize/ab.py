@@ -1,10 +1,9 @@
 """Optimize a full skill and A/B it: the inner loop turns the skill's components into a challenger
-using parallel best-of-N with racing by default (optimize.bestofn, seconds-scale), or GEPA's
-sequential reflective evolution with --gepa / OPTIMIZE_STRATEGY=gepa. Champion and challenger run through
-the full agent with a local `route_and_load`. Each variant is a Langfuse dataset run (side-by-side
-in the UI); the result is written to runs/pending/<skill>.json for approval in the UI.
+with SkillOpt's reflective training loop (optimize.skillopt_loop). Champion and challenger run
+through the full agent with a local `route_and_load`. Each variant is a Langfuse dataset run
+(side-by-side in the UI); the result is written to runs/pending/<skill>.json for approval in the UI.
 
-Usage: python -m optimize.ab <skill> [--gepa] [--candidates N] [--budget N] [--skip-gepa]
+Usage: python -m optimize.ab <skill> [--budget N] [--skip-opt]
 """
 import argparse
 import asyncio
@@ -24,6 +23,7 @@ from mcp_server.registry import SKILLS_DIR, load_skills, optimizable_components,
 
 from . import agent_model, langfuse_available
 from . import usage as usage_ledger
+from .acceptance import evaluate as acceptance_evaluate, load_criteria as load_acceptance
 from .judge import judge
 from .promote import save_pending
 from .evidence import build_evidence, write_evidence
@@ -38,20 +38,16 @@ PROMOTE_MIN_SAMPLES = int(os.environ.get("PROMOTE_MIN_SAMPLES", "3"))       # mi
 PASS = float(os.environ.get("PROMOTE_PASS_SCORE", "0.5"))                   # a task "passes" at/above this
 COLLISION_SCORE = float(os.environ.get("COLLISION_SCORE", "0.93"))          # route-shadow cutoff
 RETENTION_WARN = float(os.environ.get("RETENTION_WARN", "0.5"))             # body-retention review warning
-# Which components GEPA may mutate. Default: body only — the description is a routing trigger
-# matched by embedding, not instructions the agent reads, so quality optimization has no business
-# there (bare rollouts can't tell the difference and will happily stuff behavior rules into it;
-# the full agent then never sees them). Widen with e.g. OPTIMIZE_COMPONENTS=body,file:reference.md
+# Which components the optimizer may mutate. Default: body only — the description is a routing
+# trigger matched by embedding, not instructions the agent reads, so quality optimization has no
+# business there (bare rollouts can't tell the difference and will happily stuff behavior rules into
+# it; the full agent then never sees them). Widen with e.g. OPTIMIZE_COMPONENTS=body,file:reference.md
 # (bundled text files become mutable AND visible in rollouts) or description,body (the
 # routing-regression gate still applies). Caveat for file components: the A/B never executes or
 # serves them — review those diffs by eye, and keep scripts out unless you have execution-grounded
 # evals.
 OPTIMIZE_COMPONENTS = [c.strip() for c in os.environ.get("OPTIMIZE_COMPONENTS", "body").split(",")
                        if c.strip()]
-# Inner-loop strategy: "parallel" (default) = best-of-N candidates raced concurrently — wall-clock
-# is a few model calls end-to-end; "gepa" = the sequential reflective evolution loop (slower,
-# refines candidates against observed failures — better on mature skills with small headroom).
-OPTIMIZE_STRATEGY = os.environ.get("OPTIMIZE_STRATEGY", "parallel")
 
 EVAL_CACHE_DIR = Path(__file__).resolve().parent.parent / "runs" / "eval-cache"
 
@@ -113,11 +109,13 @@ def promotion_gate(skill: str, champ_scores: list[float], chall_scores: list[flo
                    changed: list[str], challenger: dict,
                    routing_failures: list[str] | None = None,
                    leakage: bool = False,
-                   routing_metrics: dict | None = None) -> tuple[bool, list[str]]:
+                   routing_metrics: dict | None = None,
+                   acceptance_violations: list[str] | None = None) -> tuple[bool, list[str]]:
     """A challenger that merely 'wins the mean' can be reward-hacking a small/noisy eval. Require a
-    real margin, enough samples, no per-task catastrophic regression, and no routing-shadow from a
-    rewritten description. Returns (promotable, reasons-it-was-blocked)."""
-    reasons = []
+    real margin, enough samples, no per-task catastrophic regression, no acceptance-criteria
+    violation on the holdout answers, and no routing-shadow from a rewritten description. Returns
+    (promotable, reasons-it-was-blocked)."""
+    reasons = list(acceptance_violations or [])
     margin = (statistics.mean(chall_scores) if chall_scores else 0.0) - \
              (statistics.mean(champ_scores) if champ_scores else 0.0)
     if margin < PROMOTE_MIN_MARGIN:
@@ -244,6 +242,7 @@ def _run_variant(dataset, variant: str, agent, tasks: list[dict]):
     scores_by_task: dict[str, float] = {}
     usage_by_task: dict[str, dict] = {}
     behavior_by_task: dict[str, list[dict]] = {}
+    answer_by_task: dict[str, str] = {}
 
     async def task_fn(*, item, **kwargs):
         # run_experiment drives its own event loop and awaits async tasks
@@ -252,6 +251,7 @@ def _run_variant(dataset, variant: str, agent, tasks: list[dict]):
             include_behavior=True)
         usage_by_task[item.input["task"]] = usage
         behavior_by_task[item.input["task"]] = behavior
+        answer_by_task[item.input["task"]] = str(answer)
         usage_ledger.add("agent_ab", usage)
         return answer
 
@@ -272,7 +272,8 @@ def _run_variant(dataset, variant: str, agent, tasks: list[dict]):
                                        token_evaluator("input_tokens"), token_evaluator("output_tokens")])
     return ([scores_by_task.get(t["task"], 0.0) for t in tasks],
             [usage_by_task.get(t["task"], {"input_tokens": 0, "output_tokens": 0}) for t in tasks],
-            [behavior_by_task.get(t["task"], []) for t in tasks])
+            [behavior_by_task.get(t["task"], []) for t in tasks],
+            [answer_by_task.get(t["task"], "") for t in tasks])
 
 
 def _run_variant_local(agent, tasks: list[dict]):
@@ -298,7 +299,8 @@ def _run_variant_local(agent, tasks: list[dict]):
     zero = {"input_tokens": 0, "output_tokens": 0}
     return (scores,
             [zero if isinstance(o, BaseException) else o[2] for o in outs],
-            [[] if isinstance(o, BaseException) else o[3] for o in outs])
+            [[] if isinstance(o, BaseException) else o[3] for o in outs],
+            ["" if isinstance(o, BaseException) else str(o[0]) for o in outs])
 
 
 def _eval_variants(dataset, ts: int, champion: dict, challenger: dict, holdout: list[dict],
@@ -311,9 +313,9 @@ def _eval_variants(dataset, ts: int, champion: dict, challenger: dict, holdout: 
         # Guaranteed serving: the variant body is injected into the instructions (see
         # EVAL_SERVE_TEMPLATE) instead of hoping the model fetches it through a tool call.
         agent = build_agent([], instructions=EVAL_SERVE_TEMPLATE.format(body=comps["body"]))
-        scores, usages, behaviors = (_run_variant(dataset, run_name, agent, holdout)
-                                     if dataset is not None
-                                     else _run_variant_local(agent, holdout))
+        scores, usages, behaviors, answers = (_run_variant(dataset, run_name, agent, holdout)
+                                              if dataset is not None
+                                              else _run_variant_local(agent, holdout))
         return {
             "run": run_name, "scores": scores,
             "mean": statistics.mean(scores) if scores else 0.0,  # all items failing must not crash the run
@@ -324,6 +326,7 @@ def _eval_variants(dataset, ts: int, champion: dict, challenger: dict, holdout: 
                 "mean_output": statistics.mean(u["output_tokens"] for u in usages),
             },
             "behavior": behaviors,
+            "answers": answers,
         }
 
     results = {}
@@ -372,8 +375,7 @@ def _holdout_dataset(skill: str, holdout: list[dict], log):
 
 
 def run_ab(skill: str, budget: int = 60, skip_gepa: bool = False,
-           challenger_file: str | None = None,
-           strategy: str | None = None, candidates: int | None = None, log=print) -> dict:
+           challenger_file: str | None = None, log=print) -> dict:
     usage_ledger.reset()
     train, holdout, split = load_tasks(skill)
     skill_dir = SKILLS_DIR / skill
@@ -400,19 +402,10 @@ def run_ab(skill: str, budget: int = 60, skip_gepa: bool = False,
         # rollouts see the frozen description (get_skill serves it) but not frozen files — those
         # are neither mutated nor measured, and pasting them in would only inflate rollout cost
         rollout_frozen = {k: v for k, v in frozen.items() if k == "description"}
-        effective = (strategy or OPTIMIZE_STRATEGY).lower()
-        if effective == "gepa":
-            log(f"[gepa] optimizing '{skill}' (components: {sorted(seed)}; frozen: {sorted(frozen)}) "
-                f"on {len(train)} train tasks (budget {budget} metric calls)…")
-            from .gepa_loop import run_gepa
-            best, seed_score, best_score = run_gepa(seed, train, max_metric_calls=budget,
-                                                    frozen=rollout_frozen)
-        else:
-            log(f"[bestofn] optimizing '{skill}' (components: {sorted(seed)}; frozen: "
-                f"{sorted(frozen)}) on {len(train)} train tasks (parallel best-of-N + racing)…")
-            from .bestofn import run_bestofn
-            best, seed_score, best_score = run_bestofn(seed, train, frozen=rollout_frozen,
-                                                       candidates=candidates, log=log)
+        log(f"[skillopt] optimizing '{skill}' (components: {sorted(seed)}; frozen: {sorted(frozen)}) "
+            f"on {len(train)} train tasks (SkillOpt reflective training loop)…")
+        from .skillopt_loop import run_skillopt
+        best, seed_score, best_score = run_skillopt(seed, train, frozen=rollout_frozen, log=log)
         challenger = {**champion, **best}
         log(f"[opt] inner-loop score: seed {seed_score:.3f} -> best {best_score:.3f}")
         changed = [k for k in champion if challenger.get(k, "").strip() != champion[k].strip()]
@@ -445,10 +438,17 @@ def run_ab(skill: str, budget: int = 60, skip_gepa: bool = False,
     changed = [k for k in champion if challenger.get(k, "").strip() != champion[k].strip()]
     route_failures = _routing_failures(skill, challenger, holdout) if "description" in changed else []
     route_metrics = _routing_metrics(skill, champion, challenger) if "description" in changed else None
+    # Deterministic invariants on the challenger's holdout answers — a hard gate that the LLM
+    # judge's mean score can't override (grounds the judge the same way execcheck does).
+    acceptance_violations = acceptance_evaluate(
+        load_acceptance(skill, TASKS_DIR), results["challenger"].get("answers", []))
     promotable, blocked = promotion_gate(skill, results["champion"]["scores"],
                                          results["challenger"]["scores"], changed, challenger,
                                          routing_failures=route_failures, leakage=split["leakage"],
-                                         routing_metrics=route_metrics)
+                                         routing_metrics=route_metrics,
+                                         acceptance_violations=acceptance_violations)
+    if acceptance_violations:
+        log(f"[ab] ⛔ acceptance criteria violated: {'; '.join(acceptance_violations)}")
     warnings = retention_warnings(champion, challenger, changed, len(results["challenger"]["scores"]))
     summary = {
         "skill": skill, "improved": wins, "created": ts,
@@ -456,7 +456,8 @@ def run_ab(skill: str, budget: int = 60, skip_gepa: bool = False,
         "ab": {v: {"run": r["run"], "mean": r["mean"], "scores": r["scores"], "tokens": r["tokens"]}
                for v, r in results.items()},
         "dataset": ds_name,
-        "gate": {"promotable": promotable, "blocked": blocked, "warnings": warnings},
+        "gate": {"promotable": promotable, "blocked": blocked, "warnings": warnings,
+                 "acceptance_violations": acceptance_violations},
         "changed_components": changed,
         "champion_components": champion,
         "challenger_components": challenger,
@@ -518,14 +519,11 @@ if __name__ == "__main__":
                         help="routing pass over the description (embedding-scored inner loop)")
     passes.add_argument("--scripts", action="store_true",
                         help="not yet supported — needs execution-grounded evals")
-    ap.add_argument("--gepa", action="store_true",
-                    help="use the sequential GEPA reflective loop instead of the default "
-                         "parallel best-of-N (also: OPTIMIZE_STRATEGY=gepa)")
-    ap.add_argument("--candidates", type=int, default=None,
-                    help="parallel strategy: candidates to author and race (default 5; "
-                         "also OPTIMIZE_CANDIDATES)")
-    ap.add_argument("--budget", type=int, default=60, help="GEPA max metric calls (--gepa only)")
-    ap.add_argument("--skip-gepa", action="store_true", help="debug: A/B champion vs itself")
+    ap.add_argument("--budget", type=int, default=60,
+                    help="routing pass (--description) metric-call budget; the body loop is "
+                         "configured via SKILLOPT_EPOCHS / SKILLOPT_MINIBATCH / SKILLOPT_MAX_EDITS")
+    ap.add_argument("--skip-opt", dest="skip_gepa", action="store_true",
+                    help="debug: A/B champion vs itself (skip the inner optimizer)")
     ap.add_argument("--challenger-file", help="reuse a checkpointed inner-loop result, skip to the A/B")
     args = ap.parse_args()
     if args.scripts:
@@ -543,5 +541,4 @@ if __name__ == "__main__":
         run_routing(args.skill, budget=args.budget)
     else:
         run_ab(args.skill, budget=args.budget,
-               skip_gepa=args.skip_gepa, challenger_file=args.challenger_file,
-               strategy="gepa" if args.gepa else None, candidates=args.candidates)
+               skip_gepa=args.skip_gepa, challenger_file=args.challenger_file)

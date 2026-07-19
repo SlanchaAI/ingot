@@ -231,38 +231,33 @@ investigate, not a verdict; the optimizer's own gate runs on rubrics.
 Write an eval task set for the skill (`optimize/tasks/tailwind.yaml`) with train and holdout tasks
 whose rubrics carry the v4 ground truth (the teacher can also auto-draft one on a skill's first
 CLI optimize run). Then open **http://localhost:8080** and click **Optimize**. The optimizer
-authors several candidate bodies in parallel, races them on the train tasks, and A/Bs the winner
+trains the skill body with SkillOpt's reflective loop on the train tasks, then A/Bs the result
 against the champion through the full agent on the held-out tasks (about two minutes, a few
 cents). The same run works headless: `docker compose run --rm optimize tailwind`. Our run:
 
 ```
-[bestofn] research brief reused from cache (eca23a52979eadc6.json)
-[bestofn] seed scores 0.033 on 6 train tasks; authoring 5 candidates in parallel…
-[bestofn] race round 1/6 (Set up Tailwind CSS v4 in a Vite project. What do …): 3 candidate(s) advance, 2 dropped
-[bestofn] race round 2/6 (Add a custom color `brand` (#7c3aed) in Tailwind v…): 2 candidate(s) advance, 1 dropped
-[bestofn] race settled to 2 finalist(s) after round 2; scored the remaining 4 task(s) in one wave
-[bestofn] winner: candidate 1 at 1.000 (seed 0.033)
+[skillopt] seed: hard 0.000 soft 0.033 gate 0.017 (mixed) on 6 train tasks; 2 epoch(s), minibatch 3, ≤3 edits/step
+[skillopt] step 1: accept_new_best (2 edit(s)) — gate 0.520
+[skillopt] step 2: rejected (3 edit(s)) — buffered
+[skillopt] step 3: accept_new_best (1 edit(s)) — gate 0.883
+[skillopt] winner after 4 step(s): gate 0.883 (seed 0.017)
 [ab] champion: mean judge score 0.133  [0.0, 0.2, 0.2, 0.0, 0.2, 0.2]
 [ab] challenger: mean judge score 0.767  [0.7, 0.9, 1.0, 0.9, 0.9, 0.2]
 [ab] champion 0.133 vs challenger 0.767 -> CHALLENGER WINS
 [ab] output tokens/task: 1278 -> 1032 (-246)
   estimated cost: $0.04 (OpenRouter list prices)
-[ab] ⚠ challenger drops 100% of the champion body, gated on only 6 held-out task(s) - review the deletions carefully
 [ab] pending approval written to /app/runs/pending/tailwind.json - review + promote at http://localhost:8080
 ```
 
-Read what happened. The stub scored 0.033 in bare rollouts, and because its correctness failures
-looked like knowledge gaps, the authors were briefed with one shared web-research pass (cached, so
-repeat runs cost zero extra searches). That research step is optional: it fires only if you set
-`TAVILY_API_KEY`, and without one the run works identically minus the brief. What it buys you is
-facts that postdate the author model's training — exactly what a version-drift skill like this
-needs, since otherwise the rewrite can only be as current as the author's own knowledge (see
-[Optimization strategies](#optimization-strategies)). The winner distilled a full v4 body. On the held-out A/B
-through the real agent, the stub champion scored 0.133: a small serving model follows the loaded
-v3 advice straight into wrong answers, so a stale body actively hurts. The challenger scored
-0.767, a +0.63 margin that clears the default promotion bar (+0.15) with room to spare, and it
-answers with fewer tokens. The ⚠ retention warning is the review system doing its job: this
-challenger replaced the whole body, so a human looks at the diff before anything ships.
+Read what happened. The stub scored 0.033 in bare rollouts. SkillOpt's loop reflected on the
+failing minibatches, proposed bounded edits to the body, and kept only the ones that improved the
+held-out selection score — step 2's edits didn't, so they were rejected and their content was
+buffered so later reflections wouldn't re-propose them. The accepted edits distilled a v4 body. On
+the held-out A/B through the real agent, the stub champion scored 0.133: a small serving model
+follows the loaded v3 advice straight into wrong answers, so a stale body actively hurts. The
+challenger scored 0.767, a +0.63 margin that clears the default promotion bar (+0.15) with room to
+spare, and it answers with fewer tokens. A human still approves the diff in the UI before anything
+ships.
 
 The size of the win tracks the serving model: **body-pass wins concentrate where the body carries
 knowledge the serving model doesn't have** (weak or older models, internal tools, your
@@ -412,7 +407,12 @@ judge, not to get better. Guards close the obvious paths:
    +0.15), enough samples (`PROMOTE_MIN_SAMPLES`), and no catastrophic per-task regression.
 3. **No routing hacks.** A rewritten `description` is re-checked against every other skill's; a
    rewrite that shadows another skill (cosine ≥ `COLLISION_SCORE`) is blocked.
-4. **Execution-grounded judging, sandboxed by default.** For code tasks, `execcheck.py` parses the
+4. **Deterministic acceptance criteria.** A skill's task YAML can carry an `acceptance:` list of
+   `forbid` regexes — hard invariants every held-out answer must satisfy (e.g. a Tailwind v4 skill
+   whose answer must never emit the v3 `@tailwind base/components/utilities` directives). A
+   challenger that wins the judge's mean but trips one is blocked regardless of score, grounding
+   the subjective judge with a check it can't be talked out of.
+5. **Execution-grounded judging, sandboxed by default.** For code tasks, `execcheck.py` parses the
    code and hands the judge a verdict it must treat as ground truth. By default
    (`EXEC_SANDBOX=docker`) the code also runs in a throwaway locked-down container: no network, no
    mounts, read-only rootfs, `nobody` user, all capabilities dropped, memory/pid/cpu limits. If
@@ -421,10 +421,10 @@ judge, not to get better. Guards close the obvious paths:
    `EXEC_SANDBOX=1` is the legacy bare-subprocess mode; `EXEC_SANDBOX=off` disables execution. A
    task can also ship a `check:` spec (fixture + assert) in its task YAML for artifact-verified
    execution; a broken fixture counts as inconclusive, never against the answer.
-5. **Length penalty.** The objective subtracts a penalty for a bloated body.
-6. **Deletions need evidence.** A challenger that drops most of the champion body (retention below
+6. **Length penalty.** The objective subtracts a penalty for a bloated body.
+7. **Deletions need evidence.** A challenger that drops most of the champion body (retention below
    `RETENTION_WARN`) gets a ⚠ warning in the review UI with the retention number and sample count.
-7. **Blocked means blocked.** A challenger that wins the mean but fails the gate is still recorded
+8. **Blocked means blocked.** A challenger that wins the mean but fails the gate is still recorded
    for diagnosis, but the UI refuses approval and shows the exact reasons.
 
 ```
@@ -454,9 +454,11 @@ Set in `.env` (never committed):
 | `LENGTH_PENALTY` | `0.10` | max score subtracted for a very long body |
 | `LOOP_HEALTH_THRESHOLD` | `0.7` | autopilot re-optimizes skills whose mined mean score is below this |
 | `LOOP_PASSES` | `body` | passes the loop runs per unhealthy skill, in order (e.g. `body,description`) |
-| `OPTIMIZE_STRATEGY` | `parallel` | inner-loop strategy: `parallel` (best-of-N + racing) or `gepa` (see [Optimization strategies](#optimization-strategies)) |
-| `OPTIMIZE_CANDIDATES` | `5` | parallel strategy: candidate rewrites per run |
-| `TAVILY_API_KEY` | (none) | optional author-side web research during the parallel pass |
+| `SKILLOPT_EPOCHS` | `2` | body-pass optimizer: passes over the train set (see [Optimization](#optimization-the-body-pass-loop)) |
+| `SKILLOPT_MINIBATCH` | `3` | train tasks reflected on per step |
+| `SKILLOPT_MAX_EDITS` | `3` | ceiling on edits applied per step (the learning-rate cap) |
+| `SKILLOPT_GATE_METRIC` | `mixed` | inner accept/reject metric: `hard`, `soft`, or `mixed` |
+| `SKILLOPT_GATE_MIXED_WEIGHT` | `0.5` | weight on soft (mean-judge) when metric is `mixed` |
 | `GEPA_ROLLOUTS` | `direct` | `direct` (one call under the serving contract) or `agent` (full scaffold per rollout, ~10× cost) |
 | `RETENTION_WARN` | `0.5` | review warning when the challenger keeps less than this fraction of the champion body |
 | `OPTIMIZE_COMPONENTS` | `body` | what may be rewritten; add `description` or `file:<path>` entries |
@@ -475,35 +477,30 @@ Promotion-gate knobs (`PROMOTE_MIN_MARGIN`, `PROMOTE_MIN_SAMPLES`, `COLLISION_SC
 `JUDGE_MODELS`) are covered in
 [Keeping the optimizer honest](#keeping-the-optimizer-honest-anti-reward-hacking).
 
-### Optimization strategies
+### Optimization: the body-pass loop
 
-Both strategies feed the same held-out A/B and promotion gate.
+The body pass trains the skill body with **[SkillOpt](https://github.com/microsoft/SkillOpt)**'s
+reflective loop (Yang et al., arXiv:2605.23904; MIT, © Microsoft) — the skill document is treated
+as trainable state and improved like a model is trained: epochs, minibatches, a learning rate, and
+a validation gate, with no change to the serving model's weights. Per step
+(`optimize/skillopt_loop.py`):
 
-**`parallel` (default)**: best-of-N with racing (`optimize/bestofn.py`). The seed is rolled out on
-every train task at once and its judge feedback becomes the failure brief, sharpened by a one-call
-diagnostic report that attributes each failure to the skill sections responsible, typed as
-missing / insufficient / incorrect (the SkillForge paper's Skill Diagnostician); N candidate
-rewrites (`OPTIMIZE_CANDIDATES`) are drafted in parallel, each steered by a different angle — one
-of them always the paper's minimal-additive-edit "Do No Harm" discipline, so a clean-diff
-candidate competes in every race; then successive halving over the train tasks drops the bottom
-half each round. The winner's cumulative
-mean (minus the length penalty) must beat the seed. Minutes, not tens of minutes, on ~15 rollouts.
+1. **Reflect** on the failing minibatch and propose bounded edits (append / insert_after / replace /
+   delete), with a step buffer of prior failures and *rejected* edits fed back in so the optimizer
+   stops re-proposing what the gate already threw out.
+2. **Clip** the edit pool to a top-L budget the optimizer picks itself (the autonomous learning
+   rate), keeping diffs minimal and reviewable.
+3. **Gate**: apply the edits, roll the candidate out on the held-out selection tasks, and accept it
+   only if it strictly improves the `hard` / `soft` / `mixed` metric (`SKILLOPT_GATE_METRIC`). An
+   epoch-end slow/meta step consolidates the whole epoch's change.
 
-**`gepa`** (`--gepa`, or `OPTIMIZE_STRATEGY=gepa`): the sequential reflective loop
-(`optimize/gepa_loop.py`): propose, evaluate, reflect on observed failures, propose again, under a
-`--budget` of metric calls (default 60). Slower and costlier, but each candidate is informed by
-the failures of earlier candidates; worth it on mature skills where headroom is small.
-
-The champion's held-out A/B results are cached in `runs/eval-cache/`, keyed by (skill revision,
-holdout tasks, serving model, judge), so repeat runs against an unchanged champion only pay for
-the challenger's side.
-
-**Optional author-side web research** (`TAVILY_API_KEY`): when the seed's failures look like
-knowledge gaps, the parallel pass runs one web research step and hands every author the same
-brief. Research is author-only (the judge never sees it), one shared brief per run, cached
-content-addressed in `runs/research-cache/`. Note the trust boundary: searched content flows into
-a skill body that becomes an agent's system prompt; the human review gate on every promotion is
-what stands between the web and your library.
+All SkillOpt code is imported from the pinned `skillopt` package and funnelled through the single
+seam `optimize/skillopt_bridge.py` (with its prompts vendored under `optimize/skillopt_prompts/`);
+that module and directory are the only things to touch when upgrading the dependency. The loop only
+produces the challenger — the leakage-clean held-out A/B and promotion gate below remain the
+promotion authority, and their results are cached in `runs/eval-cache/`, keyed by (skill revision,
+holdout tasks, serving model, judge), so repeat runs against an unchanged champion only pay for the
+challenger's side.
 
 ### Writing eval task sets
 
@@ -582,8 +579,9 @@ One gotcha: `LANGFUSE_BASE_URL` must be reachable from inside the containers (no
   escalates truly novel tasks to `STRONG_MODEL`, which can queue reusable candidates for review.
 - **`skills/<name>/SKILL.md`**: YAML `description` is the routing key; the body is what the agent
   loads.
-- **`optimize/`**: trace mining (`mine.py`), multi-dimensional LLM judge (`judge.py`), two
-  inner-loop strategies (`bestofn.py`, `gepa_loop.py`), A/B + revisioned evidence (`ab.py`),
+- **`optimize/`**: trace mining (`mine.py`), multi-dimensional LLM judge (`judge.py`), the SkillOpt
+  body-pass loop (`skillopt_loop.py` + `skillopt_bridge.py`) and shared rollout infra (`rollout.py`),
+  the routing/description pass (`routing.py`), A/B + revisioned evidence (`ab.py`),
   staged approval with rollback (`promote.py`), token ledger (`usage.py`). Optimizers only write
   pending records. A/B agents get mutation tools stripped. The mining, categorized-failure, and
   failure-diagnosis ideas (plus the minimal-edit author angle) are borrowed from

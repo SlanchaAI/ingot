@@ -12,10 +12,13 @@ langgraph>=0.2.60,<2
 langchain-mcp-adapters>=0.1.0,<1
 langchain-openai>=0.2.10,<2
 
-# Tracing + skill optimization (GEPA A/B) + approval UI
+# Tracing + skill optimization + approval UI
 langfuse>=4.14,<5
-gepa==0.1.1
-litellm>=1.60,<2   # gepa's reflection LM plumbing (openrouter/... model strings)
+skillopt==0.2.0    # body-pass optimizer: SkillOpt's held-out gate, patch-edit application, and
+                   # update-mode helpers (microsoft/SkillOpt, MIT). Pinned exact — the loop matches
+                   # this release's API; bump deliberately (see optimize/skillopt_bridge.py).
+gepa==0.1.1        # still used by the routing/description pass only (optimize/routing.py)
+litellm>=1.60,<2   # reflection-LM transport (openrouter/... model strings), shared by both passes
 fastapi>=0.115,<1
 uvicorn>=0.30,<1
 

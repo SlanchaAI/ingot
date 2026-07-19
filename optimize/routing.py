@@ -18,7 +18,7 @@ from mcp_server.router import Router
 
 from . import usage as usage_ledger
 from .ab import COLLISION_SCORE, TASKS_DIR, _description_shadows
-from .gepa_loop import make_reflection_lm
+from .rollout import make_reflection_lm
 from .promote import save_pending
 
 _DIAGNOSIS = ("The `description` is a routing trigger matched by embedding similarity against the "

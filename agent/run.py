@@ -63,7 +63,7 @@ def build_agent(tools, instructions: str = INSTRUCTIONS, strong: bool = False):
                            **client_kwargs(teacher_base_url(), key=api_key()))
     else:
         model = ChatOpenAI(model=MODEL, temperature=0,
-                           **client_kwargs(model_base_url(), key=model_api_key()))
+                           **client_kwargs(model_base_url(), key=model_api_key(), reasoning=True))
     return create_deep_agent(model=model, tools=tools, system_prompt=instructions)
 
 
