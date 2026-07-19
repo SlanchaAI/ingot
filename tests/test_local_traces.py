@@ -40,3 +40,46 @@ def test_missing_local_store_explains_itself(tmp_path, monkeypatch):
     _kill_langfuse(monkeypatch)
     with pytest.raises(SystemExit, match="no local trace store"):
         mine_mod.fetch_traces(limit=10)
+
+
+def test_trace_opt_out_redaction_schema_permissions_and_rotation(tmp_path, monkeypatch):
+    path = tmp_path / "private" / "traces.jsonl"
+    monkeypatch.setenv("TRACES_FILE", str(path))
+    monkeypatch.setenv("LOCAL_TRACE_ENABLED", "false")
+    _log_local_trace("task", "answer", [])
+    assert not path.exists()
+
+    monkeypatch.setenv("LOCAL_TRACE_ENABLED", "true")
+    monkeypatch.setenv("LOCAL_TRACE_MAX_BYTES", "1")
+    monkeypatch.setenv("LOCAL_TRACE_BACKUPS", "1")
+    _log_local_trace("token=top-secret", "password=hunter2", ["demo"])
+    first = json.loads(path.read_text())
+    assert first["schema_version"] == 1
+    assert "top-secret" not in str(first) and "hunter2" not in str(first)
+    assert path.stat().st_mode & 0o777 == 0o600
+    assert path.parent.stat().st_mode & 0o777 == 0o700
+    _log_local_trace("next", "answer", [])
+    assert path.with_name("traces.jsonl.1").exists()
+
+
+def test_local_reader_accepts_original_and_versioned_records_and_skips_bad_lines(
+        tmp_path, monkeypatch):
+    path = tmp_path / "traces.jsonl"
+    monkeypatch.setenv("TRACES_FILE", str(path))
+    _kill_langfuse(monkeypatch)
+    path.write_text('\n'.join([
+        json.dumps({"task": "old", "answer": "a", "tags": []}),
+        "not-json",
+        json.dumps({"schema_version": 1, "task": "new", "answer": "b", "tags": []}),
+        json.dumps({"schema_version": 99, "task": "future", "answer": "c", "tags": []}),
+    ]))
+    assert [record["task"] for record in mine_mod.fetch_traces(10)] == ["old", "new"]
+
+
+def test_trace_age_retention_prunes_expired_records(tmp_path, monkeypatch):
+    path = tmp_path / "traces.jsonl"
+    path.write_text(json.dumps({"ts": 1, "task": "expired", "answer": "a", "tags": []}) + "\n")
+    monkeypatch.setenv("TRACES_FILE", str(path))
+    monkeypatch.setenv("LOCAL_TRACE_MAX_AGE_DAYS", "1")
+    _log_local_trace("current", "b", [])
+    assert [json.loads(line)["task"] for line in path.read_text().splitlines()] == ["current"]

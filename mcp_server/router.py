@@ -7,6 +7,7 @@ A stronger model like Qwen3-Embedding-0.6B belongs on the GPU/vLLM path, not thi
 from __future__ import annotations
 import os
 import sys
+import threading
 from pathlib import Path
 
 import numpy as np
@@ -18,13 +19,25 @@ _MODEL = os.environ.get("EMBED_MODEL", "BAAI/bge-small-en-v1.5")
 
 
 class Router:
+    _vector_cache: dict[tuple[str, str], np.ndarray] = {}
+    _cache_lock = threading.Lock()
+
     def __init__(self, skills: list[Skill]):
         self.skills = skills
         self._embed = TextEmbedding(model_name=_MODEL)
         if not skills:  # empty library — don't normalize an empty matrix
             self._mat = np.zeros((0, 0), dtype=np.float32)
             return
-        mat = np.array(list(self._embed.embed([s.description for s in skills])), dtype=np.float32)
+        keys = [(_MODEL, skill.description) for skill in skills]
+        with self._cache_lock:
+            missing = list(dict.fromkeys(key for key in keys if key not in self._vector_cache))
+        if missing:
+            vectors = self._embed.embed([description for _, description in missing])
+            with self._cache_lock:
+                for key, vector in zip(missing, vectors):
+                    self._vector_cache[key] = np.asarray(vector, dtype=np.float32)
+        with self._cache_lock:
+            mat = np.array([self._vector_cache[key] for key in keys], dtype=np.float32)
         self._mat = mat / (np.linalg.norm(mat, axis=1, keepdims=True) + 1e-8)
 
     def nearest(self, text: str) -> tuple[str, float]:
@@ -124,9 +137,11 @@ class Router:
             for skill, candidate_score in conflict_free[1:3]
         ]
         if score < min_score:
+            related = [{"name": top.name, "score": round(score, 3),
+                        "reason": f"best compatible candidate; cosine {score:.3f}"}, *alternatives]
             return {**empty, "score": round(score, 3),
                     "reason": f"best compatible score {score:.3f} below threshold {min_score:.3f}",
-                    "alternatives": alternatives, "novel": score < related_score}
+                    "alternatives": related[:3], "novel": score < related_score}
         return {
             "match": top.name,
             "score": round(score, 3),

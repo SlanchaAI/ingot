@@ -1,3 +1,5 @@
+import json
+
 import pytest
 
 from mcp_server.registry import load_skills, optimizable_components, parse_skill, skill_revision
@@ -90,6 +92,14 @@ def test_promote_snapshots_previous_revision_and_swaps_challenger(tmp_path, monk
     assert not P.pending_path("pdf").exists()
     assert old_revision in result
     assert load_skills(skill.parent)[0].revision == pending["evidence"]["challenger"]["revision"]
+    audit = json.loads((tmp_path / "approval-audit.jsonl").read_text())
+    assert audit["action"] == "approve" and audit["skill"] == "pdf"
+
+    result = P.rollback("pdf", old_revision)
+    assert "old body" in (skill / "SKILL.md").read_text()
+    assert "Rolled back" in result
+    records = [json.loads(line) for line in (tmp_path / "approval-audit.jsonl").read_text().splitlines()]
+    assert [record["action"] for record in records] == ["approve", "rollback"]
 
 
 def test_failed_stage_write_leaves_live_skill_untouched(tmp_path, monkeypatch):

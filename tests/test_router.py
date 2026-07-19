@@ -41,6 +41,27 @@ def test_nearest_empty_router_is_safe():
     assert Router([]).nearest("anything") == ("", 0.0)
 
 
+def test_router_reuses_description_vectors_across_refreshes(monkeypatch):
+    import numpy as np
+    import mcp_server.router as router_mod
+    calls = []
+
+    class FakeEmbedding:
+        def __init__(self, model_name):
+            pass
+
+        def embed(self, texts):
+            calls.append(list(texts))
+            return iter(np.array([1.0, 0.0], dtype=np.float32) for _ in texts)
+
+    monkeypatch.setattr(router_mod, "TextEmbedding", FakeEmbedding)
+    router_mod.Router._vector_cache.clear()
+    skills = [SKILLS[0], SKILLS[1]]
+    router_mod.Router(skills)
+    router_mod.Router(skills)
+    assert calls == [[skill.description for skill in skills]]
+
+
 def _skill(name, description, **metadata):
     defaults = {
         "harnesses": ["claude", "codex"], "platforms": ["macos", "linux", "windows"],
@@ -74,6 +95,7 @@ def test_route_returns_clean_no_match_below_threshold():
     assert result["match"] is None
     assert result["skill_body"] == "" and result["skill_root"] is None
     assert "threshold" in result["reason"]
+    assert result["alternatives"][0]["name"] == "pdf"
 
 
 def test_route_novel_flag_signals_weak_strong_escalation():

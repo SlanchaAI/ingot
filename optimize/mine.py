@@ -54,7 +54,15 @@ def _local_traces(limit: int, err: OSError) -> list[dict]:
     if not path.exists():
         raise SystemExit(f"Langfuse unreachable ({err}) and no local trace store at {path} — "
                          "run the agent first to generate traffic.")
-    records = [json.loads(line) for line in path.read_text().splitlines() if line.strip()]
+    records = []
+    for line in path.read_text().splitlines():
+        try:
+            record = json.loads(line)
+        except json.JSONDecodeError:
+            continue
+        # Records without schema_version are the original schema and remain supported.
+        if isinstance(record, dict) and record.get("schema_version", 1) == 1:
+            records.append(record)
     print(f"[mine] Langfuse unreachable — using local trace store {path} "
           f"({min(len(records), limit)} of {len(records)} traces)")
     return [{"task": r["task"], "rubric": r.get("rubric", ""), "answer": r["answer"],
@@ -149,12 +157,23 @@ def _select_candidates(traces: list[dict], scores: list[float], skill: str, log=
         m = np.array(list(embedder.embed(texts)), dtype=np.float32)
         return m / np.linalg.norm(m, axis=1, keepdims=True)
 
-    vecs = norm_embed([t["task"] for t in traces])
-    difficulty = 1.0 - np.asarray(scores, dtype=np.float32)
+    # Collapse exact and formatting-only duplicates before semantic coverage selection. Keep the
+    # lowest-scoring occurrence because it provides the strongest failure evidence.
+    canonical = lambda text: " ".join(text.casefold().split())
+    representatives = {}
+    for index, trace in enumerate(traces):
+        key = canonical(trace["task"])
+        if key not in representatives or scores[index] < scores[representatives[key]]:
+            representatives[key] = index
+    indices = list(representatives.values())
+    if len(indices) != len(traces):
+        log(f"[mine] {len(traces) - len(indices)} duplicate candidate(s) collapsed")
+    vecs = norm_embed([traces[i]["task"] for i in indices])
+    difficulty = 1.0 - np.asarray([scores[i] for i in indices], dtype=np.float32)
     dupes = _train_dupes(vecs, skill, norm_embed, log)
     if dupes is not None:
         difficulty[dupes] = -1.0
-    return _greedy_pick(difficulty, vecs, MINED_CANDIDATES)
+    return [indices[i] for i in _greedy_pick(difficulty, vecs, MINED_CANDIDATES)]
 
 
 def mine(skill: str, limit: int = 50, log=print) -> dict:

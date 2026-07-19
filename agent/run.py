@@ -31,29 +31,45 @@ def strong_model() -> str:
     server. Defaults to the offline teacher (the GEPA skill author)."""
     return os.environ.get("STRONG_MODEL") or os.environ.get("GEPA_MODEL", "z-ai/glm-5.2")
 
-INSTRUCTIONS = """You are a deep agent with access to a skill router over MCP.
-For every task, first call `suggest_skills`, then decide from what it returns. Only ever call
-`get_skill` with a name that `suggest_skills` returned — never guess skill names.
+INSTRUCTIONS = """You are a deep agent. Skill selection has already been performed by the
+compatible router. Follow the loaded skill below when one is present. Never call suggestion or
+loading tools to replace the router's decision.
 
-- If it returns a **direct match** (entries with no `related` flag): call `get_skill` on the top one,
-  read it, and follow it.
-- If it returns only **`related: true`** entries (no direct match): load the closest with `get_skill`
-  and *compose or extend* it into your solution rather than authoring a duplicate.
-- If it returns an **empty list** (nothing even related — a truly novel task): solve it from your own
-  knowledge, then before your final answer you MUST call `create_skill` exactly once to attempt to
-  persist a reusable skill distilled from your solution (description = one paragraph starting "Use
+If the routing result says this is a novel task, solve it from your own knowledge, then before your
+final answer call `create_skill` exactly once to attempt to persist a reusable skill distilled from
+your solution (description = one paragraph starting "Use
   this skill when..."; body = the general method/steps, not the specifics of this one request).
   This queues an inactive candidate for human review and must not affect the answer.
 
-Prefer reusing/extending an existing skill over creating a new one. Keep the final answer concise.
-Your final answer must contain the complete deliverable itself — e.g. full runnable code inline —
-never just a description of, or reference to, files you created in your workspace: the user cannot
+{routing_context}
+
+Prefer reusing an existing skill over creating a new one. Keep the final answer concise.
+Your final answer must contain the complete deliverable itself, e.g. full runnable code inline,
+never just a description of or reference to files you created in your workspace: the user cannot
 see your workspace."""
 
 
-def build_agent(tools, instructions: str = INSTRUCTIONS, strong: bool = False):
+def instructions_for_route(routed: dict) -> str:
+    """Render the canonical route result into the serving prompt without re-routing in the model."""
+    if routed.get("match"):
+        context = (f"# Loaded skill: {routed['match']}\n\n{routed.get('skill_body', '')}")
+    elif routed.get("novel"):
+        context = "# Routing result\n\nNovel task. No compatible or related skill is available."
+    else:
+        names = ", ".join(item["name"] for item in routed.get("alternatives", [])) or "none"
+        context = ("# Routing result\n\nNo compatible skill cleared the serving threshold. "
+                   f"Related compatible alternatives (not loaded): {names}.")
+    return INSTRUCTIONS.format(routing_context=context)
+
+
+def should_escalate(routed: dict) -> bool:
+    """Model selection is derived exclusively from the canonical compatible route."""
+    return bool(routed.get("novel"))
+
+
+def build_agent(tools, instructions: str | None = None, strong: bool = False):
     """The deep agent, wired to the given tools. Reused by the A/B optimizer and GEPA rollouts,
-    which must stay on the weak MODEL (skills are optimized for the model that serves them) —
+    which must stay on the weak MODEL (skills are optimized for the model that serves them),
     only the serving entrypoint passes strong=True, for novel tasks with no skill to load."""
     from langchain_openai import ChatOpenAI
     from deepagents import create_deep_agent
@@ -64,7 +80,8 @@ def build_agent(tools, instructions: str = INSTRUCTIONS, strong: bool = False):
     else:
         model = ChatOpenAI(model=MODEL, temperature=0,
                            **client_kwargs(model_base_url(), key=model_api_key()))
-    return create_deep_agent(model=model, tools=tools, system_prompt=instructions)
+    return create_deep_agent(model=model, tools=tools,
+                             system_prompt=instructions or INSTRUCTIONS.format(routing_context=""))
 
 
 def langfuse_config(tags: list[str] | None = None, trace_id: str | None = None) -> dict:
@@ -136,7 +153,7 @@ async def run_task(agent, task: str, config: dict | None = None, include_behavio
     return result + (behavior_events(messages),) if include_behavior else result
 
 
-_AGENT_TOOL_DENYLIST = {"list_skills", "route_and_load"}
+_AGENT_TOOL_DENYLIST = {"list_skills", "suggest_skills", "get_skill", "route_and_load"}
 
 
 async def _connect(retries: int = 20, delay: float = 1.5):
@@ -158,17 +175,18 @@ async def main(task: str):
     print(f"TASK: {task}")
     print("=" * 64)
 
-    # 1) Proposed skills — one FastMCP client session; `.data` is the parsed result, no
-    # content-block plumbing. route_and_load supplies the routed skill@revision for trace tags.
+    # 1) One canonical route call; `.data` is the parsed result with no content-block plumbing.
     from fastmcp import Client
     async with Client(MCP_URL) as client:
-        proposals = (await client.call_tool("suggest_skills", {"task": task, "k": 5})).data
         routed = (await client.call_tool(
             "route_and_load", {"task": task, "harness": "claude", "cwd": "/app"})).data
-    print("\nPROPOSED SKILLS (MCP suggest_skills):")
+    proposals = ([{"name": routed["match"], "score": routed["score"],
+                   "description": routed["reason"]}] if routed.get("match") else [])
+    proposals.extend(routed.get("alternatives", []))
+    print("\nCOMPATIBLE ROUTE (MCP route_and_load):")
     for proposal in proposals:
-        tag = " (related — compose/extend)" if proposal.get("related") else ""
-        print(f"  {proposal.get('score', 0):>6}  {proposal.get('name')}{tag} — "
+        tag = " (related, compose/extend)" if proposal.get("related") else ""
+        print(f"  {proposal.get('score', 0):>6}  {proposal.get('name')}{tag}: "
               f"{str(proposal.get('description'))[:72]}")
 
     from optimize import openrouter_key_missing
@@ -178,17 +196,15 @@ async def main(task: str):
         print("        MODEL_BASE_URL at a local vLLM/Ollama endpoint — no key needed).")
         return
 
-    # 2) Deep agent autonomously loads a skill via get_skill and solves. No proposals at all
-    # (not even related) means the agent will attempt to propose a new skill, so escalate to the
-    # strong model. Persistence is independently controlled by the MCP server's opt-in write flag.
-    escalate = not proposals
+    # 2) Serve the body selected above. Only the route's novel flag escalates to the strong model.
+    escalate = should_escalate(routed)
     if escalate:
         print(f"\nSERVING MODEL: {strong_model()} (strong: no skill matched)")
     else:
         print(f"\nSERVING MODEL: {MODEL}")
-    agent = build_agent(await _connect(), strong=escalate)
+    agent = build_agent(await _connect(), instructions=instructions_for_route(routed), strong=escalate)
     # Trace tags: plain skill name feeds mine.py's relevance filter, revision=name@rev pins the
-    # exact version served, novel marks strong-model escalations — the convention documented for
+    # exact version served, novel marks strong-model escalations, the convention documented for
     # external harnesses (README: Tracing from your own harness).
     tags = ["demo", "novel"] if escalate else ["demo"]
     if routed.get("match"):
@@ -196,9 +212,14 @@ async def main(task: str):
         if routed.get("revision"):
             tags.append(f"revision={routed['match']}@{routed['revision']}")
     final, loaded, usage = await run_task(agent, task, config=langfuse_config(tags=tags))
+    if routed.get("match"):
+        identity = routed["match"]
+        if routed.get("revision"):
+            identity += f"@{routed['revision']}"
+        loaded = [identity]
     _log_local_trace(task, final, tags)
 
-    print(f"\nLOADED SKILLS (MCP get_skill): {loaded or '(none)'}")
+    print(f"\nLOADED SKILLS (MCP route_and_load): {loaded or '(none)'}")
     print(f"TOKENS: {usage['input_tokens']} in / {usage['output_tokens']} out")
     print("\nRESULT:")
     print(final)
@@ -211,19 +232,12 @@ async def main(task: str):
 
 
 def _log_local_trace(task: str, answer: str, tags: list[str]) -> None:
-    """Append the run to the local JSONL trace store, the zero-infrastructure record that keeps
-    optimize-mine working when the Langfuse stack isn't running. Written unconditionally: with
-    Langfuse on it doubles as a plain-text backup; failures never break the serving path."""
-    import time
-    from optimize import traces_file
+    """Append to the optional local JSONL store without letting trace failures break serving."""
+    from agent.traces import write
     try:
-        path = traces_file()
-        path.parent.mkdir(parents=True, exist_ok=True)
-        with path.open("a") as f:
-            f.write(json.dumps({"ts": int(time.time()), "task": task,
-                                "answer": answer, "tags": tags}) + "\n")
-    except OSError as e:
-        print(f"[agent] local trace store unavailable ({e}) — run not recorded locally")
+        write(task, answer, tags)
+    except (OSError, ValueError) as e:
+        print(f"[agent] local trace store unavailable ({e}), run not recorded locally")
 
 
 if __name__ == "__main__":

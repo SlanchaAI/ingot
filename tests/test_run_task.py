@@ -115,7 +115,7 @@ def test_build_agent_strong_flag_selects_model_and_endpoint(monkeypatch):
     monkeypatch.setenv("STRONG_MODEL", "strong/model")
 
     agent = run_mod.build_agent([])
-    assert agent == {"prompt": run_mod.INSTRUCTIONS}
+    assert agent == {"prompt": run_mod.INSTRUCTIONS.format(routing_context="")}
     assert captured == {"model": run_mod.MODEL, "base_url": "http://weak:8000/v1",
                         "api_key": "weak-key"}
 
@@ -158,3 +158,19 @@ def test_serving_contract_requires_inline_deliverables():
     for contract in (INSTRUCTIONS, EVAL_INSTRUCTIONS):
         assert "final answer must contain the complete deliverable" in contract
         assert "cannot" in contract and "workspace" in contract
+
+
+def test_canonical_route_controls_body_and_weak_strong_escalation():
+    from agent.run import instructions_for_route, should_escalate
+    matched = {"match": "pdf", "skill_body": "trusted compatible body", "novel": False,
+               "alternatives": [{"name": "other"}]}
+    prompt = instructions_for_route(matched)
+    assert "trusted compatible body" in prompt
+    assert should_escalate(matched) is False
+
+    # An unconstrained suggestion may exist, but an incompatible canonical route remains novel.
+    incompatible_suggestions = [{"name": "codex-only", "score": 0.99}]
+    routed = {"match": None, "skill_body": "", "alternatives": [], "novel": True}
+    assert incompatible_suggestions
+    assert should_escalate(routed) is True
+    assert "codex-only" not in instructions_for_route(routed)

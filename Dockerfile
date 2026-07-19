@@ -1,9 +1,10 @@
-FROM python:3.12-slim
+FROM python:3.12-slim-bookworm
 
 WORKDIR /app
 
 COPY requirements.txt .
-RUN pip install --no-cache-dir -r requirements.txt
+RUN pip install --no-cache-dir pip==26.1.2 \
+    && pip install --no-cache-dir -r requirements.txt
 
 # Static docker CLI only (no daemon): execcheck's EXEC_SANDBOX=docker mode launches its throwaway
 # sandbox containers through the host daemon (the compose optimize services mount the socket).
