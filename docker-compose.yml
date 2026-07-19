@@ -82,6 +82,22 @@ services:
     # no langfuse-web dependency: mining falls back to the local trace store without the stack
     profiles: ["optimize"]
 
+  # Cross-model skill compatibility: run a skill's held-out tasks through several serving models
+  # (skill vs no-skill) and report per-model lift: `docker compose run --rm optimize-compat tailwind`
+  # Set COMPAT_MODELS=modelA,modelB,... in .env. Langfuse-free (local rollout + judge).
+  optimize-compat:
+    build: .
+    entrypoint: ["python", "-m", "optimize.compat"]
+    env_file:
+      - path: .env
+        required: false
+    volumes:
+      - ./skills:/app/skills
+      - ./runs:/app/runs                       # writes the compatibility matrix to runs/compat/
+      - ./optimize/tasks:/app/optimize/tasks   # held-out task sets (auto-drafted if missing)
+      - /var/run/docker.sock:/var/run/docker.sock  # EXEC_SANDBOX=docker launches locked-down sandbox containers
+    profiles: ["optimize"]
+
   # Background loop: mine health, propose changes for the failing skills, leave them quarantined
   # for review: `docker compose run --rm optimize-loop`
   optimize-loop:
