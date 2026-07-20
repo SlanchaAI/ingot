@@ -69,7 +69,9 @@ def test_sandbox_catches_runtime_code_error(monkeypatch):
 
 
 def test_sandbox_treats_missing_fixture_as_inconclusive(monkeypatch):
-    # a missing input file is the environment's fault, not the code's -> inconclusive, not punished
+    # a missing input file is the environment's fault, not the code's -> inconclusive, not punished.
+    # "runtime_error" is check()'s name for the inconclusive bucket (check_with_fixture() spells the
+    # same concept "inconclusive"); a genuine code defect would be "code_error" instead.
     monkeypatch.setattr(E, "EXEC_MODE", "1")
     monkeypatch.setattr(E, "EXEC_SANDBOX", True)
     assert E.check("```python\nopen('/no/such/fixture_zzz.pdf', 'rb')\n```")["status"] == "runtime_error"
