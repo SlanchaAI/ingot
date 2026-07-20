@@ -21,6 +21,7 @@ gepa==0.1.1       # the description (routing) pass's reflective loop
 litellm==1.93.0   # teacher-model plumbing (openrouter/... model strings)
 fastapi==0.139.2
 uvicorn==0.51.0
+pyjwt[crypto]>=2,<3   # OIDC ID-token validation (ui/oidc.py); the SSO/RBAC flow will also use authlib
 
 # tests
 pytest==9.1.1

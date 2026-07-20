@@ -3,11 +3,17 @@
 Status: proposed (with the decision-independent RBAC core landed) · Scope: UI authentication +
 authorization for a shared/enterprise deployment.
 
-> **Already on this branch:** the provider-agnostic authorization core — `ui/rbac.py` (roles,
-> claim→role mapping, `authorize`, and OIDC-claims→identity parsing) with unit tests
-> (`tests/test_rbac.py`). It needs no IdP and no decision below, so it is built and tested now. The
-> OIDC browser flow, provider integration, and endpoint wiring remain deferred pending the open
-> decisions.
+> **Already on this branch** (decision-independent, IdP-free, fully unit-tested):
+> - **Authorization core** — `ui/rbac.py`: roles, `parse_role_map`, `role_from_claims`, `authorize`,
+>   and OIDC-claims→identity parsing (`tests/test_rbac.py`).
+> - **ID-token validation primitive** — `ui/oidc.py` `verify_id_token` (signature via JWKS, `iss`,
+>   `aud`, `exp`/`iat`, `nonce`), plus the **layer-2 test harness** `tests/conftest.FakeIdp` that
+>   forges RS256 tokens against an in-memory JWKS. Tested valid + expired / wrong-aud / wrong-iss /
+>   bad-signature / unknown-kid / nonce-mismatch, and end-to-end forge→verify→role (`tests/test_oidc.py`).
+>
+> What remains (deferred pending the open decisions + real test tenants): the OIDC **browser flow**
+> (redirect / callback / signed session), **discovery + JWKS fetch/caching**, and **endpoint wiring**
+> (`require_role` on the routes, session identity feeding `identity_from_claims`).
 
 Follow-up to the minimal LAN password auth (PR #24). That work made approvals *attributable* — the
 authenticated user is written as the audit `actor` on promote/reject/rollback. This spec takes the
