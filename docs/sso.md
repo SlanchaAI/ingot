@@ -111,6 +111,14 @@ teammate machine (or with `curl --resolve` before the DNS record exists):
 curl -sk -o /dev/null -w '%{redirect_url}\n' https://ingot.corp.example/auth/login
 ```
 
+No DNS record or hosts entry yet? Fake it from a container (`--add-host` writes the container's
+`/etc/hosts`, so nothing on the host changes):
+
+```bash
+docker run --rm --add-host ingot.corp.example:<box-lan-ip> curlimages/curl \
+  -sk -o /dev/null -w '%{redirect_url}\n' https://ingot.corp.example/auth/login
+```
+
 This must print an `https://accounts.google.com/...` URL whose `redirect_uri` parameter is exactly
 your `OIDC_REDIRECT_URL`; if Google later shows `redirect_uri_mismatch`, the URI in the Google
 client and this value differ.
