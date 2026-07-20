@@ -36,6 +36,7 @@ services:
       - "127.0.0.1:8000:8000"          # MCP streamable-HTTP, localhost only (see README: Network exposure)
     volumes:
       - ./skills:/app/skills # promoted skills must reach the running server (hot reload)
+      - ./runs:/app/runs     # usage counts (runs/skill_usage.json) must reach the host runs/ the ui reads
 
   agent:
     build: .

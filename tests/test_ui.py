@@ -103,6 +103,46 @@ def test_reject_discards_pending(client):
     assert P.load_pending("pdf") is None
 
 
+def test_reject_of_a_missing_pending_is_404(client):
+    assert P.load_pending("pdf") is None
+    assert client.post("/api/reject/pdf").status_code == 404
+
+
+def test_reject_records_a_reject_audit_entry(client):
+    """A rejection is a decision the trail has to show, with the challenger revision when the
+    pending record carries one (approve/rollback already audit; reject used to write nothing)."""
+    P.save_pending("pdf", {"skill": "pdf", "champion_components": {}, "challenger_components": {},
+                           "evidence": {"challenger": {"revision": "abc123"}}})
+    assert client.post("/api/reject/pdf").status_code == 200
+    trail = client.get("/api/history").json()["audit"]["records"]
+    assert [r["action"] for r in trail] == ["reject"]
+    assert trail[0]["skill"] == "pdf" and trail[0]["revision"] == "abc123"
+
+
+def test_reject_audits_an_empty_revision_when_none_is_recorded(client):
+    P.save_pending("pdf", {"skill": "pdf", "champion_components": {}, "challenger_components": {}})
+    assert client.post("/api/reject/pdf").status_code == 200
+    trail = client.get("/api/history").json()["audit"]["records"]
+    assert [r["action"] for r in trail] == ["reject"] and trail[0]["revision"] == ""
+
+
+def test_auth_me_is_a_200_unauthenticated_shape_in_password_mode(client):
+    """The frontend polls /auth/me on every load; the default (non-OIDC) config must answer 200
+    with a stable shape rather than 404."""
+    r = client.get("/auth/me")
+    assert r.status_code == 200
+    assert r.json() == {"authenticated": False, "email": "", "name": "", "role": ""}
+
+
+def test_compose_mcp_service_mounts_the_runs_directory():
+    """The mcp service records skill usage into runs/skill_usage.json; without the runs mount that
+    write stays inside the ephemeral container and the board always reads 0 uses."""
+    import yaml
+    from pathlib import Path
+    compose = yaml.safe_load((Path(__file__).resolve().parents[1] / "docker-compose.yml").read_text())
+    assert "./runs:/app/runs" in compose["services"]["mcp"]["volumes"]
+
+
 def test_skills_list_empty_library(client):
     r = client.get("/api/skills")
     assert r.status_code == 200
