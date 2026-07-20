@@ -170,7 +170,32 @@ def test_pending_exposes_model_and_judge_for_the_comparison_panel(client):
                "challenger": {"mean": 0.8, "scores": [0.8], "tokens": {"mean_output": 90, "mean_input": 180}}}})
     p = client.get("/api/pending/pdf").json()
     assert p["model"] == "qwen/qwen3-32b" and p["judge"] == "google/gemini-2.5-flash"
-    assert p["ab"]["challenger"]["tokens"]["mean_output"] == 90   # the panel reads before/after tokens
+    # the panel reads model/judge, both means, per-task scores, and before/after tokens
+    assert p["ab"]["challenger"]["tokens"]["mean_output"] == 90
+    assert p["ab"]["challenger"]["tokens"]["mean_input"] == 180
+    assert p["ab"]["champion"]["scores"] == [0.2] and p["ab"]["challenger"]["scores"] == [0.8]
+
+
+def test_comparison_panel_controls_are_in_the_page(client):
+    """The two-step approve panel (Approve -> comparison -> final Approve -> Confirm) must ship in
+    the served page, with the confirm button nested inside the modal overlay."""
+    layout = _Layout(client.get("/").text)
+    for element_id in ("cmp-overlay", "cmp-body", "cmp-approve", "cmp-confirm", "cmp-cancel"):
+        assert element_id in layout.ancestors, f"comparison panel missing #{element_id}"
+    assert "cmp-overlay" in layout.ancestors["cmp-confirm"]
+
+
+def test_api_skills_rows_carry_a_load_count(client, monkeypatch):
+    """Every active skill row exposes `uses` so the UI can render the load-counter chip."""
+    import ui.app as ui_app
+    from mcp_server import usage_counts
+
+    class _Skill:
+        name, description, revision = "pdf", "merge PDFs", "rev1"
+    monkeypatch.setattr(ui_app, "load_skills", lambda: [_Skill()])
+    monkeypatch.setattr(usage_counts, "load_counts", lambda: {"pdf": 7})
+    active = [r for r in client.get("/api/skills").json() if not r.get("creation")]
+    assert active and active[0]["uses"] == 7
 
 
 def test_pending_reads_legacy_gepa_scores(client):
