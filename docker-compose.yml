@@ -153,9 +153,19 @@ services:
       MCP_URL: http://mcp:8000/mcp
       # Change-control UI login (HTTP Basic). Defaults to admin/ingot so the shared UI is gated out
       # of the box, CHANGE AUTH_PASSWORD in .env before exposing it beyond your own LAN. Set
-      # AUTH_PASSWORD= (empty) to run the UI open.
+      # AUTH_PASSWORD= (empty) to run the UI open. For Sign in with Google instead, set AUTH_MODE=oidc
+      # and the OIDC_* / SESSION_SECRET vars in .env (passed through below); see docs/sso.md.
       AUTH_USER: ${AUTH_USER-admin}
       AUTH_PASSWORD: ${AUTH_PASSWORD-ingot}
+      AUTH_MODE: ${AUTH_MODE-}
+      OIDC_ISSUER: ${OIDC_ISSUER-}
+      OIDC_CLIENT_ID: ${OIDC_CLIENT_ID-}
+      OIDC_CLIENT_SECRET: ${OIDC_CLIENT_SECRET-}
+      OIDC_REDIRECT_URL: ${OIDC_REDIRECT_URL-}
+      OIDC_ALLOWED_DOMAINS: ${OIDC_ALLOWED_DOMAINS-}
+      OIDC_ROLE_MAP: ${OIDC_ROLE_MAP-}
+      OIDC_ROLE_CLAIM: ${OIDC_ROLE_CLAIM-}
+      SESSION_SECRET: ${SESSION_SECRET-}
       LANGFUSE_BASE_URL: ${LANGFUSE_BASE_URL:-http://langfuse-web:3000}
       LANGFUSE_PUBLIC_KEY: ${LANGFUSE_PUBLIC_KEY:-pk-lf-local-demo}
       LANGFUSE_SECRET_KEY: ${LANGFUSE_SECRET_KEY:-sk-lf-local-demo}

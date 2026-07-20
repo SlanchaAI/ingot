@@ -22,6 +22,8 @@ litellm==1.93.0   # teacher-model plumbing (openrouter/... model strings)
 fastapi==0.139.2
 uvicorn==0.51.0
 pyjwt[crypto]>=2.10,<3   # OIDC ID-token validation (ui/oidc.py); >=2.10 reliably rejects future-iat/strict-aud
+itsdangerous==2.2.0      # signs the OIDC session cookie (Starlette SessionMiddleware, ui/oidc_flow.py)
+httpx==0.28.1            # OIDC discovery / JWKS / token exchange (ui/oidc_flow.py); also used by tests
 
 # tests
 pytest==9.1.1
