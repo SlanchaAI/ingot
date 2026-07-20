@@ -1,7 +1,7 @@
 """Tier-1 embedding router: embed every skill's description once, then suggest the top-k skills for a
-task by cosine similarity. CPU-only via fastembed (ONNX) — no GPU, so the demo is `docker compose up`.
+task by cosine similarity. CPU-only via fastembed (ONNX), no GPU, so the demo is `docker compose up`.
 
-Model is `EMBED_MODEL` (default bge-small — fast + tiny). Any fastembed model works, e.g.
+Model is `EMBED_MODEL` (default bge-small, fast + tiny). Any fastembed model works, e.g.
 `BAAI/bge-large-en-v1.5` (1024-dim, more accurate) at ~10x the per-query and index-build cost on CPU.
 A stronger model like Qwen3-Embedding-0.6B belongs on the GPU/vLLM path, not this portable CPU demo."""
 from __future__ import annotations
@@ -25,7 +25,7 @@ class Router:
     def __init__(self, skills: list[Skill]):
         self.skills = skills
         self._embed = TextEmbedding(model_name=_MODEL)
-        if not skills:  # empty library — don't normalize an empty matrix
+        if not skills:  # empty library, don't normalize an empty matrix
             self._mat = np.zeros((0, 0), dtype=np.float32)
             return
         keys = [(_MODEL, skill.description) for skill in skills]
@@ -41,7 +41,7 @@ class Router:
         self._mat = mat / (np.linalg.norm(mat, axis=1, keepdims=True) + 1e-8)
 
     def nearest(self, text: str) -> tuple[str, float]:
-        """The most similar existing skill to `text` and its cosine score — used to reject a new
+        """The most similar existing skill to `text` and its cosine score, used to reject a new
         skill whose description near-duplicates (shadows) an existing one's routing."""
         if not self.skills:
             return "", 0.0
@@ -170,7 +170,7 @@ class Router:
               related_score: float = 0.45) -> dict:
         """Filter compatible skills, rank them locally, and return at most one instruction body.
         `novel` is the escalation signal for the calling harness: True when nothing compatible is
-        even related (best score below `related_score`) — the case where a weak/strong setup should
+        even related (best score below `related_score`), the case where a weak/strong setup should
         serve with the strong model, then queue a candidate for human review."""
         harness = harness.lower()
         ranked = self._eligible_ranking(

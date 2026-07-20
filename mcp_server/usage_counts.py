@@ -1,4 +1,4 @@
-"""Per-skill load counter: how often each skill's instructions were actually served — a `get_skill`
+"""Per-skill load counter: how often each skill's instructions were actually served, a `get_skill`
 load or a `route_and_load` match (a `suggest_skills` impression does not count). The MCP server
 increments it; the review UI reads it. Persisted to runs/skill_usage.json. Best-effort throughout:
 a counter failure must never break serving."""

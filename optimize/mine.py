@@ -1,10 +1,10 @@
-"""Success/failure mining — the SkillForge paper's Failure Analyzer over *our* real traces.
+"""Success/failure mining, the SkillForge paper's Failure Analyzer over *our* real traces.
 
 Pulls logged agent runs from Langfuse, keeps the ones attributable to the skill being mined
-(tagged with it, or ranking it in the embedding top-k for the task text — which also catches
+(tagged with it, or ranking it in the embedding top-k for the task text, which also catches
 traffic the skill *should* have served but didn't route), re-judges each outcome with the
 multi-dimensional judge, and aggregates which failure dimensions (correctness / completeness /
-instruction-following / efficiency) dominate — turning accumulated operational evidence into a
+instruction-following / efficiency) dominate, turning accumulated operational evidence into a
 diagnosis of where a skill is weak, plus the weakest real tasks as mined eval candidates. This is
 the signal that drives targeted optimization (the paper: Liu et al., "SkillForge: Forging
 Domain-Specific, Self-Evolving Agent Skills", arXiv:2604.08618).
@@ -56,11 +56,11 @@ def _local_traces(limit: int, err: OSError) -> list[dict]:
     path = traces_file()
     paths = _local_trace_paths(path, configured_trace_files)
     if not paths:
-        raise SystemExit(f"Langfuse unreachable ({err}) and no local trace store at {path} — "
+        raise SystemExit(f"Langfuse unreachable ({err}) and no local trace store at {path}, "
                          "run the agent first to generate traffic.")
     records = [record for trace_path in paths for record in _decode_local_trace(trace_path)]
     selected = _select_local_traces(records, limit)
-    print(f"[mine] Langfuse unreachable — using local trace store {path} "
+    print(f"[mine] Langfuse unreachable, using local trace store {path} "
           f"({len(selected)} of {len(records)} usable traces)")
     return [_local_trace_output(record) for record in selected]
 
@@ -105,7 +105,7 @@ def _supported_local_record(record) -> bool:
 
 def _task_answer(inp, ans):
     """(task, rubric, answer) from either trace shape: eval runs log a {task, rubric} input and a
-    plain-string answer; live agent runs traced by the LangChain callback log LangGraph state —
+    plain-string answer; live agent runs traced by the LangChain callback log LangGraph state ,
     {'messages': [...]} on both sides. Returns None for anything else (or an empty answer)."""
     if isinstance(inp, dict) and inp.get("task") and isinstance(ans, str) and ans.strip():
         return inp["task"], inp.get("rubric", ""), ans
@@ -124,8 +124,8 @@ def _task_answer(inp, ans):
 def relevant_traces(traces: list[dict], skill: str, k: int = 5) -> list[dict]:
     """Traces attributable to `skill`: tagged with it (external harnesses tag the
     routed skill), or ranking it in the embedding top-k for the task text. The rank check is what
-    catches traffic the skill *should* have served but didn't route — under-triggering, the common
-    routing failure — which a tag filter alone would attribute to the wrong skill."""
+    catches traffic the skill *should* have served but didn't route, under-triggering, the common
+    routing failure, which a tag filter alone would attribute to the wrong skill."""
     from mcp_server.registry import load_skills
     from mcp_server.router import Router
     router = Router(load_skills())
@@ -245,7 +245,7 @@ def mine(skill: str, limit: int = 50, log=print) -> dict:
     total = len(traces)
     traces = relevant_traces(traces, skill)
     if not traces:
-        raise SystemExit(f"No traces relevant to '{skill}' among the last {total} — run the agent "
+        raise SystemExit(f"No traces relevant to '{skill}' among the last {total}, run the agent "
                          "on matching traffic first (or check the skill name).")
     log(f"[mine] {len(traces)}/{total} recent traces relevant to '{skill}' "
         f"(tagged with it, or ranking it in the embedding top-5)")

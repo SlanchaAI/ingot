@@ -2,7 +2,7 @@
 
 Deliberately narrow: we hard-reject only *low-false-positive* signals. We do NOT denylist shell
 commands, `.env`/credential mentions, or `curl | sh`, because legitimate skills routinely contain
-code, install steps, and secret-handling guidance — scanning for those would break real skills.
+code, install steps, and secret-handling guidance, scanning for those would break real skills.
 The residual risk (a skill is followed instructions) is covered by the README threat model: run the
 agent without secrets or sensitive filesystem access in its container."""
 import os
@@ -13,7 +13,7 @@ MAX_DESCRIPTION = int(os.environ.get("SKILL_MAX_DESCRIPTION", "1024"))  # descri
 MAX_BODY = int(os.environ.get("SKILL_MAX_BODY", "40000"))              # ~500 lines, the recommended body ceiling
 
 # The classic prompt-injection / instruction-override phrasing. A genuine skill (which *is*
-# instructions) has no reason to tell the agent to ignore its earlier instructions — low FP.
+# instructions) has no reason to tell the agent to ignore its earlier instructions, low FP.
 # Match "<override-verb> … <cue> … <noun>" within a short window, so reorderings and filler words
 # ("ignore all previous instructions", "forget your prior system prompt", "override the above rules")
 # are all caught, while the three-part shape keeps false positives on real skills low.
@@ -23,7 +23,7 @@ _INJECTION = re.compile(
     r"(instruction|prompt|message|rule|direction|guardrail|guideline|restriction)",
     re.IGNORECASE,
 )
-# The description is injected verbatim into the system prompt — no XML/HTML tags allowed there
+# The description is injected verbatim into the system prompt, no XML/HTML tags allowed there
 # (both an Anthropic frontmatter rule and a prompt-structure-injection guard). Bodies may hold code.
 _XML_TAG = re.compile(r"<[a-zA-Z/!][^>]*>")
 

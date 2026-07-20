@@ -1,4 +1,4 @@
-"""Unit tests for auto-drafted eval task sets (optimize.draft) — LLM mocked."""
+"""Unit tests for auto-drafted eval task sets (optimize.draft), LLM mocked."""
 import json
 
 import pytest

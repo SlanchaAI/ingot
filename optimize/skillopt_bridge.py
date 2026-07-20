@@ -1,14 +1,14 @@
-"""SkillOpt integration — the single seam between skill_router and microsoft/SkillOpt (MIT).
+"""SkillOpt integration, the single seam between skill_router and microsoft/SkillOpt (MIT).
 
 Everything that imports from `skillopt` lives here, so upgrading is: bump `skillopt==` in
 requirements, re-copy any changed prompt into `skillopt_prompts/` (see its README), and run the
 bridge/loop tests. Nothing else in the repo imports the package.
 
 What we take from the pinned package (pure code, upgrades on a version bump):
-  * `select_gate_score` / `evaluate_gate` — the hard/soft/mixed held-out gate metric  (mechanic #4)
-  * `apply_patch_with_report`             — apply append/insert_after/replace/delete edits to the
+  * `select_gate_score` / `evaluate_gate`, the hard/soft/mixed held-out gate metric  (mechanic #4)
+  * `apply_patch_with_report`: apply append/insert_after/replace/delete edits to the
                                             skill document, honoring its protected slow-update region (mechanic #2)
-  * `extract_json`                        — tolerant JSON parsing of optimizer-model replies
+  * `extract_json`: tolerant JSON parsing of optimizer-model replies
 
 What we drive ourselves (so every model call rides our ZDR/cost-tracked reflection LM, not
 skillopt's backends): the four prompt-driven steps, using SkillOpt's own prompt text loaded from
@@ -84,13 +84,13 @@ def reflect_edits(skill: str, trajectories: list[dict], buffer_context: str, bud
         for i, t in enumerate(trajectories, 1))
     user = (f"## Current Skill\n{skill}\n\n"
             f"## Failed trajectories in this minibatch ({len(trajectories)})\n{traj_lines}\n\n"
-            f"## Step buffer — failure patterns and rejected edits from prior steps\n"
+            f"## Step buffer, failure patterns and rejected edits from prior steps\n"
             f"{buffer_context or '(none yet)'}\n\n"
             # General removal steering (every skill, no acceptance criteria needed): the judge
             # feedback above is the always-present signal for *wrong* existing guidance.
             f"When the judge feedback shows the skill's CURRENT guidance is wrong, outdated, or "
             f"contradicted by the correct answer, prefer replace/delete edits that fix or remove the "
-            f"offending lines — do not merely append a correction beside stale content, which leaves "
+            f"offending lines, do not merely append a correction beside stale content, which leaves "
             f"the model free to keep following the old guidance.\n\n"
             f"Maximum number of edits (the budget L): {budget}")
     obj = extract_json(reflection_lm([{"role": "system", "content": load_prompt("analyst_error")},

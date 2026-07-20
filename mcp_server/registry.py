@@ -1,5 +1,5 @@
 """Discover skills from skills/<name>/SKILL.md. The YAML frontmatter `description` is the routing
-key; the markdown body is what an agent loads. No compilation, no DB — a skill is just its SKILL.md."""
+key; the markdown body is what an agent loads. No compilation, no DB, a skill is just its SKILL.md."""
 from __future__ import annotations
 import hashlib
 import os
@@ -15,7 +15,7 @@ import yaml
 SKILLS_DIR = Path(__file__).resolve().parent.parent / "skills"
 _FRONTMATTER = re.compile(r"^---\s*\n(.*?)\n---\s*\n(.*)$", re.DOTALL)
 
-# One slug rule for every layer (create_skill, promotion, UI) — a name one layer accepts
+# One slug rule for every layer (create_skill, promotion, UI), a name one layer accepts
 # must be accepted by all of them, or a skill becomes un-promotable.
 SLUG_RE = re.compile(r"^[a-z0-9][a-z0-9-]*$")
 # Anthropic Agent Skills frontmatter rules for `name`: ≤64 chars, no reserved words.

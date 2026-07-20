@@ -42,7 +42,7 @@ def same_origin(request: Request):
     candidate run, a silent promotion, a rollback) without being able to read the response. Require
     the request to originate from this app's own origin."""
     origin = request.headers.get("origin")
-    if origin is None:  # non-browser client (curl, the demo's own scripts) — no ambient cookies to abuse
+    if origin is None:  # non-browser client (curl, the demo's own scripts), no ambient cookies to abuse
         return
     if urlparse(origin).netloc != request.headers.get("host"):
         raise HTTPException(403, "cross-origin request refused")
@@ -55,7 +55,7 @@ app = FastAPI(title="ingot change control",
               dependencies=[Depends(require_auth)])
 
 if using_default_password():
-    logger.warning("change-control UI is using the DEFAULT password — set AUTH_PASSWORD in .env "
+    logger.warning("change-control UI is using the DEFAULT password, set AUTH_PASSWORD in .env "
                    "before exposing it beyond your own machine")
 
 # OIDC (Sign in with Google) profile: a signed-session cookie + the /auth/* browser flow. Wired only
@@ -167,12 +167,12 @@ def _preflight_optimize(skill: str) -> None:
 def _preflight_provider() -> None:
     from optimize import openrouter_key_missing, preflight_provider_pins
     if openrouter_key_missing():
-        raise HTTPException(400, "OPENROUTER_API_KEY is not set — copy .env.example to .env, "
+        raise HTTPException(400, "OPENROUTER_API_KEY is not set, copy .env.example to .env, "
                                  "add your key (https://openrouter.ai/keys), and restart the stack "
                                  "(or point MODEL_BASE_URL/OPENROUTER_BASE_URL at a local endpoint)")
     try:
         preflight_provider_pins()
-    except SystemExit as e:  # pin/model conflict — surface the explanation, don't start a run
+    except SystemExit as e:  # pin/model conflict, surface the explanation, don't start a run
         raise HTTPException(400, str(e))
 
 

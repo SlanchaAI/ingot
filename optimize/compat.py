@@ -1,14 +1,14 @@
-"""Cross-model skill compatibility — how well a skill's body transfers across serving models.
+"""Cross-model skill compatibility, how well a skill's body transfers across serving models.
 
 A skill body is tuned for one serving model (`AGENT_MODEL`); SkillOpt's own result is that good
 skills transfer, but not always. For each model in `COMPAT_MODELS`, this runs the skill's held-out
-tasks through the one serving contract twice — once with the skill body, once with an empty body
-(the no-skill baseline) — judges both with the FIXED judge, and reports per-model **lift**
+tasks through the one serving contract twice, once with the skill body, once with an empty body
+(the no-skill baseline), judges both with the FIXED judge, and reports per-model **lift**
 (skill mean − baseline mean). Positive lift = the body helps that model; ~0 = the model already
 knows this and the body is dead weight there.
 
 Langfuse-free: it reuses the direct rollout + judge (the same path the inner loop uses), so it runs
-in lite mode with the tracing stack down. Only the *serving* model varies — the judge stays fixed so
+in lite mode with the tracing stack down. Only the *serving* model varies, the judge stays fixed so
 scores are comparable across models.
 
 Usage:  python -m optimize.compat <skill>
@@ -34,7 +34,7 @@ _MAX_WORKERS = 8
 COMPAT_DIR = Path(__file__).resolve().parent.parent / "runs" / "compat"
 # The no-skill baseline: the identical serving contract with no skill body, so `lift` isolates the
 # body's contribution rather than the difference between two different prompts.
-NO_SKILL_BODY = "(no skill loaded — answer the task from your own knowledge)"
+NO_SKILL_BODY = "(no skill loaded, answer the task from your own knowledge)"
 
 
 def compat_models() -> list[str]:
@@ -46,7 +46,7 @@ def compat_models() -> list[str]:
 def _llm(model: str):
     # OpenRouter (default) selects the model by slug over one endpoint, with ZDR routing applied;
     # a local MODEL_BASE_URL serves a single model, so a multi-model sweep only makes sense on a
-    # multi-model endpoint. reasoning is left at the provider default — some models reject the flag.
+    # multi-model endpoint. reasoning is left at the provider default, some models reject the flag.
     return ChatOpenAI(model=model, temperature=0, **client_kwargs(model_base_url(), key=model_api_key()))
 
 

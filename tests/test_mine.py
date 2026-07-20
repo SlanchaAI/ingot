@@ -1,4 +1,4 @@
-"""Unit tests for success/failure mining (optimize.mine) — Langfuse HTTP and the judge are mocked."""
+"""Unit tests for success/failure mining (optimize.mine), Langfuse HTTP and the judge are mocked."""
 import json
 
 from optimize import mine

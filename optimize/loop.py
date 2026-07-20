@@ -34,14 +34,14 @@ def loop(skills: list[str] | None = None, force: bool = False, budget: int = 60,
         try:
             health = mine(skill, log=log)
             mean = health["mean_score"]
-        except SystemExit as e:              # no traces yet — optimize anyway if forced, else skip
+        except SystemExit as e:              # no traces yet, optimize anyway if forced, else skip
             log(f"[loop] {skill}: no trace signal ({e})")
             health, mean = None, None
         if not force and mean is not None and mean >= HEALTH_THRESHOLD:
-            log(f"[loop] {skill}: healthy (mean {mean:.2f} ≥ {HEALTH_THRESHOLD}) — skipping optimize.")
+            log(f"[loop] {skill}: healthy (mean {mean:.2f} ≥ {HEALTH_THRESHOLD}), skipping optimize.")
             results[skill] = {"optimized": False, "mean_score": mean}
             continue
-        log(f"[loop] {skill}: below health bar (mean {mean if mean is not None else 'n/a'}) — optimizing…")
+        log(f"[loop] {skill}: below health bar (mean {mean if mean is not None else 'n/a'}), optimizing…")
         unknown = [p for p in PASSES if p not in _KNOWN_PASSES]
         if unknown:
             raise SystemExit(f"LOOP_PASSES names unknown pass(es) {unknown}; known: {_KNOWN_PASSES}")

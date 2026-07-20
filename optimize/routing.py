@@ -33,7 +33,7 @@ _DIAGNOSIS = ("The `description` is a routing trigger matched by embedding simil
 
 class RoutingAdapter:
     """gepa.GEPAAdapter over {'description'}: batch items are routing cases, scored by the real
-    embedding router — 1.0 for the expected outcome, 0.5 for a top-3 near-miss, 0.0 otherwise."""
+    embedding router, 1.0 for the expected outcome, 0.5 for a top-3 near-miss, 0.0 otherwise."""
 
     propose_new_texts = None  # gepa probes this optional hook; None -> use its default reflection
 
@@ -57,18 +57,18 @@ class RoutingAdapter:
             if expected is None:
                 score = 1.0 if match is None else 0.0
                 feedback = ("correctly matched no skill" if score else
-                            f"matched '{match}' but this task should route to NO skill — the "
+                            f"matched '{match}' but this task should route to NO skill, the "
                             f"description triggers too broadly")
             elif match == expected:
                 score, feedback = 1.0, f"routed to '{expected}' as expected"
             elif expected in ranked[:3]:
                 score = 0.5
-                feedback = (f"expected '{expected}' but it ranked behind '{match}' — sharpen the "
+                feedback = (f"expected '{expected}' but it ranked behind '{match}', sharpen the "
                             f"description's trigger phrases for this kind of task")
             else:
                 score = 0.0
                 feedback = (f"expected '{expected}' but routed to '{match}' and the expected skill "
-                            f"is not in the top 3 — the description is missing this task's "
+                            f"is not in the top 3, the description is missing this task's "
                             f"trigger phrasing")
             outputs.append(match)
             scores.append(score)
@@ -99,7 +99,7 @@ def routing_gate(skill: str, metrics: dict, challenger: dict) -> tuple[bool, lis
     if score >= COLLISION_SCORE:
         reasons.append(f"rewritten description shadows '{shadowed}' (cosine {score:.2f})")
     if not improved and not reasons:
-        reasons.append("no routing metric improved — nothing to gain from this change")
+        reasons.append("no routing metric improved, nothing to gain from this change")
     return (not reasons), reasons
 
 
@@ -112,13 +112,13 @@ def run_routing(skill: str, budget: int = 60, log=print) -> dict:
     cases = (yaml.safe_load(tasks_path.read_text()) or {}).get("routing") if tasks_path.exists() else None
     champion = optimizable_components(skill_dir)
     if not cases:
-        # auto-draft like the task drafter does — persisted, so re-runs use the same suite
+        # auto-draft like the task drafter does, persisted, so re-runs use the same suite
         from .draft import draft_and_append_routing
         cases = draft_and_append_routing(skill, champion["description"], champion["body"],
                                          TASKS_DIR, log=log)
 
     log(f"[routing] optimizing '{skill}' description against {len(cases)} routing cases "
-        f"(budget {budget} metric calls; inner loop is embedding-only — no LLM rollouts)…")
+        f"(budget {budget} metric calls; inner loop is embedding-only, no LLM rollouts)…")
     result = gepa.optimize(seed_candidate={"description": champion["description"]},
                            trainset=cases, adapter=RoutingAdapter(skill),
                            reflection_lm=make_reflection_lm(), max_metric_calls=budget,
@@ -129,7 +129,7 @@ def run_routing(skill: str, budget: int = 60, log=print) -> dict:
 
     challenger = {**champion, "description": result.best_candidate["description"]}
     if challenger["description"].strip() == champion["description"].strip():
-        log("[routing] no better description found — champion holds.")
+        log("[routing] no better description found, champion holds.")
         return {"skill": skill, "improved": False}
 
     from .ab import _routing_metrics
@@ -171,7 +171,7 @@ def run_routing(skill: str, budget: int = 60, log=print) -> dict:
                            "markdown": recorded_path(evidence_markdown)},
     }
     path = save_pending(skill, pending)
-    log(f"[routing] pending description written to {path} — review + promote at http://localhost:8080")
+    log(f"[routing] pending description written to {path}, review + promote at http://localhost:8080")
     log("\n[usage] tokens spent by this routing pass (reflection only):")
     log(usage_ledger.format_report())
     return pending

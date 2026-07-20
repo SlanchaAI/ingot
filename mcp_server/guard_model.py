@@ -1,11 +1,11 @@
-"""Optional ML prompt-injection guard — the vLLM Semantic Router jailbreak detector
+"""Optional ML prompt-injection guard, the vLLM Semantic Router jailbreak detector
 (`llm-semantic-router/mmbert32k-jailbreak-detector-merged`, an mmBERT text classifier that runs on CPU).
 
-Inference runs on **ONNX Runtime** via the model repo's bundled `onnx/model.onnx` export — no
+Inference runs on **ONNX Runtime** via the model repo's bundled `onnx/model.onnx` export, no
 `torch`/`transformers` needed. The deps (`onnxruntime`, `tokenizers`, `huggingface_hub`, `numpy`)
 already ship with the base image via fastembed, so the guard is a pure config switch: set
 `SKILL_GUARD_MODEL` to activate it (the ~1.2GB model downloads to the HF cache on first use).
-When the model is unavailable it silently degrades to the regex heuristic in `safety.py` — no
+When the model is unavailable it silently degrades to the regex heuristic in `safety.py`, no
 crash. It complements, not replaces, that heuristic."""
 import functools
 import os
@@ -13,7 +13,7 @@ import os
 MODEL = os.environ.get("SKILL_GUARD_MODEL", "")  # empty = disabled by default (no surprise 1.2GB download)
 THRESHOLD = float(os.environ.get("SKILL_GUARD_THRESHOLD", "0.7"))  # semantic-router's default
 ONNX_FILE = os.environ.get("SKILL_GUARD_ONNX_FILE", "onnx/model.onnx")  # fp32 CPU export in the repo
-# labels the classifier uses for "not an attack" — anything else above THRESHOLD is flagged
+# labels the classifier uses for "not an attack", anything else above THRESHOLD is flagged
 _BENIGN = {"benign", "safe", "clean", "negative", "normal", "label_0", "0"}
 
 
@@ -54,7 +54,7 @@ def _pipeline():
 
         return classify
     except Exception as e:  # model download failed, or the repo has no ONNX export
-        print(f"[guard] prompt-injection classifier unavailable ({e.__class__.__name__}) — "
+        print(f"[guard] prompt-injection classifier unavailable ({e.__class__.__name__}), "
               f"using regex heuristic only", flush=True)
         return None
 

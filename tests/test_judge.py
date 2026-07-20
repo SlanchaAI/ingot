@@ -24,7 +24,7 @@ def test_extract_json_plain():
 
 
 def test_extract_json_with_surrounding_prose():
-    assert _extract_json('Here is my grade: {"score": 0.8} — done.')["score"] == 0.8
+    assert _extract_json('Here is my grade: {"score": 0.8}, done.')["score"] == 0.8
 
 
 def test_extract_json_inside_code_fence():

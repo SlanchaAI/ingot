@@ -1,4 +1,4 @@
-"""Unit tests for execution-based code validation (optimize.execcheck) — static path (no EXEC_SANDBOX)."""
+"""Unit tests for execution-based code validation (optimize.execcheck), static path (no EXEC_SANDBOX)."""
 import os
 import subprocess
 import sys
@@ -94,7 +94,7 @@ def test_exec_sandbox_env_modes():
 
 
 def test_sandbox_does_not_leak_host_env(monkeypatch):
-    # the subprocess gets only PATH — secrets in the harness env must be invisible to judged code
+    # the subprocess gets only PATH, secrets in the harness env must be invisible to judged code
     monkeypatch.setattr(E, "EXEC_MODE", "1")
     monkeypatch.setattr(E, "EXEC_SANDBOX", True)
     monkeypatch.setenv("SUPER_SECRET_TOKEN", "hunter2")
@@ -197,11 +197,11 @@ def test_judge_note_execution_verdicts(monkeypatch):
     monkeypatch.setattr(E, "EXEC_MODE", "1")
     monkeypatch.setattr(E, "EXEC_SANDBOX", True)  # legacy bare path
     note = E.judge_note(ANSWER_OK, "task", check_spec=CHECK)
-    assert "EXECUTION CHECK — PASSED" in note
+    assert "EXECUTION CHECK, PASSED" in note
     wrong = ANSWER_OK.replace(".upper()", ".lower()")
     note = E.judge_note(wrong, "task", check_spec=CHECK)
-    assert "EXECUTION CHECK — FAILED (assert_failed)" in note
-    # harness failures stay silent — never punish the answer for our broken fixture
+    assert "EXECUTION CHECK, FAILED (assert_failed)" in note
+    # harness failures stay silent, never punish the answer for our broken fixture
     assert E.judge_note(ANSWER_OK, "task",
                                 check_spec={"fixture": "raise RuntimeError()", "assert": ""}) == ""
 
@@ -217,7 +217,7 @@ def test_judge_threads_check_spec_into_the_prompt(monkeypatch):
         return {"score": 1.0, "feedback": "f", "dimensions": {d: "pass" for d in judge_mod.DIMENSIONS}}
     monkeypatch.setattr(judge_mod, "_judge_one", capture)
     judge_mod.judge("t", "r", ANSWER_OK, check=CHECK)
-    assert "EXECUTION CHECK — PASSED" in seen["prompt"]
+    assert "EXECUTION CHECK, PASSED" in seen["prompt"]
     judge_mod.judge("t", "r", ANSWER_OK)                    # no check -> static path only
     assert "EXECUTION CHECK" not in seen["prompt"]
 
@@ -311,7 +311,7 @@ def test_check_specs_do_not_execute_without_optin(monkeypatch):
 
 
 def test_sandbox_driver_end_to_end_without_docker(tmp_path):
-    # the driver is plain python — exercise the real phase pipeline directly
+    # the driver is plain python, exercise the real phase pipeline directly
     import json as _json
     spec = {"fixture": CHECK["fixture"], "code": 'text = open("input.txt").read()\n'
             'open("output.txt", "w").write(text.upper())', "assertion": CHECK["assert"]}
@@ -374,12 +374,12 @@ def test_judge_note_stays_silent_for_formula_tasks():
 def test_judge_note_still_fires_for_python_tasks():
     note = E.judge_note("You could write a small script for this.",
                         "Write a Python script to merge PDFs", "")
-    assert "OBJECTIVE CODE CHECK — FAILED" in note
+    assert "OBJECTIVE CODE CHECK, FAILED" in note
 
 
 def test_expects_code_exempts_shell_command_tasks():
     # regression: a rubric quoting `docker ... python -m pytest` mentions "python", but the
-    # deliverable is a shell command — demanding a Python block zeroed correct answers
+    # deliverable is a shell command, demanding a Python block zeroed correct answers
     assert not E.expects_code("How do I run the test suite?",
                               'Must give `docker run --rm -v "$PWD:/app" ingot-mcp python -m pytest tests -q`')
     assert not E.expects_code("Turn off the sandbox", "set the environment variable EXEC_SANDBOX=off")
@@ -397,4 +397,4 @@ def test_deliverable_override_skips_static_check():
                         deliverable="command") == ""
     # deliverable: python keeps the check active
     note = E.judge_note("no code here", "Write Python to merge PDFs", "", deliverable="python")
-    assert "OBJECTIVE CODE CHECK — FAILED" in note
+    assert "OBJECTIVE CODE CHECK, FAILED" in note
