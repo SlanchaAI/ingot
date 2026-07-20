@@ -8,6 +8,24 @@
 # your machine — not a real secret. Real keys (OPENROUTER_API_KEY) live only in .env (gitignored).
 name: ingot   # fixed project name so image names don't depend on the checkout dir
 services:
+  # Real OIDC provider for the SSO/RBAC integration test (CI only, not a runtime dependency). Boots
+  # Keycloak with the `ingot` realm pre-imported — a client, a test user, and realm roles surfaced
+  # as a `roles` claim (the Entra app-roles shape; add a groups mapper to also cover Okta). Usage:
+  #   docker compose --profile sso up -d keycloak
+  #   docker run --rm --network host -e KEYCLOAK_URL=http://localhost:8081 -v "$PWD:/app" -w /app \
+  #     ingot-mcp python -m pytest tests/test_keycloak_integration.py -q
+  keycloak:
+    image: quay.io/keycloak/keycloak:26.0
+    command: ["start-dev", "--import-realm", "--http-port=8081"]
+    environment:
+      KC_BOOTSTRAP_ADMIN_USERNAME: admin
+      KC_BOOTSTRAP_ADMIN_PASSWORD: admin
+    ports:
+      - "127.0.0.1:8081:8081"
+    volumes:
+      - ./ops/keycloak:/opt/keycloak/data/import:ro
+    profiles: ["sso"]
+
   mcp:
     build: .
     command: python -m mcp_server.server
