@@ -231,6 +231,7 @@
   .audit { font-family: var(--mono); font-size: .74rem; color: var(--ink-2); line-height: 1.85;
     margin-top: 1.1rem; }
   .audit .aact { font-weight: 700; color: var(--rust); text-transform: uppercase; }
+  .audit .aact.reject { color: var(--fail); }   /* a discarded challenger reads distinct from a promotion */
 
   /* ---- candidate-generation log ---- */
   .log { font-family: var(--mono); font-size: .74rem; line-height: 1.6; margin-top: 1.1rem;
@@ -599,7 +600,7 @@ function renderHistory(h) {
       </div>
     </div>`).join("");
   const trail = h.audit.records.map(r =>
-    `<div><span class="aact">${esc(r.action || "?")}</span> ${esc(r.skill || "?")}
+    `<div><span class="aact${r.action === "reject" ? " reject" : ""}">${esc(r.action || "?")}</span> ${esc(r.skill || "?")}
      @ ${esc(shortRev(r.revision))} · ${esc(stamp(r.ts))}
      · ${esc(r.actor || "unknown")}</div>`).join("");
   $("#history").innerHTML =
