@@ -126,6 +126,30 @@ def test_reject_audits_an_empty_revision_when_none_is_recorded(client):
     assert [r["action"] for r in trail] == ["reject"] and trail[0]["revision"] == ""
 
 
+def test_double_reject_is_404_and_not_double_audited(client):
+    """Validate+delete+audit run under change_control: a second reject of an already-discarded
+    change must 404, never re-audit and return 200 (the TOCTOU the lock closes)."""
+    P.save_pending("pdf", {"skill": "pdf", "champion_components": {}, "challenger_components": {},
+                           "evidence": {"challenger": {"revision": "abc123"}}})
+    assert client.post("/api/reject/pdf").status_code == 200
+    assert client.post("/api/reject/pdf").status_code == 404
+    trail = client.get("/api/history").json()["audit"]["records"]
+    assert [r["action"] for r in trail] == ["reject"]   # exactly one, not two
+
+
+def test_reject_is_refused_while_another_change_is_in_flight(client, monkeypatch):
+    """reject holds the same one-at-a-time lock as promote/rollback."""
+    import ui.app as U
+    P.save_pending("pdf", {"skill": "pdf", "champion_components": {}, "challenger_components": {}})
+    assert U.CHANGE_LOCK.acquire(blocking=False)
+    try:
+        r = client.post("/api/reject/pdf")
+    finally:
+        U.CHANGE_LOCK.release()
+    assert r.status_code == 409 and "already in progress" in r.json()["detail"]
+    assert P.load_pending("pdf") is not None   # refused, not consumed
+
+
 def test_auth_me_is_a_200_unauthenticated_shape_in_password_mode(client):
     """The frontend polls /auth/me on every load; the default (non-OIDC) config must answer 200
     with a stable shape rather than 404."""

@@ -345,10 +345,14 @@ def _challenger_revision(pending: dict) -> str:
           dependencies=[Depends(same_origin), Depends(require_role("approver"))])
 def reject(skill: str, actor: str = Depends(current_actor)):
     _check(skill)
-    if not pending_path(skill).exists():
-        raise HTTPException(404, f"no pending change for '{skill}'")
-    revision = _challenger_revision(load_pending(skill) or {})
+    # Load, validate, delete, and audit all under the lock: checking existence first and deleting
+    # later would let a second reject pass the check, then re-delete and double-audit after the
+    # first released, returning 200 instead of 404 (mirrors approve/rollback holding the lock).
     with change_control(skill):
+        pending = load_pending(skill)
+        if pending is None:
+            raise HTTPException(404, f"no pending change for '{skill}'")
+        revision = _challenger_revision(pending)
         pending_path(skill).unlink(missing_ok=True)
         _audit_best_effort("reject", skill, revision, actor)
     return {"result": f"rejected the pending change for '{skill}'"}
