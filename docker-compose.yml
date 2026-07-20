@@ -145,19 +145,21 @@ services:
     build: .
     command: python -m uvicorn ui.app:app --host 0.0.0.0 --port 8080
     ports:
-      - "127.0.0.1:8080:8080"
+      - "127.0.0.1:8080:8080"          # localhost only; LAN access goes through the TLS proxy (--profile lan)
     env_file:
       - path: .env
         required: false
     environment:
       MCP_URL: http://mcp:8000/mcp
-      # Change-control UI login (HTTP Basic). Defaults to admin/ingot so the shared UI is gated out
-      # of the box, CHANGE AUTH_PASSWORD in .env before exposing it beyond your own LAN. Set
-      # AUTH_PASSWORD= (empty) to run the UI open. For Sign in with Google instead, set AUTH_MODE=oidc
-      # and the OIDC_* / SESSION_SECRET vars in .env (passed through below); see docs/sso.md.
-      AUTH_USER: ${AUTH_USER-admin}
-      AUTH_PASSWORD: ${AUTH_PASSWORD-ingot}
-      AUTH_MODE: ${AUTH_MODE-}
+      # Change-control UI login. AUTH_MODE defaults to password (HTTP Basic) with the documented
+      # default credentials admin/ingot, CHANGE AUTH_PASSWORD in .env before exposing the UI beyond
+      # your own machine (--profile lan below). The `:-` defaults mean even an empty var falls back,
+      # so the password is never blank; running the UI open takes an explicit AUTH_MODE=open.
+      # AUTH_MODE=oidc switches to Sign in with Google (set the OIDC_* / SESSION_SECRET vars in
+      # .env, passed through below; see docs/sso.md).
+      AUTH_USER: ${AUTH_USER:-admin}
+      AUTH_PASSWORD: ${AUTH_PASSWORD:-ingot}
+      AUTH_MODE: ${AUTH_MODE:-password}
       OIDC_ISSUER: ${OIDC_ISSUER-}
       OIDC_CLIENT_ID: ${OIDC_CLIENT_ID-}
       OIDC_CLIENT_SECRET: ${OIDC_CLIENT_SECRET-}
@@ -178,6 +180,25 @@ services:
     depends_on:
       mcp:
         condition: service_started
+
+  # TLS front door for sharing the change-control UI beyond this machine (docs/security.md
+  # "Network exposure"): docker compose --profile lan up -d proxy
+  # Publishes ONLY the UI, on every interface. Zero-config TLS: Caddy mints certificates on demand
+  # from its own local CA (nothing to register or attach; browsers show a one-time trust warning).
+  # The UI itself stays loopback-bound and password-gated by default; CHANGE AUTH_PASSWORD in .env
+  # before pointing teammates at it.
+  proxy:
+    image: docker.io/caddy:2
+    ports:
+      - "80:80"                        # redirects to https
+      - "443:443"
+    volumes:
+      - ./ops/caddy/Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data               # persists the local CA so certs stay stable across restarts
+    depends_on:
+      ui:
+        condition: service_started
+    profiles: ["lan"]
 
   # ---------------------------------------------------------------------------
   # Self-hosted Langfuse v3 (adapted from the official docker-compose.yml).
@@ -326,6 +347,7 @@ services:
       - langfuse_postgres_data:/var/lib/postgresql/data
 
 volumes:
+  caddy_data:
   langfuse_postgres_data:
   langfuse_clickhouse_data:
   langfuse_clickhouse_logs:

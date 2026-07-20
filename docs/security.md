@@ -107,6 +107,21 @@ To expose a service, change its port mapping in `docker-compose.yml` from `"127.
 to `"8000:8000"` (or bind a specific interface). Do this knowingly: anyone who can reach those
 ports can queue candidates, approve activations, roll skills back, and spend your API budget.
 
+**The change-control UI has a ready-made path.** The `lan` profile runs a Caddy TLS front door
+that publishes only the UI, on every interface, while the UI itself stays loopback-bound:
+
+```bash
+docker compose --profile lan up -d proxy    # then browse to https://<this-box's-name-or-IP>
+```
+
+There is nothing to register or attach: Caddy mints certificates on demand from its own local CA,
+so credentials never cross the network in cleartext. Browsers show a one-time "connection not
+private" warning for the unknown CA; proceed past it, trust Caddy's root certificate (in the
+`caddy_data` volume at `/data/caddy/pki/authorities/local/root.crt`) to remove it, or swap real
+certificates into `ops/caddy/Caddyfile`. The UI keeps its password gate (default `admin`/`ingot`,
+pinned non-empty in `docker-compose.yml`); change `AUTH_PASSWORD` in `.env` before pointing
+teammates at it.
+
 **Sharing the UI on a trusted LAN?** Turn on the built-in password gate so approvals are gated and
 attributable, add a user and the change-control UI requires HTTP Basic auth (against a local
 `runs/auth.json` of salted PBKDF2 hashes), and each approval or rollback records that username as

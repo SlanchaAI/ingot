@@ -40,7 +40,36 @@ callback as an **Authorized redirect URI**:
 
 Copy the **Client ID** and **Client secret**.
 
-### 2. Configure Ingot
+### 2. Give the box a DNS name (LAN / on-prem)
+
+Google only accepts redirect URIs that are `https://` on a hostname (never a raw IP), and the
+hostname's domain must end in a real public TLD, so `.local` / `.lan` / `.internal` names are
+rejected. That is the whole constraint: the name does **not** need to be publicly resolvable and
+the certificate does **not** need to be publicly trusted, because Google never connects to it —
+only the signed-in user's browser follows the redirect. (The LAN password mode has none of these
+constraints.)
+
+So, for a box on a LAN:
+
+1. **Pick a name under a domain you own**, e.g. `ingot.corp.example`.
+2. **Make it resolve to the box's LAN IP for your teammates.** Either an A record on your internal
+   DNS (router, Pi-hole, corporate DNS): `ingot.corp.example -> 192.168.x.x`, or, for a quick
+   trial, a hosts-file line on each machine (`/etc/hosts`, or on Windows
+   `C:\Windows\System32\drivers\etc\hosts`):
+
+   ```
+   192.168.x.x  ingot.corp.example
+   ```
+
+3. **TLS is already handled.** The `lan` compose profile's front door
+   ([Security: Network exposure](security.md#network-exposure)) mints a certificate for any
+   hostname on demand from its local CA — nothing to configure. Browsers warn once about the
+   unknown CA; proceed past it or trust the CA root to remove the warning.
+
+Use `https://ingot.corp.example/auth/callback` both as the Google client's authorized redirect URI
+(step 1) and as `OIDC_REDIRECT_URL` (step 3).
+
+### 3. Configure Ingot
 
 Set these in `.env` (they are passed through by `docker-compose.yml`):
 
@@ -63,14 +92,47 @@ python -c "import secrets; print(secrets.token_urlsafe(32))"
 `OIDC_ISSUER` defaults to `https://accounts.google.com` and only needs setting for a non-Google
 provider (see below).
 
-### 3. Start it
+### 4. Start it
 
 ```bash
-docker compose up
+docker compose up                          # local (http://localhost:8080)
+docker compose --profile lan up -d         # LAN, behind the TLS front door (https://<hostname>)
 ```
 
 Visiting the UI now bounces an unauthenticated visitor straight to Google, and returns them signed
 in. The top bar shows the signed-in email and role, with a **Log out** link.
+
+### 5. Test it
+
+Before involving Google at all, smoke-test the plumbing — DNS, TLS, and the login bounce — from any
+teammate machine (or with `curl --resolve` before the DNS record exists):
+
+```bash
+curl -sk -o /dev/null -w '%{redirect_url}\n' https://ingot.corp.example/auth/login
+```
+
+No DNS record or hosts entry yet? Fake it from a container (`--add-host` writes the container's
+`/etc/hosts`, so nothing on the host changes):
+
+```bash
+docker run --rm --add-host ingot.corp.example:<box-lan-ip> curlimages/curl \
+  -sk -o /dev/null -w '%{redirect_url}\n' https://ingot.corp.example/auth/login
+```
+
+This must print an `https://accounts.google.com/...` URL whose `redirect_uri` parameter is exactly
+your `OIDC_REDIRECT_URL`; if Google later shows `redirect_uri_mismatch`, the URI in the Google
+client and this value differ.
+
+Then the real flow, which needs a human (Google logins cannot be scripted):
+
+- Sign in with a Workspace account: the top bar shows your email and role, and
+  `https://ingot.corp.example/auth/me` returns them as JSON.
+- Sign in with a personal `@gmail.com` account (or a non-allowlisted domain): refused with 403.
+- An account not in `OIDC_ROLE_MAP` should land as `viewer`: the read views work and the
+  promote/reject/rollback actions are refused.
+
+The equivalent flow is exercised headlessly in CI against a real Keycloak
+(`tests/test_keycloak_integration.py`), so the code path itself is covered without a Google login.
 
 ## How access is decided
 

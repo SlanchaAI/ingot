@@ -1,0 +1,16 @@
+# TLS front door for the change-control UI: docker compose --profile lan up -d proxy
+# Zero-config: `tls internal` + `on_demand` mint a certificate from Caddy's own local CA for
+# whatever name or IP the browser used, so there is nothing to register or attach. Browsers show
+# a one-time "connection not private" warning for the unknown CA; proceed past it, or trust the
+# CA root (caddy_data volume, /data/caddy/pki/authorities/local/root.crt) to remove it, or
+# replace `tls internal` with real certificate lines if you have them.
+:443 {
+	tls internal {
+		on_demand
+	}
+	reverse_proxy ui:8080
+}
+
+:80 {
+	redir https://{host}{uri} permanent
+}
