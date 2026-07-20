@@ -15,7 +15,7 @@
 
 **Goal:** Shrink PR #2 to additive MCP routing and safe skill improvement while preserving the existing Docker product.
 
-**Architecture:** Restore `master` packaging, Docker, demo-agent, fetch, and README surfaces. Add `route_and_load` beside—not instead of—the existing MCP tools. Shared roots follow the local writable skill root. Retain revisioned Behavioral CI and promotion hardening.
+**Architecture:** Restore `master` packaging, Docker, demo-agent, fetch, and README surfaces. Add `route_and_load` beside,not instead of,the existing MCP tools. Shared roots follow the local writable skill root. Retain revisioned Behavioral CI and promotion hardening.
 
 **Tech Stack:** Python 3.12 Docker image, FastMCP 3 HTTP transport, fastembed, LangGraph, Langfuse, GEPA, pytest.
 

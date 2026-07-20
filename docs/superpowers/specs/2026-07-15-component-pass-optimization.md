@@ -1,6 +1,6 @@
 # Component-pass optimization: one objective per component role
 
-Status: DRAFT for review — no further optimization runs until this is agreed.
+Status: DRAFT for review, no further optimization runs until this is agreed.
 
 > **Superseded in part.** This is the dated record of a 2026-07-15 decision and is kept as written.
 > Two things it describes have since changed: the sequential GEPA body loop it assumes was removed,
@@ -25,22 +25,22 @@ into the prompt), and files are invisible to production but visible to the rollo
 observed across six runs on 2026-07-15:
 
 - GEPA repeatedly moved behavioral rules ("always output complete runnable code") into the
-  `description` — winning the inner loop, then either **blocked by the routing gate**
+  `description`, winning the inner loop, then either **blocked by the routing gate**
   (recall@3 1.0 → 0.5 when the description bloated 437 → 1587 chars) or **losing the A/B**
   (the serving agent never reads the description as instructions; the same improved body under
   the original description scored 0.0).
 - When judge/provider variance scored the seed high (≥ ~0.85 on the 4-task train set), GEPA
-  found "no better candidate" — the failure the outer A/B measures (agent writes code to its
+  found "no better candidate", the failure the outer A/B measures (agent writes code to its
   scratch filesystem and describes it) does not reproduce in a bare rollout at all.
 
 One shared metric grades three roles; it can only measure one of them.
 
 ## Design: one pass per component, each scored by its role's own metric
 
-### Pass 1 — body (IMPLEMENTED, the default)
+### Pass 1, body (IMPLEMENTED, the default)
 
 Inner/outer alignment (added 2026-07-16): rollouts serve candidates under the shared
-`optimize.SERVE_TEMPLATE` — the same contract the quality A/B serves — and `GEPA_ROLLOUTS=agent`
+`optimize.SERVE_TEMPLATE`, the same contract the quality A/B serves, and `GEPA_ROLLOUTS=agent`
 opts into full-scaffold rollouts so scaffold-driven failures are visible to the inner loop.
 
 - Mutable: `body` only (`OPTIMIZE_COMPONENTS=body`). The frozen `description` still renders into
@@ -49,10 +49,10 @@ opts into full-scaffold rollouts so scaffold-driven failures are visible to the 
 - Gate: full-agent A/B on holdout + margin/samples/regression checks + `RETENTION_WARN`.
 - Cost: ~$1 / ~30–40 min per run (budget 60).
 
-### Pass 2 — description (IMPLEMENTED: `optimize <skill> --description`)
+### Pass 2, description (IMPLEMENTED: `optimize <skill> --description`)
 
 - Mutable: `description` only.
-- Objective: **the routing suite, not the quality judge** — score a candidate description by
+- Objective: **the routing suite, not the quality judge**, score a candidate description by
   re-embedding it and computing recall@3 / top-1 / no-route precision over the `routing:` cases
   in the skill's task YAML, plus collision margin against every other skill's description and
   cross-harness parity. All computed by the local CPU embedding router: **no LLM rollouts**.
@@ -63,13 +63,13 @@ opts into full-scaffold rollouts so scaffold-driven failures are visible to the 
 - Prerequisite: a `routing:` case set for the skill (exists for `pdf`; auto-drafting routing
   cases for skills that lack them is a small extension of the existing task drafter).
 
-### Pass 3 — bundled files (BLOCKED on a real measurement)
+### Pass 3, bundled files (BLOCKED on a real measurement)
 
 - Sequencing files into their own pass does not help: nothing measures them. The A/B doesn't
   serve them, scripts never execute, and a files-only rollout judge has the same blindness that
   broke the description.
 - Prerequisites, per file kind:
-  - `scripts/*`: execution-grounded eval — SHIPPED 2026-07-16 as per-task `check:` specs
+  - `scripts/*`: execution-grounded eval, SHIPPED 2026-07-16 as per-task `check:` specs
     (fixture + assert, run in a scratch dir inside the disposable optimize container; broken
     fixtures are inconclusive, never held against the answer). Remaining gap: file-serving
     rollouts so a rewritten script is exercised the way a consuming harness would use it.
@@ -89,7 +89,7 @@ optimize pdf --routing       # pass 2: description (proposed flag)
 ```
 
 The continuous loop (`optimize-loop`) keeps running pass 1 only; pass 2 joins it once
-auto-drafted routing cases exist. No interleaving within a single GEPA run — the alternation
+auto-drafted routing cases exist. No interleaving within a single GEPA run, the alternation
 GEPA does internally is exactly what let quality pressure leak into the description.
 
 ## Non-goals
@@ -100,19 +100,19 @@ GEPA does internally is exactly what let quality pressure leak into the descript
 
 ## Decisions (resolved 2026-07-15)
 
-1. Flag spelling: component flags on the one `optimize` command — `--body` (default),
+1. Flag spelling: component flags on the one `optimize` command, `--body` (default),
    `--description`, `--scripts` (friendly refusal until execution-grounded evals exist).
 2. Pass-2 gate: no regression on any routing metric + at least one strict improvement +
-   collision check + human approval. No margin requirement — the pass is nearly free to re-run.
+   collision check + human approval. No margin requirement, the pass is nearly free to re-run.
 3. Routing cases auto-draft on first `--description` run (teacher-generated positives +
-   null negatives, persisted to the task YAML) — hand-curated suites take precedence.
+   null negatives, persisted to the task YAML), hand-curated suites take precedence.
    (Originally required-not-drafted; extended 2026-07-16.)
 
 ## Langfuse continuous judging (investigated 2026-07-16)
 
 Feasible without breaking the privacy posture: Langfuse's model-based evaluators accept custom
 OpenAI-compatible LLM connections, so the judge connection can point provider-direct (e.g.
-Fireworks, retention per that vendor's policy) or at a local endpoint — the OpenRouter-specific
+Fireworks, retention per that vendor's policy) or at a local endpoint, the OpenRouter-specific
 ZDR body isn't expressible there, but provider-direct/local is the same posture the generic
 BASE_URL support ships. Implementation (post-launch): configure an evaluator over incoming traces,
 then teach mine.py/loop.py to read precomputed scores instead of re-judging per tick.

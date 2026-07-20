@@ -1,6 +1,6 @@
 """Auto-draft an eval task set for a skill that doesn't have one yet, so a freshly created skill is
 immediately optimizable. The teacher model (GEPA_MODEL) reads the skill's description + body and
-writes train/holdout tasks with judge rubrics — split by *operation* so the holdout tests
+writes train/holdout tasks with judge rubrics, split by *operation* so the holdout tests
 generalization, not recall. Kept out of the MCP server (no LLM in the hot create_skill path); the
 optimizer calls it on demand when `optimize/tasks/<skill>.yaml` is missing."""
 import json
@@ -51,7 +51,7 @@ def draft_tasks(name: str, description: str, body: str, n: int = 8) -> dict:
 def draft_and_save(name: str, description: str, body: str, tasks_dir, n: int = 8, log=print):
     """Draft a task set and write it to tasks_dir/<name>.yaml. Returns the path."""
     from pathlib import Path
-    log(f"[draft] no eval set for '{name}' — teacher ({MODEL}) drafting {n} train/holdout tasks…")
+    log(f"[draft] no eval set for '{name}', teacher ({MODEL}) drafting {n} train/holdout tasks…")
     data = draft_tasks(name, description, body, n=n)
     path = Path(tasks_dir) / f"{name}.yaml"
     path.write_text(yaml.safe_dump(data, sort_keys=False, allow_unicode=True, width=100000))
@@ -66,7 +66,7 @@ SKILL DESCRIPTION (the routing trigger): {description}
 SKILL BODY (for context):
 {body}
 
-Write {positives} realistic user requests that SHOULD route to this skill — vary the phrasing the
+Write {positives} realistic user requests that SHOULD route to this skill, vary the phrasing the
 way real users type: some explicit, some indirect, different vocabulary. Then write {negatives}
 requests that must route to NO skill at all: nearby-domain distractors and pure conversation
 (thanks/greetings).
@@ -88,7 +88,7 @@ def draft_routing_cases(name: str, description: str, body: str,
     neg = [str(t) for t in data.get("negative", []) if str(t).strip()]
     if len(pos) < 2 or len(neg) < 1:
         raise SystemExit(f"draft_routing_cases: teacher returned {len(pos)} positive / {len(neg)} "
-                         f"negative cases for '{name}' — need at least 2/1. Re-run or hand-write "
+                         f"negative cases for '{name}', need at least 2/1. Re-run or hand-write "
                          f"a routing: block in optimize/tasks/{name}.yaml.")
     cases = []
     for i, task in enumerate(pos):
@@ -107,7 +107,7 @@ def draft_routing_cases(name: str, description: str, body: str,
 def draft_and_append_routing(name: str, description: str, body: str, tasks_dir, log=print) -> list[dict]:
     """Draft routing cases and persist them into tasks_dir/<name>.yaml's routing: block."""
     from pathlib import Path
-    log(f"[draft] no routing cases for '{name}' — teacher ({MODEL}) drafting some…")
+    log(f"[draft] no routing cases for '{name}', teacher ({MODEL}) drafting some…")
     cases = draft_routing_cases(name, description, body)
     path = Path(tasks_dir) / f"{name}.yaml"
     data = yaml.safe_load(path.read_text()) if path.exists() else {"skill": name}

@@ -1,8 +1,8 @@
-"""Minimal password auth for the change-control UI — for a shared server on a trusted company LAN.
+"""Minimal password auth for the change-control UI, for a shared server on a trusted company LAN.
 
 Deliberately small: HTTP Basic against a local users file of salted PBKDF2 hashes, so the browser
 prompts once and every request (including an approval) carries the username. That username becomes
-the audit-trail `actor`, which is the whole point — on a shared server an approval has to be
+the audit-trail `actor`, which is the whole point, on a shared server an approval has to be
 attributable to a person, not to `local-operator`.
 
 Opt-in: with no users file the UI stays open (the zero-config local default is unchanged). Create
@@ -28,7 +28,7 @@ from fastapi import HTTPException, Request
 
 AUTH_FILE = Path(os.environ.get("AUTH_FILE") or Path(__file__).resolve().parent.parent / "runs" / "auth.json")
 _ITERATIONS = 200_000
-_ANON = "local-operator"   # actor when auth is disabled — matches the pre-auth default
+_ANON = "local-operator"   # actor when auth is disabled, matches the pre-auth default
 # The compose default (docker-compose.yml sets AUTH_PASSWORD=${AUTH_PASSWORD:-ingot}); we warn while
 # it is unchanged so nobody exposes the UI on it. Documented in .env.example and the README.
 DEFAULT_PASSWORD = "ingot"
@@ -124,14 +124,14 @@ def _add_user_cli() -> None:
     username = sys.argv[2]
     password = getpass.getpass(f"password for {username}: ")
     if not password:
-        print("empty password — aborted")
+        print("empty password, aborted")
         raise SystemExit(1)
     users = load_users()
     users[username] = hash_password(password)
     AUTH_FILE.parent.mkdir(parents=True, exist_ok=True)
     AUTH_FILE.write_text(json.dumps(users, indent=2), encoding="utf-8")
     os.chmod(AUTH_FILE, 0o600)
-    print(f"user '{username}' saved to {AUTH_FILE} — auth is now ON for the UI")
+    print(f"user '{username}' saved to {AUTH_FILE}, auth is now ON for the UI")
 
 
 if __name__ == "__main__":

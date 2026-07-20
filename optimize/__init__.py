@@ -4,7 +4,7 @@ import sys
 OPENROUTER_URL = "https://openrouter.ai/api/v1"
 
 # Zero data retention, hardcoded on every OpenRouter call (README: Privacy). Local
-# OpenAI-compatible endpoints (vLLM, Ollama) don't get provider preferences — they wouldn't
+# OpenAI-compatible endpoints (vLLM, Ollama) don't get provider preferences, they wouldn't
 # understand them, and local inference is the strongest privacy there is.
 ZDR_PROVIDER = {"provider": {"zdr": True, "data_collection": "deny"}}
 
@@ -12,17 +12,17 @@ _KEY_HELP = """\
 error: no API key is set for your LLM endpoint, and candidate generation needs one.
 
   1. cp .env.example .env
-  2. put your key in it (OpenRouter: https://openrouter.ai/keys — or set BASE_URL + API_KEY for
+  2. put your key in it (OpenRouter: https://openrouter.ai/keys, or set BASE_URL + API_KEY for
      any other OpenAI-compatible provider, e.g. Fireworks)
   3. re-run this command
 
 (Running fully local instead? Point BASE_URL / MODEL_BASE_URL at your vLLM or Ollama
-OpenAI-compatible endpoint — no key is required then.)
+OpenAI-compatible endpoint, no key is required then.)
 """
 
 
 def agent_model() -> str:
-    """The serving/agent model — everything that *executes* skills (agent runs, A/B eval agents,
+    """The serving/agent model, everything that *executes* skills (agent runs, A/B eval agents,
     candidate rollouts). AGENT_MODEL wins; MODEL is the legacy alias so existing .env files keep
     working."""
     return os.environ.get("AGENT_MODEL") or os.environ.get("MODEL") or "qwen/qwen3.6-27b"
@@ -49,7 +49,7 @@ def api_key() -> str:
 
 
 def model_api_key() -> str:
-    """Key for the serving-model endpoint (falls back to the shared key) — hybrid setups can use
+    """Key for the serving-model endpoint (falls back to the shared key), hybrid setups can use
     a different vendor for the serving role."""
     return os.environ.get("MODEL_API_KEY", "") or api_key()
 
@@ -130,7 +130,7 @@ def _normalize(name: str) -> str:
 
 def provider_conflict(model: str, pins: list[str]) -> str | None:
     """None if some pinned provider serves `model` per OpenRouter's public endpoints API;
-    otherwise a human-readable explanation. Network problems return None (fail open — the
+    otherwise a human-readable explanation. Network problems return None (fail open, the
     preflight is advice, not a gate on offline work)."""
     import json
     import urllib.request
@@ -141,7 +141,7 @@ def provider_conflict(model: str, pins: list[str]) -> str | None:
     except Exception:
         return None
     if not endpoints:
-        return (f"model '{model}' has no endpoints on OpenRouter — check the model id "
+        return (f"model '{model}' has no endpoints on OpenRouter, check the model id "
                 f"(https://openrouter.ai/models)")
     served_by = [e.get("provider_name", "") for e in endpoints]
     normalized = {_normalize(p) for p in served_by}
@@ -186,8 +186,8 @@ def preflight_provider_pins() -> list[str]:
 # A/B serves variants with exactly this template, and the candidate search's rollouts optimize
 # against the same text: search and A/B must never disagree about the contract.
 SERVE_TEMPLATE = """You are a deep agent serving a user request. The following skill has been
-loaded for this task — follow its instructions. Keep the final answer concise.
-Your final answer must contain the complete deliverable itself — e.g. full runnable code inline —
+loaded for this task, follow its instructions. Keep the final answer concise.
+Your final answer must contain the complete deliverable itself, e.g. full runnable code inline ,
 never just a description of, or reference to, files you created in your workspace: the user cannot
 see your workspace.
 

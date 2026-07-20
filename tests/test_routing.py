@@ -1,5 +1,5 @@
 """Routing pass (optimize --description): adapter scoring against a scripted router, and the
-no-regression/improvement/collision gate. No embeddings, no LLM — the router is injected."""
+no-regression/improvement/collision gate. No embeddings, no LLM, the router is injected."""
 import pytest
 
 from optimize import routing as R

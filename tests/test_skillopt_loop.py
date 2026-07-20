@@ -1,6 +1,6 @@
 """Unit tests for the SkillOpt body-pass loop (no network/LLM): rollouts and the reflection LM are
-stubbed so the orchestration — accept on improvement, keep the seed otherwise, and buffer rejected
-edits back into the next reflection — is exercised deterministically."""
+stubbed so the orchestration, accept on improvement, keep the seed otherwise, and buffer rejected
+edits back into the next reflection, is exercised deterministically."""
 import json
 
 import pytest

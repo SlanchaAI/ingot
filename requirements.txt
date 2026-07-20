@@ -15,7 +15,7 @@ langchain-openai==1.3.5
 # Tracing + candidate generation + change-control UI
 langfuse==4.14.0
 skillopt==0.2.0   # body-pass optimizer: SkillOpt's held-out gate, patch-edit application, and
-                  # update-mode helpers (microsoft/SkillOpt, MIT). Pinned exact — the loop matches
+                  # update-mode helpers (microsoft/SkillOpt, MIT). Pinned exact, the loop matches
                   # this release's API; bump deliberately (see optimize/skillopt_bridge.py).
 gepa==0.1.1       # the description (routing) pass's reflective loop
 litellm==1.93.0   # teacher-model plumbing (openrouter/... model strings)

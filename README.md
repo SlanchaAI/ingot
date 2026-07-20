@@ -70,7 +70,7 @@ docker compose run --rm agent "How do I merge several PDFs into one and add page
 The lite stack uses ports `8000` and `8080` and the fixed Compose project name `ingot`. Stop an
 existing Ingot stack before starting a second checkout on the same host.
 
-The change-control UI at `localhost:8080` asks for a login — the compose default is **`admin` /
+The change-control UI at `localhost:8080` asks for a login, the compose default is **`admin` /
 `ingot`**. Change `AUTH_PASSWORD` in `.env` before sharing it on your LAN (or set `AUTH_PASSWORD=`
 empty to run it open); see [Network exposure](#network-exposure).
 
@@ -172,7 +172,7 @@ runs the agent once on a demo task. The UI lists every skill the router serves, 
 content-hash revision and a load count (how often it has actually been served), and surfaces
 anything awaiting review:
 
-![Change-control UI — the skills library, with revisions and load counts](docs/ui-home.png)
+![Change-control UI, the skills library, with revisions and load counts](docs/ui-home.png)
 
 No skills are committed to this repo. `fetch_skills.sh` clones each source, copies its skills in,
 and deletes the clone, so everything stays under its own upstream license. Without an API key
@@ -308,17 +308,17 @@ few cents). The UI's **Generate candidate** button starts the same run. Our run:
 
 ```
 [skillopt] seed: hard 0.000 soft 0.000 gate 0.000 (mixed) on 6 train tasks; 2 epoch(s), minibatch 3, ≤3 edits/step
-[skillopt] step 1: accept_new_best (1 edit(s)) — gate 0.750
-[skillopt] step 2: accept_new_best (3 edit(s)) — gate 0.767
-[skillopt] step 3: accept_new_best (2 edit(s)) — gate 0.808
-[skillopt] step 4: accept_new_best (1 edit(s)) — gate 0.817
+[skillopt] step 1: accept_new_best (1 edit(s)), gate 0.750
+[skillopt] step 2: accept_new_best (3 edit(s)), gate 0.767
+[skillopt] step 3: accept_new_best (2 edit(s)), gate 0.808
+[skillopt] step 4: accept_new_best (1 edit(s)), gate 0.817
 [skillopt] winner after 4 step(s): gate 0.817 (seed 0.000)
 [ab] champion: mean judge score 0.133  [0.0, 0.2, 0.2, 0.0, 0.2, 0.2]
 [ab] challenger: mean judge score 0.667  [0.8, 1.0, 0.9, 0.9, 0.4, 0.0]
 [ab] champion 0.133 vs challenger 0.667 -> CHALLENGER WINS
 [ab] output tokens/task: 1278 -> 808 (-470)
-[ab] ⚠ acceptance criteria (minority — flagged for review): 'no_v3_tailwind_directives': 1/6 holdout answer(s) matched
-[ab] ⚠ challenger drops 80% of the champion body, gated on only 6 held-out task(s) — review the deletions carefully
+[ab] ⚠ acceptance criteria (minority, flagged for review): 'no_v3_tailwind_directives': 1/6 holdout answer(s) matched
+[ab] ⚠ challenger drops 80% of the champion body, gated on only 6 held-out task(s), review the deletions carefully
   estimated cost: $0.06 (OpenRouter list prices)
 [ab] pending approval written to /app/runs/pending/tailwind.json - review + promote at http://localhost:8080
 ```
@@ -326,12 +326,12 @@ few cents). The UI's **Generate candidate** button starts the same run. Our run:
 Read what happened. Every line of the stub body is the v3 way, so it scored 0.000 in bare rollouts.
 SkillOpt reflected on the failing minibatches, and because the judge feedback flagged the loaded
 guidance as *wrong* (not just incomplete), it proposed bounded **delete/replace** edits that stripped
-the stale v3 lines rather than appending beside them — that is the 80% body drop the review gate
+the stale v3 lines rather than appending beside them, that is the 80% body drop the review gate
 flags. Across four accepted steps the body became clean v4. On the held-out A/B through the real
-agent, the stub champion scored 0.133 — a small serving model follows the loaded v3 advice straight
-into wrong answers — while the challenger scored **0.667 with fewer tokens** (808 vs 1278 out/task).
+agent, the stub champion scored 0.133, a small serving model follows the loaded v3 advice straight
+into wrong answers, while the challenger scored **0.667 with fewer tokens** (808 vs 1278 out/task).
 The acceptance gate caught a residual: on 1 of 6 holdout tasks the weak model still emitted a v3
-directive despite the clean body — a minority, so the graded gate flags it as a ⚠ warning rather
+directive despite the clean body, a minority, so the graded gate flags it as a ⚠ warning rather
 than blocking. The result is **promotable-but-flagged**: a human weighs the large deletion and the
 residual slip in the comparison panel before approving, and only then does `skills/tailwind` change.
 
@@ -367,16 +367,16 @@ the GEPA body loop and now selects the SkillOpt candidate search's rollout mode)
 Back at **http://localhost:8080**, the header pill flips to **1 to review**, the Review section
 leads with the evidence, and the `tailwind` row shows a `change awaiting review` chip. The card
 carries the champion-vs-challenger judge scores, the before/after token shift, the gate verdict and
-its warnings, the recorded evidence bundle, and the component diff — here the red lines are the v3
+its warnings, the recorded evidence bundle, and the component diff, here the red lines are the v3
 guidance SkillOpt removed and the green lines are the v4 body it wrote:
 
-![Review card — the tailwind v3→v4 challenger, promotable with warnings](docs/ui-review.png)
+![Review card, the tailwind v3→v4 challenger, promotable with warnings](docs/ui-review.png)
 
 **Approve** doesn't promote in one click: it opens a comparison panel with the model breakdown,
 the before/after token usage, and the per-task judge scores, and a final **Approve & promote** that
-reveals a separate **Confirm** — so a promotion is deliberate.
+reveals a separate **Confirm**, so a promotion is deliberate.
 
-![Comparison panel — model, tokens, and judge scores before Confirm](docs/ui-compare.png)
+![Comparison panel, model, tokens, and judge scores before Confirm](docs/ui-compare.png)
 
 **Approve & promote** verifies the evidence still matches the on-disk champion, snapshots the prior
 revision into `runs/revisions/tailwind/<revision>/`, swaps the challenger into `skills/tailwind/` by
@@ -520,13 +520,13 @@ paths:
    `EXEC_SANDBOX=1` is the legacy bare-subprocess mode; `EXEC_SANDBOX=off` disables execution. A
    task can also ship a `check:` spec (fixture + assert) in its task YAML for artifact-verified
    execution; a broken fixture counts as inconclusive, never against the answer.
-5. **Acceptance criteria.** A skill's task YAML can declare `acceptance:` `forbid` regexes — hard
+5. **Acceptance criteria.** A skill's task YAML can declare `acceptance:` `forbid` regexes, hard
    invariants the challenger's held-out answers must satisfy (e.g. a Tailwind v4 skill must never
    emit the v3 `@tailwind base/components/utilities` directives), grounding the judge with a check
    it can't be talked out of. They're also fed into the SkillOpt inner loop as a training signal so
    it *removes* forbidden content rather than appending around it. The gate is graded: a forbidden
    pattern in more than `PROMOTE_ACCEPT_BLOCK_RATE` of the answers (default 0.5) blocks; a minority
-   is a ⚠ warning a human weighs — so a large win isn't auto-killed by one residual model slip.
+   is a ⚠ warning a human weighs, so a large win isn't auto-killed by one residual model slip.
 6. **Length penalty.** The objective subtracts a penalty for a bloated body.
 7. **Deletions need evidence.** A challenger that drops most of the champion body (retention below
    `RETENTION_WARN`) gets a ⚠ warning in the review UI with the retention number and sample count.
@@ -567,7 +567,7 @@ Set in `.env` (never committed):
 | `SKILLOPT_EPOCHS` | `2` | body pass: passes over the train set |
 | `SKILLOPT_MINIBATCH` | `3` | body pass: train tasks reflected on per step |
 | `SKILLOPT_MAX_EDITS` | `3` | body pass: ceiling on edits applied per step (the learning-rate cap) |
-| `SKILLOPT_GATE_METRIC` | `mixed` | body pass: inner accept/reject metric — `hard`, `soft`, or `mixed` |
+| `SKILLOPT_GATE_METRIC` | `mixed` | body pass: inner accept/reject metric, `hard`, `soft`, or `mixed` |
 | `SKILLOPT_GATE_MIXED_WEIGHT` | `0.5` | weight on soft (mean-judge) when the metric is `mixed` |
 | `SKILLOPT_ACCEPT_PENALTY` | `0.5` | how hard the inner loop docks a candidate whose train answers violate the skill's acceptance criteria (steers it to remove forbidden content, not append around it) |
 | `PROMOTE_ACCEPT_BLOCK_RATE` | `0.5` | acceptance violations block promotion past this fraction of holdout answers; a smaller share is a ⚠ review warning. `0` = strict (any violation blocks), `>=1` = warning-only |
@@ -582,7 +582,7 @@ Set in `.env` (never committed):
 | `SKILL_MAX_BODY` | `40000` | `create_skill` body ceiling (~500 lines) |
 | `TRACES_FILE` | `runs/traces.jsonl` | local JSONL trace store: written by every agent run, read by `optimize-mine` when Langfuse is unreachable, so mining works without the tracing stack |
 | `SKILL_USAGE_FILE` | `runs/skill_usage.json` | per-skill load counter: the MCP server increments it on every `get_skill` / `route_and_load` match, and the UI shows each skill's `uses` |
-| `AUTH_USER` / `AUTH_PASSWORD` | `admin` / `ingot` (compose) | UI login (HTTP Basic). docker-compose sets these so the shared UI is gated by default — **change `AUTH_PASSWORD`** before exposing it; set `AUTH_PASSWORD=` empty to run open |
+| `AUTH_USER` / `AUTH_PASSWORD` | `admin` / `ingot` (compose) | UI login (HTTP Basic). docker-compose sets these so the shared UI is gated by default, **change `AUTH_PASSWORD`** before exposing it; set `AUTH_PASSWORD=` empty to run open |
 | `AUTH_FILE` | `runs/auth.json` | additional UI users (salted PBKDF2) for more than one login; add with `python -m ui.auth add <name>`. Absent + no `AUTH_*` env = UI open (bare local default) |
 | `MAX_RUN_USD` | (none) | hard spend cap per optimize run: the ledger estimates cost from OpenRouter list prices after every call and aborts the run past the cap |
 | `LANGFUSE_BASE_URL` | `http://langfuse-web:3000` | Langfuse endpoint every service traces to and mines from |
@@ -595,7 +595,7 @@ Evidence-gate knobs (`PROMOTE_MIN_MARGIN`, `PROMOTE_MIN_SAMPLES`, `COLLISION_SCO
 ### Candidate generation
 
 The body pass trains the skill body with **[SkillOpt](https://github.com/microsoft/SkillOpt)**'s
-reflective loop (Yang et al., arXiv:2605.23904; MIT, © Microsoft) — the skill document is treated
+reflective loop (Yang et al., arXiv:2605.23904; MIT, © Microsoft), the skill document is treated
 as trainable state and improved like a model is trained: epochs, minibatches, a learning rate, and
 a validation gate, with no change to the serving model's weights. Per step
 (`optimize/skillopt_loop.py`):
@@ -849,7 +849,7 @@ to `"8000:8000"` (or bind a specific interface). Do this knowingly: anyone who c
 ports can queue candidates, approve activations, roll skills back, and spend your API budget.
 
 **Sharing the UI on a trusted LAN?** Turn on the built-in password gate so approvals are gated and
-attributable — add a user and the change-control UI requires HTTP Basic auth (against a local
+attributable, add a user and the change-control UI requires HTTP Basic auth (against a local
 `runs/auth.json` of salted PBKDF2 hashes), and each approval or rollback records that username as
 the audit `actor` instead of `local-operator`:
 
@@ -859,8 +859,8 @@ docker compose run --rm ui python -m ui.auth add alice   # prompts for a passwor
 
 It's off until the first user exists (the local default stays zero-config). This is LAN-grade:
 Basic credentials ride every request, so keep the server inside your network boundary and add TLS
-if you can. For SSO, RBAC, and per-team policy — and for authenticating the MCP serving endpoints
-themselves — put an authenticating reverse proxy in front, or use the enterprise profile.
+if you can. For SSO, RBAC, and per-team policy, and for authenticating the MCP serving endpoints
+themselves, put an authenticating reverse proxy in front, or use the enterprise profile.
 
 Deliberately not done: we do not denylist shell commands, `.env` mentions, or `curl … | sh` in
 skill bodies, because legitimate skills routinely contain code and install steps. Contain the

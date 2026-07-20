@@ -276,7 +276,7 @@ def test_optimize_surfaces_pin_conflicts_as_400(client, monkeypatch):
 
 
 def test_skills_api_reports_eval_status_for_all_skills(client, tmp_path, monkeypatch):
-    # the UI's evals chip keys off has_tasks — every skill must carry it, task set or not
+    # the UI's evals chip keys off has_tasks, every skill must carry it, task set or not
     from mcp_server import registry
     from mcp_server.registry import write_skill_md
     import ui.app as U

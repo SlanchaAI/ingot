@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Fetch example Agent Skills (SKILL.md format) into ./skills/. Every source is OPTIONAL and nothing
-# is redistributed in this repo — each source is cloned from upstream, its skills copied in, and the
+# is redistributed in this repo, each source is cloned from upstream, its skills copied in, and the
 # clone deleted, so skills stay under their own upstream licenses.
 #
 # Usage:

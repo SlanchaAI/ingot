@@ -1,5 +1,5 @@
 """Token ledger for an optimize run: every LLM call is attributed to a role
-(rollout / judge / reflection / agent_ab) so the run can report what it actually cost —
+(rollout / judge / reflection / agent_ab) so the run can report what it actually cost ,
 including a best-effort USD estimate from OpenRouter list prices, and an optional hard
 spend cap (MAX_RUN_USD) that aborts a run before it exceeds the budget."""
 import os
@@ -12,7 +12,7 @@ _PRICES: dict[str, tuple[float, float]] | None = None
 
 
 def reset():
-    """Start a fresh ledger — the UI process runs many optimizations; counts must not leak across runs."""
+    """Start a fresh ledger, the UI process runs many optimizations; counts must not leak across runs."""
     with _LOCK:
         COUNTS.clear()
 
@@ -35,7 +35,7 @@ def _enforce_cap():
         return
     cost = estimated_cost()
     if cost is not None and cost > cap:
-        raise SystemExit(f"MAX_RUN_USD exceeded: estimated ${cost:.2f} > cap ${cap:.2f} — "
+        raise SystemExit(f"MAX_RUN_USD exceeded: estimated ${cost:.2f} > cap ${cap:.2f}, "
                          f"aborting before spending more.\n{format_report()}")
 
 

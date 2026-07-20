@@ -283,7 +283,7 @@
   @keyframes list-in { from { opacity: 0; transform: translateY(9px) scale(.985); } to { opacity: 1; transform: none; } }
 
   /* review card: the decision surface. While a challenger waits, a slow terracotta beam
-     circles the border (structure: Magic UI border-beam — gradient square on an offset-path
+     circles the border (structure: Magic UI border-beam, gradient square on an offset-path
      rect, masked to the 1px ring). Falls back to the plain border where unsupported. */
   .review-card { position: relative; border: 1px solid var(--line-2); border-radius: 11px;
     padding: 1.15rem 1.25rem 1.25rem; margin-top: 1.1rem; background: var(--paper-2); }
@@ -374,13 +374,13 @@
 
   <div class="cmp-overlay" id="cmp-overlay" hidden>
     <div class="cmp-modal" role="dialog" aria-modal="true" aria-labelledby="cmp-title">
-      <div class="cmp-head"><span id="cmp-title">Confirm promotion — <b id="cmp-skill"></b></span>
+      <div class="cmp-head"><span id="cmp-title">Confirm promotion, <b id="cmp-skill"></b></span>
         <button class="cmp-x" id="cmp-cancel" aria-label="Close">×</button></div>
       <div class="cmp-body" id="cmp-body"></div>
       <div class="cmp-actions">
         <button class="btn" id="cmp-cancel2">Cancel</button>
         <button class="btn primary" id="cmp-approve">Approve &amp; promote</button>
-        <button class="btn danger" id="cmp-confirm" hidden>Confirm — promote now</button>
+        <button class="btn danger" id="cmp-confirm" hidden>Confirm, promote now</button>
       </div>
       <span class="msg" id="cmp-msg"></span>
     </div>
@@ -451,7 +451,7 @@ function tickKpis() {
 const staggerIn = sel => document.querySelectorAll(sel).forEach((el, i) => {
   el.classList.add("list-in"); el.style.setProperty("--i", Math.min(i, 12));  // long lists land together past the fold
 });
-// skill descriptions come from third-party skill packs / the agent's create_skill — escape before innerHTML
+// skill descriptions come from third-party skill packs / the agent's create_skill, escape before innerHTML
 const esc = t => { const d = document.createElement("div"); d.textContent = t; return d.innerHTML; };
 
 // Surface the API's own explanation (FastAPI puts it in `detail`) rather than a raw response body:
@@ -764,7 +764,7 @@ async function showPending(skill, {keepMessage = false} = {}) {
   } else {     // routing pass: embedding-router metrics, no LLM involved
     const c = p.routing.champion, ch = p.routing.challenger;
     const cell = (a, b) => `${a.toFixed(3)} → <b class="${b > a ? "win" : (b < a ? "lose" : "")}">${b.toFixed(3)}</b>`;
-    detail = `<div class="metaline">routing pass (description) — top-1 ${cell(c.top1, ch.top1)} · ` +
+    detail = `<div class="metaline">routing pass (description), top-1 ${cell(c.top1, ch.top1)} · ` +
       `recall@3 ${cell(c.recall_at_3, ch.recall_at_3)} · ` +
       `no-route precision ${cell(c.no_route_precision, ch.no_route_precision)}</div>` +
       (search ? `<div class="metaline">embedding router · candidate search ` +
@@ -798,8 +798,8 @@ async function showPending(skill, {keepMessage = false} = {}) {
 
 // Approve opens a larger comparison panel (model breakdown, token usage, judge scores) with a
 // two-step confirm, so a promotion is never one careless click.
-const num = x => (x == null ? "—" : Number(x).toFixed(0));
-const sc = x => (x == null ? "—" : Number(x).toFixed(3));
+const num = x => (x == null ? "," : Number(x).toFixed(0));
+const sc = x => (x == null ? "," : Number(x).toFixed(3));
 function delta(before, after, lowerBetter) {
   if (before == null || after == null) return "";
   const d = after - before, cls = d === 0 ? "" : ((lowerBetter ? d < 0 : d > 0) ? "win" : "lose");
@@ -810,14 +810,14 @@ function buildCompare(p) {
   const ab = p.ab || {}, c = ab.champion || {}, ch = ab.challenger || {};
   const ct = c.tokens || {}, cht = ch.tokens || {};
   const models = `<div class="cmp-sec"><h4>Model breakdown</h4>
-    <div class="cmp-kv"><span>Serving model (runs the skill)</span><code>${esc(p.model || "—")}</code></div>
-    <div class="cmp-kv"><span>Judge (LLM-as-a-judge)</span><code>${esc(p.judge || "—")}</code></div></div>`;
+    <div class="cmp-kv"><span>Serving model (runs the skill)</span><code>${esc(p.model || ",")}</code></div>
+    <div class="cmp-kv"><span>Judge (LLM-as-a-judge)</span><code>${esc(p.judge || ",")}</code></div></div>`;
   const scores = `<div class="cmp-sec"><h4>LLM-as-a-judge score · ${(c.scores || []).length} held-out tasks</h4>
     <table class="cmp-tbl"><tr><th></th><th>champion</th><th>challenger</th><th>Δ</th></tr>
       <tr><td>mean</td><td>${sc(c.mean)}</td><td>${sc(ch.mean)}</td><td>${delta(c.mean, ch.mean, false)}</td></tr>
       <tr><td>per-task</td><td colspan="3" class="cmp-pertask">${(c.scores || []).map(sc).join("  ")}<br>→ ${(ch.scores || []).map(sc).join("  ")}</td></tr>
     </table></div>`;
-  const tokens = `<div class="cmp-sec"><h4>Token usage / task — before → after</h4>
+  const tokens = `<div class="cmp-sec"><h4>Token usage / task, before → after</h4>
     <table class="cmp-tbl"><tr><th></th><th>before</th><th>after</th><th>Δ</th></tr>
       <tr><td>output</td><td>${num(ct.mean_output)}</td><td>${num(cht.mean_output)}</td><td>${delta(ct.mean_output, cht.mean_output, true)}</td></tr>
       <tr><td>input</td><td>${num(ct.mean_input)}</td><td>${num(cht.mean_input)}</td><td>${delta(ct.mean_input, cht.mean_input, true)}</td></tr>
