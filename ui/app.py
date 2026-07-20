@@ -19,7 +19,7 @@ from fastapi.responses import FileResponse, RedirectResponse
 from mcp_server.registry import SLUG_RE, load_skills
 from optimize.ab import TASKS_DIR, run_ab
 from ui.auth import (auth_mode, current_actor, require_auth, require_role, using_default_password)
-from optimize.promote import (approve_pending, list_pending, list_revisions,
+from optimize.promote import (_audit_best_effort, approve_pending, list_pending, list_revisions,
                               list_snapshotted_skills, load_pending, pending_path, read_audit,
                               rollback, stale_evidence_reason)
 
@@ -72,6 +72,13 @@ if auth_mode() == "oidc":
     app.add_middleware(SessionMiddleware, secret_key=os.environ["SESSION_SECRET"],
                        **oidc_cookie_kwargs())
     app.include_router(oidc_router)
+else:
+    # Password/open mode carries no session identity, but the frontend polls /auth/me on every
+    # load: answer with a stable unauthenticated shape instead of a 404 (the OIDC router owns the
+    # real endpoint when that profile is on).
+    @app.get("/auth/me")
+    def auth_me():
+        return {"authenticated": False, "email": "", "name": "", "role": ""}
 
 RUNS: dict[str, dict] = {}  # skill -> {"status": running|done|error, "log": [lines]}
 
@@ -327,10 +334,27 @@ def _evidence_file(recorded: str) -> Path:
     return resolved
 
 
+def _challenger_revision(pending: dict) -> str:
+    """The challenger's revision hash from a pending record's evidence, or '' when none is recorded
+    (e.g. a creation-kind pending). Mirrors the revision approve/rollback audit."""
+    revision = ((pending.get("evidence") or {}).get("challenger") or {}).get("revision")
+    return revision if isinstance(revision, str) else ""
+
+
 @app.post("/api/reject/{skill}",
           dependencies=[Depends(same_origin), Depends(require_role("approver"))])
-def reject(skill: str):
-    pending_path(_check(skill)).unlink(missing_ok=True)
+def reject(skill: str, actor: str = Depends(current_actor)):
+    _check(skill)
+    # Load, validate, delete, and audit all under the lock: checking existence first and deleting
+    # later would let a second reject pass the check, then re-delete and double-audit after the
+    # first released, returning 200 instead of 404 (mirrors approve/rollback holding the lock).
+    with change_control(skill):
+        pending = load_pending(skill)
+        if pending is None:
+            raise HTTPException(404, f"no pending change for '{skill}'")
+        revision = _challenger_revision(pending)
+        pending_path(skill).unlink(missing_ok=True)
+        _audit_best_effort("reject", skill, revision, actor)
     return {"result": f"rejected the pending change for '{skill}'"}
 
 
