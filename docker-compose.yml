@@ -185,7 +185,7 @@ services:
   # ---------------------------------------------------------------------------
   langfuse-worker:
     profiles: ["langfuse"]   # full observability stack: docker compose --profile langfuse up
-    image: docker.io/langfuse/langfuse-worker:3
+    image: docker.io/langfuse/langfuse-worker:3.221.1   # pinned for reproducible demos (was :3, a moving major tag)
     restart: always
     depends_on: &langfuse-depends-on
       postgres:
@@ -226,7 +226,7 @@ services:
 
   langfuse-web:
     profiles: ["langfuse"]   # full observability stack: docker compose --profile langfuse up
-    image: docker.io/langfuse/langfuse:3
+    image: docker.io/langfuse/langfuse:3.221.1   # pinned for reproducible demos (was :3, a moving major tag)
     restart: always
     depends_on: *langfuse-depends-on
     ports:
@@ -275,7 +275,7 @@ services:
 
   minio:
     profiles: ["langfuse"]   # full observability stack: docker compose --profile langfuse up
-    image: cgr.dev/chainguard/minio
+    image: cgr.dev/chainguard/minio:latest@sha256:8230f06574280781ea6ad45e27962db60175b18e4a43dd54c19012feb5438174   # chainguard only ships :latest (rolling), so pin by digest
     restart: always
     entrypoint: sh
     # create the 'langfuse' bucket before starting the service
