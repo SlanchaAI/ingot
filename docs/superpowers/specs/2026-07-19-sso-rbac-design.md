@@ -1,6 +1,13 @@
 # SSO + RBAC for the shared change-control UI — design
 
-Status: proposed · Scope: UI authentication + authorization for a shared/enterprise deployment.
+Status: proposed (with the decision-independent RBAC core landed) · Scope: UI authentication +
+authorization for a shared/enterprise deployment.
+
+> **Already on this branch:** the provider-agnostic authorization core — `ui/rbac.py` (roles,
+> claim→role mapping, `authorize`, and OIDC-claims→identity parsing) with unit tests
+> (`tests/test_rbac.py`). It needs no IdP and no decision below, so it is built and tested now. The
+> OIDC browser flow, provider integration, and endpoint wiring remain deferred pending the open
+> decisions.
 
 Follow-up to the minimal LAN password auth (PR #24). That work made approvals *attributable* — the
 authenticated user is written as the audit `actor` on promote/reject/rollback. This spec takes the
