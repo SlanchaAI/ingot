@@ -5,6 +5,7 @@ import json
 
 from fastapi.testclient import TestClient
 
+from optimize import promote as P
 from ui import auth
 from ui.app import app
 
@@ -52,6 +53,72 @@ def test_using_default_password_flag(monkeypatch):
     assert auth.using_default_password()
     monkeypatch.setenv("AUTH_PASSWORD", "changed")
     assert not auth.using_default_password()
+
+
+def test_env_and_file_users_both_authenticate(tmp_path, monkeypatch):
+    f = tmp_path / "auth.json"
+    f.write_text(json.dumps({"filed": auth.hash_password("fpw")}))
+    monkeypatch.setattr(auth, "AUTH_FILE", f)
+    monkeypatch.setenv("AUTH_USER", "envd")
+    monkeypatch.setenv("AUTH_PASSWORD", "epw")
+    c = TestClient(app)
+    assert c.get("/api/config", headers=_basic("envd", "epw")).status_code == 200      # env user
+    assert c.get("/api/config", headers=_basic("filed", "fpw")).status_code == 200      # file user
+    assert c.get("/api/config", headers=_basic("filed", "epw")).status_code == 401      # crossed creds
+
+
+def test_malformed_authorization_header_is_rejected(tmp_path, monkeypatch):
+    monkeypatch.setattr(auth, "AUTH_FILE", tmp_path / "none.json")
+    monkeypatch.setenv("AUTH_USER", "admin")
+    monkeypatch.setenv("AUTH_PASSWORD", "pw")
+    c = TestClient(app)
+    for header in ({"Authorization": "Bearer abc"},
+                   {"Authorization": "Basic !!!not-base64"},
+                   {"Authorization": "Basic " + base64.b64encode(b"nocolon").decode()}):
+        assert c.get("/api/config", headers=header).status_code == 401
+
+
+def test_cli_add_user_writes_a_verifiable_hash(tmp_path, monkeypatch):
+    import getpass
+    import sys
+    f = tmp_path / "auth.json"
+    monkeypatch.setattr(auth, "AUTH_FILE", f)
+    monkeypatch.setattr(getpass, "getpass", lambda *a, **k: "pw123")
+    monkeypatch.setattr(sys, "argv", ["ui.auth", "add", "bob"])
+    auth._add_user_cli()
+    users = json.loads(f.read_text())
+    assert "bob" in users and auth._verify("pw123", users["bob"])
+
+
+def _promotable(skill):
+    P.save_pending(skill, {"skill": skill, "gate": {"promotable": True, "blocked": []},
+                           "champion_components": {}, "challenger_components": {}})
+
+
+def test_promote_endpoint_threads_the_authenticated_actor(tmp_path, monkeypatch):
+    import ui.app as ui_app
+    monkeypatch.setattr(P, "PENDING_DIR", tmp_path / "pending")
+    f = tmp_path / "auth.json"
+    f.write_text(json.dumps({"alice": auth.hash_password("pw")}))
+    monkeypatch.setattr(auth, "AUTH_FILE", f)
+    captured = {}
+    monkeypatch.setattr(ui_app, "approve_pending",
+                        lambda skill, actor=None: captured.update(actor=actor) or "ok")
+    _promotable("pdf")
+    r = TestClient(app).post("/api/promote/pdf", headers=_basic("alice", "pw"))
+    assert r.status_code == 200 and captured["actor"] == "alice"
+
+
+def test_rollback_endpoint_threads_the_authenticated_actor(tmp_path, monkeypatch):
+    import ui.app as ui_app
+    monkeypatch.setattr(auth, "AUTH_FILE", tmp_path / "none.json")
+    monkeypatch.setenv("AUTH_USER", "carol")
+    monkeypatch.setenv("AUTH_PASSWORD", "pw")
+    captured = {}
+    monkeypatch.setattr(ui_app, "rollback",
+                        lambda skill, revision, actor=None: captured.update(actor=actor) or "ok")
+    r = TestClient(app).post("/api/rollback/pdf/deadbeef", headers=_basic("carol", "pw"))
+    assert r.status_code == 200 and captured["actor"] == "carol"
 
 
 def test_enabled_gate_requires_valid_credentials(tmp_path, monkeypatch):
