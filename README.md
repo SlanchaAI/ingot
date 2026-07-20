@@ -578,6 +578,7 @@ Set in `.env` (never committed):
 | `SKILL_MAX_BODY` | `40000` | `create_skill` body ceiling (~500 lines) |
 | `TRACES_FILE` | `runs/traces.jsonl` | local JSONL trace store: written by every agent run, read by `optimize-mine` when Langfuse is unreachable, so mining works without the tracing stack |
 | `SKILL_USAGE_FILE` | `runs/skill_usage.json` | per-skill load counter: the MCP server increments it on every `get_skill` / `route_and_load` match, and the UI shows each skill's `uses` |
+| `AUTH_FILE` | `runs/auth.json` | UI password users (salted PBKDF2). Absent = UI open (local default); add a user with `python -m ui.auth add <name>` to require HTTP Basic and attribute approvals (LAN use) |
 | `MAX_RUN_USD` | (none) | hard spend cap per optimize run: the ledger estimates cost from OpenRouter list prices after every call and aborts the run past the cap |
 | `LANGFUSE_BASE_URL` | `http://langfuse-web:3000` | Langfuse endpoint every service traces to and mines from |
 | `LANGFUSE_PUBLIC_KEY` / `LANGFUSE_SECRET_KEY` | `pk-lf-local-demo` / `sk-lf-local-demo` | project keys; defaults are the bundled stack's local demo literals |
@@ -831,7 +832,7 @@ CPU). If the model is missing it degrades silently to the regex heuristic. In Do
 
 **Everything is localhost-only by default, because nothing is authenticated.** The MCP tools and the
 change-control UI's endpoints (which can trigger paid candidate runs, activate a skill, or roll one
-back) have no auth of their own; the demo's protection is that no service is reachable off the
+back) have no auth of their own; the default protection is that no service is reachable off the
 machine:
 
 - `docker-compose.yml` publishes every port on loopback only (`127.0.0.1:8000` MCP,
@@ -840,8 +841,21 @@ machine:
 
 To expose a service, change its port mapping in `docker-compose.yml` from `"127.0.0.1:8000:8000"`
 to `"8000:8000"` (or bind a specific interface). Do this knowingly: anyone who can reach those
-ports can queue candidates, approve activations, roll skills back, and spend your API budget. For
-anything beyond a trusted LAN, put an authenticating reverse proxy in front.
+ports can queue candidates, approve activations, roll skills back, and spend your API budget.
+
+**Sharing the UI on a trusted LAN?** Turn on the built-in password gate so approvals are gated and
+attributable — add a user and the change-control UI requires HTTP Basic auth (against a local
+`runs/auth.json` of salted PBKDF2 hashes), and each approval or rollback records that username as
+the audit `actor` instead of `local-operator`:
+
+```bash
+docker compose run --rm ui python -m ui.auth add alice   # prompts for a password; auth is now ON
+```
+
+It's off until the first user exists (the local default stays zero-config). This is LAN-grade:
+Basic credentials ride every request, so keep the server inside your network boundary and add TLS
+if you can. For SSO, RBAC, and per-team policy — and for authenticating the MCP serving endpoints
+themselves — put an authenticating reverse proxy in front, or use the enterprise profile.
 
 Deliberately not done: we do not denylist shell commands, `.env` mentions, or `curl … | sh` in
 skill bodies, because legitimate skills routinely contain code and install steps. Contain the

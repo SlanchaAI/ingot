@@ -18,6 +18,7 @@ from fastapi.responses import FileResponse
 
 from mcp_server.registry import SLUG_RE, load_skills
 from optimize.ab import TASKS_DIR, run_ab
+from ui.auth import current_actor, require_auth
 from optimize.promote import (approve_pending, list_pending, list_revisions,
                               list_snapshotted_skills, load_pending, pending_path, read_audit,
                               rollback, stale_evidence_reason)
@@ -48,7 +49,10 @@ def same_origin(request: Request):
 
 app = FastAPI(title="ingot change control",
               description="Review evidence for quarantined skill changes, promote them "
-                          "atomically, and roll back a promoted revision.")
+                          "atomically, and roll back a promoted revision.",
+              # LAN-grade gate: no-op when no users file exists (local default stays open);
+              # HTTP Basic against runs/auth.json once a user is added (see ui/auth.py).
+              dependencies=[Depends(require_auth)])
 
 RUNS: dict[str, dict] = {}  # skill -> {"status": running|done|error, "log": [lines]}
 
@@ -231,7 +235,7 @@ def change_control(skill: str):
 
 
 @app.post("/api/promote/{skill}", dependencies=[Depends(same_origin)])
-def approve(skill: str):
+def approve(skill: str, actor: str = Depends(current_actor)):
     p = load_pending(_check(skill))
     if not p:
         raise HTTPException(404, f"no pending change for '{skill}'")
@@ -239,7 +243,7 @@ def approve(skill: str):
         raise HTTPException(409, "the evidence gate blocked this change")
     with change_control(skill):
         try:
-            return {"result": approve_pending(skill)}
+            return {"result": approve_pending(skill, actor=actor)}
         except ValueError as e:  # stale evidence, a name collision, a failed safety re-check
             raise HTTPException(409, str(e))
 
@@ -348,9 +352,9 @@ def _audit_page() -> dict:
 
 
 @app.post("/api/rollback/{skill}/{revision}", dependencies=[Depends(same_origin)])
-def rollback_revision(skill: str, revision: str):
+def rollback_revision(skill: str, revision: str, actor: str = Depends(current_actor)):
     with change_control(_check(skill)):
         try:
-            return {"result": rollback(skill, revision)}
+            return {"result": rollback(skill, revision, actor=actor)}
         except ValueError as e:
             raise HTTPException(404, str(e))

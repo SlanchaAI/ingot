@@ -41,6 +41,8 @@ class _Layout(HTMLParser):
 
 @pytest.fixture
 def client(tmp_path, monkeypatch):
+    from ui import auth
+    monkeypatch.setattr(auth, "AUTH_FILE", tmp_path / "no-auth.json")  # auth off unless a test opts in
     monkeypatch.setattr(P, "PENDING_DIR", tmp_path / "pending")
     monkeypatch.setattr(P, "REVISIONS_DIR", tmp_path / "revisions")
     monkeypatch.setenv("OPENROUTER_API_KEY", "sk-or-test")
@@ -200,7 +202,7 @@ def test_promote_passes_through_result(client, monkeypatch):
     import ui.app as ui_app
     P.save_pending("pdf", {"skill": "pdf", "gate": {"promotable": True, "blocked": []},
                            "champion_components": {}, "challenger_components": {}})
-    monkeypatch.setattr(ui_app, "approve_pending", lambda skill: f"promoted '{skill}'")
+    monkeypatch.setattr(ui_app, "approve_pending", lambda skill, actor="?": f"promoted '{skill}'")
     r = client.post("/api/promote/pdf")
     assert r.status_code == 200 and r.json() == {"result": "promoted 'pdf'"}
 
@@ -476,7 +478,7 @@ def test_a_second_promotion_is_refused_while_the_first_is_still_swapping(client,
     _promotable_pending()
     entered, release, first = threading.Event(), threading.Event(), {}
 
-    def slow_approve(skill):
+    def slow_approve(skill, actor="?"):
         entered.set()
         release.wait(10)
         return f"promoted '{skill}'"
