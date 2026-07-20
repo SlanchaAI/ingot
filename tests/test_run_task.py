@@ -182,9 +182,7 @@ def test_canonical_route_controls_body_and_weak_strong_escalation():
     assert _trace_tags(related, False) == ["demo", "pdf", "related", "revision=pdf@r1"]
 
     # An unconstrained suggestion may exist, but an incompatible canonical route remains novel.
-    incompatible_suggestions = [{"name": "codex-only", "score": 0.99}]
     routed = {"match": None, "skill_body": "", "alternatives": [], "novel": True}
-    assert incompatible_suggestions
     assert should_escalate(routed) is True
     assert "codex-only" not in instructions_for_route(routed)
 
