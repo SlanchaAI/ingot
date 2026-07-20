@@ -4,6 +4,10 @@
 
 [![CI](https://github.com/SlanchaAI/ingot/actions/workflows/ci.yml/badge.svg)](https://github.com/SlanchaAI/ingot/actions/workflows/ci.yml) [![License: MIT](https://img.shields.io/github/license/SlanchaAI/ingot)](LICENSE) [![Python 3.12](https://img.shields.io/badge/Python-3.12-3776AB?logo=python&logoColor=white)](Dockerfile) [![Docker](https://img.shields.io/badge/Docker-Compose-2496ED?logo=docker&logoColor=white)](docker-compose.yml)
 
+<p align="center">
+  <img src="docs/ingot.jpg" alt="Ingot, the mascot, handing skills out to AI agents" width="640">
+</p>
+
 An agent's [skills](https://github.com/anthropics/skills) are instructions it will follow. **Ingot**
 is a local-first library that treats them as what they are: versioned state that needs a review
 process. Every skill folder is content-addressed, every proposed change is quarantined until a human
@@ -73,10 +77,6 @@ Ingot does three things around your skill library:
   promotion is atomic, snapshotted, reversible, and audited.
 - **Improve.** An optional loop mines real traces for failing skills, rewrites them with the SkillOpt
   reflective optimizer, and A/Bs the result on held-out tasks, leaving a reviewable proposal.
-
-<p align="center">
-  <img src="docs/ingot.jpg" alt="Ingot, the mascot, handing skills out to AI agents" width="640">
-</p>
 
 The component map is in [docs/how-it-works.md](docs/how-it-works.md); deeper design in
 [ARCHITECTURE.md](ARCHITECTURE.md).
