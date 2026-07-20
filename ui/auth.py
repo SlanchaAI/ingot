@@ -71,7 +71,10 @@ def auth_enabled() -> bool:
 
 def _valid(user: str, password: str) -> bool:
     env = _env_user()
-    if env and secrets.compare_digest(user, env[0]) and secrets.compare_digest(password, env[1]):
+    # compare bytes: compare_digest raises TypeError on non-ASCII str, which would turn a stray
+    # UTF-8 credential into a 500 instead of a 401
+    if env and (secrets.compare_digest(user.encode(), env[0].encode())
+                and secrets.compare_digest(password.encode(), env[1].encode())):
         return True
     stored = load_users().get(user)
     return bool(stored and _verify(password, stored))

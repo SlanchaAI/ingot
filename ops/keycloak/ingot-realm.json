@@ -1,0 +1,58 @@
+{
+  "realm": "ingot",
+  "enabled": true,
+  "roles": {
+    "realm": [
+      { "name": "ingot-approver" },
+      { "name": "ingot-admin" }
+    ]
+  },
+  "users": [
+    {
+      "username": "approver",
+      "enabled": true,
+      "emailVerified": true,
+      "email": "approver@ingot.test",
+      "firstName": "App",
+      "lastName": "Rover",
+      "credentials": [{ "type": "password", "value": "approver-pw", "temporary": false }],
+      "realmRoles": ["ingot-approver"]
+    }
+  ],
+  "clients": [
+    {
+      "clientId": "ingot",
+      "enabled": true,
+      "publicClient": true,
+      "directAccessGrantsEnabled": true,
+      "standardFlowEnabled": true,
+      "redirectUris": ["http://localhost:8080/auth/callback", "http://localhost:8080/*"],
+      "webOrigins": ["*"],
+      "protocolMappers": [
+        {
+          "name": "realm-roles-to-roles-claim",
+          "protocol": "openid-connect",
+          "protocolMapper": "oidc-usermodel-realm-role-mapper",
+          "config": {
+            "claim.name": "roles",
+            "jsonType.label": "String",
+            "multivalued": "true",
+            "id.token.claim": "true",
+            "access.token.claim": "true",
+            "userinfo.token.claim": "true"
+          }
+        },
+        {
+          "name": "audience-ingot",
+          "protocol": "openid-connect",
+          "protocolMapper": "oidc-audience-mapper",
+          "config": {
+            "included.client.audience": "ingot",
+            "id.token.claim": "true",
+            "access.token.claim": "true"
+          }
+        }
+      ]
+    }
+  ]
+}

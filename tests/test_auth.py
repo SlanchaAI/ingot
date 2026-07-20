@@ -39,6 +39,16 @@ def test_env_credentials_gate_the_ui(tmp_path, monkeypatch):
     assert c.get("/api/config", headers=_basic("admin", "s3cret")).status_code == 200
 
 
+def test_non_ascii_credentials_get_401_not_500(tmp_path, monkeypatch):
+    # compare_digest raises TypeError on non-ASCII str; _valid compares bytes so a stray UTF-8
+    # credential is a clean auth failure, not a server error
+    monkeypatch.setattr(auth, "AUTH_FILE", tmp_path / "auth.json")
+    monkeypatch.setenv("AUTH_USER", "admin")
+    monkeypatch.setenv("AUTH_PASSWORD", "s3cret")
+    c = TestClient(app)
+    assert c.get("/api/config", headers=_basic("admiñ", "pässwörd")).status_code == 401
+
+
 def test_empty_password_env_means_open(tmp_path, monkeypatch):
     monkeypatch.setattr(auth, "AUTH_FILE", tmp_path / "auth.json")
     monkeypatch.setenv("AUTH_USER", "admin")
