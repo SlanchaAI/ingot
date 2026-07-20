@@ -9,7 +9,7 @@ from types import SimpleNamespace
 from urllib.parse import parse_qs, urlparse
 
 import pytest
-from fastapi import Depends, FastAPI, Request
+from fastapi import Depends, FastAPI, HTTPException, Request
 from fastapi.responses import RedirectResponse
 from fastapi.testclient import TestClient
 from starlette.middleware.sessions import SessionMiddleware
@@ -214,3 +214,108 @@ def test_require_role_is_a_noop_outside_oidc_mode(monkeypatch):
     # password/open mode is a single trust domain: RBAC does not apply, so no session is needed
     monkeypatch.setenv("AUTH_MODE", "open")
     auth.require_role("admin")(SimpleNamespace())   # must not raise despite no .session
+
+
+# --- token-exchange failure at the callback ---------------------------------------------------
+
+def test_token_endpoint_error_is_401(stub_provider, idp, monkeypatch):
+    client = TestClient(build_oidc_app())
+    state, _ = _login(client)
+    monkeypatch.setattr(oidc_flow.httpx, "post",
+                        lambda *a, **k: SimpleNamespace(status_code=400,
+                                                        json=lambda: {"error": "invalid_grant"}))
+    assert client.get(f"/auth/callback?code=abc&state={state}",
+                      follow_redirects=False).status_code == 401
+
+
+def test_token_response_without_id_token_is_401(stub_provider, idp):
+    client = TestClient(build_oidc_app())
+    state, _ = _login(client)
+    stub_provider["id_token"] = None   # token endpoint answers 200 but omits the id_token
+    assert client.get(f"/auth/callback?code=abc&state={state}",
+                      follow_redirects=False).status_code == 401
+
+
+# --- discovery / JWKS caching + key rotation (the real network helpers, httpx.get stubbed) -----
+
+class _Resp:
+    def __init__(self, payload):
+        self._payload, self.status_code = payload, 200
+
+    def json(self):
+        return self._payload
+
+
+def test_discovery_is_cached_per_issuer(monkeypatch):
+    calls = []
+    monkeypatch.setattr(oidc_flow.httpx, "get",
+                        lambda url, timeout=None: calls.append(url) or _Resp({"issuer": "x"}))
+    first = oidc_flow._discovery("https://idp.test")
+    second = oidc_flow._discovery("https://idp.test")
+    assert first == second and len(calls) == 1   # second call served from cache
+
+
+def test_jwks_is_cached_within_ttl_and_refetched_after(monkeypatch):
+    calls = []
+    monkeypatch.setattr(oidc_flow.httpx, "get",
+                        lambda url, timeout=None: calls.append(url) or _Resp({"keys": [{"kid": "k"}]}))
+    now = [1000.0]
+    monkeypatch.setattr(oidc_flow.time, "time", lambda: now[0])
+    oidc_flow._jwks("https://idp.test/jwks")
+    oidc_flow._jwks("https://idp.test/jwks")          # same instant: cache hit
+    assert len(calls) == 1
+    now[0] += oidc_flow._JWKS_TTL + 1                  # age past the TTL
+    oidc_flow._jwks("https://idp.test/jwks")
+    assert len(calls) == 2                             # refetched
+
+
+def test_jwks_refetches_once_on_an_unknown_kid(monkeypatch):
+    # key rotation: the token's kid is not in the cached JWKS, so force a single refetch
+    responses = [{"keys": [{"kid": "old"}]}, {"keys": [{"kid": "old"}, {"kid": "new"}]}]
+    calls = []
+
+    def fake_get(url, timeout=None):
+        resp = _Resp(responses[min(len(calls), len(responses) - 1)])
+        calls.append(url)
+        return resp
+
+    monkeypatch.setattr(oidc_flow.httpx, "get", fake_get)
+    jwks = oidc_flow._jwks_for_token("https://idp.test/jwks", "new")
+    assert len(calls) == 2                             # initial (stale) fetch + rotation refetch
+    assert {k["kid"] for k in jwks["keys"]} == {"old", "new"}
+
+
+def test_jwks_does_not_refetch_for_a_known_kid(monkeypatch):
+    calls = []
+    monkeypatch.setattr(oidc_flow.httpx, "get",
+                        lambda url, timeout=None: calls.append(url) or _Resp({"keys": [{"kid": "k1"}]}))
+    oidc_flow._jwks_for_token("https://idp.test/jwks", "k1")
+    assert len(calls) == 1                             # kid present, no rotation refetch
+
+
+# --- cookie flags, actor fallback, domain gate ------------------------------------------------
+
+def test_cookie_is_secure_only_over_https(monkeypatch):
+    monkeypatch.setenv("OIDC_REDIRECT_URL", "https://ingot.corp/auth/callback")
+    monkeypatch.setenv("SESSION_MAX_AGE", "1234")
+    kw = auth.oidc_cookie_kwargs()
+    assert kw == {"same_site": "lax", "https_only": True, "max_age": 1234}
+    monkeypatch.setenv("OIDC_REDIRECT_URL", "http://localhost:8080/auth/callback")
+    assert auth.oidc_cookie_kwargs()["https_only"] is False   # plain http: no Secure flag (local dev)
+
+
+def test_current_actor_falls_back_to_sub_then_placeholder():
+    # AUTH_MODE=oidc is set by the autouse fixture; the audit actor prefers email, then sub
+    assert auth.current_actor(SimpleNamespace(session={"user": {"sub": "s-1"}})) == "s-1"
+    assert auth.current_actor(SimpleNamespace(session={"user": {"name": "n"}})) == "sso-user"
+    with pytest.raises(HTTPException):
+        auth.current_actor(SimpleNamespace(session={}))
+
+
+def test_check_domain_accepts_any_listed_domain_case_insensitively():
+    allowed = ["corp.com", "sub.corp.com"]
+    oidc_flow._check_domain({"email_verified": True, "hd": "CORP.COM"}, allowed)      # case-folded
+    oidc_flow._check_domain({"email_verified": True, "hd": "sub.corp.com"}, allowed)  # second domain
+    with pytest.raises(HTTPException):
+        oidc_flow._check_domain({"email_verified": True, "hd": "other.com"}, allowed)
+    oidc_flow._check_domain({"hd": "anything.com"}, [])   # empty allowlist disables the gate
