@@ -24,7 +24,7 @@ Copied from SkillOpt commit `b860a5cf88ce` (tag v0.2.0). To sync with a newer re
 
 1. Bump `skillopt==<new>` in `requirements.txt` and rebuild the image.
 2. Re-copy any changed prompt from `skillopt/prompts/*.md` at that tag into this directory.
-3. Run `pytest tests/test_skillopt_bridge.py tests/test_skillopt_loop.py` — they assert the prompt
+3. Run `pytest tests/test_skillopt_bridge.py tests/test_skillopt_loop.py`, they assert the prompt
    files load and the JSON contracts still parse, so a breaking upstream prompt change fails loudly.
 
 All SkillOpt integration is funnelled through `optimize/skillopt_bridge.py`; that module and this

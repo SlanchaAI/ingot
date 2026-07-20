@@ -61,7 +61,7 @@ EVAL_CACHE_DIR = Path(__file__).resolve().parent.parent / "runs" / "eval-cache"
 
 def _champion_cache_key(revision: str, holdout: list[dict]) -> str:
     """Champion holdout results are pure functions of (champion revision, holdout tasks, serving
-    model, judge) — cache them so repeat optimize runs only pay for the challenger's side."""
+    model, judge), cache them so repeat optimize runs only pay for the challenger's side."""
     import hashlib
     payload = json.dumps({"v": 1, "revision": revision, "holdout": holdout, "model": agent_model(),
                           "judge": os.environ.get("JUDGE_MODELS") or os.environ.get("JUDGE_MODEL", "")},
@@ -81,7 +81,7 @@ def optimize_split(champion: dict[str, str]) -> tuple[dict[str, str], dict[str, 
 
 
 def body_retention(champion_body: str, challenger_body: str) -> float:
-    """Fraction of the champion body's non-blank lines that survive (stripped) in the challenger —
+    """Fraction of the champion body's non-blank lines that survive (stripped) in the challenger ,
     a crude but cheap deletion detector for the review warning."""
     champ = [line.strip() for line in champion_body.splitlines() if line.strip()]
     if not champ:
@@ -99,7 +99,7 @@ def retention_warnings(champion: dict, challenger: dict, changed: list[str], sam
     if kept >= RETENTION_WARN:
         return []
     return [f"challenger drops {1 - kept:.0%} of the champion body, gated on only {samples} "
-            f"held-out task(s) — review the deletions carefully"]
+            f"held-out task(s), review the deletions carefully"]
 
 
 def _description_shadows(skill: str, new_description: str) -> tuple[str, float]:
@@ -137,7 +137,7 @@ def promotion_gate(skill: str, champ_scores: list[float], chall_scores: list[flo
     if "description" in changed:
         shadowed, score = _description_shadows(skill, challenger["description"])
         if score >= COLLISION_SCORE:
-            reasons.append(f"rewritten description shadows '{shadowed}' (cosine {score:.2f}) — routing hack")
+            reasons.append(f"rewritten description shadows '{shadowed}' (cosine {score:.2f}), routing hack")
         if routing_failures:
             reasons.append(f"routing regression on {len(routing_failures)} held-out task(s)")
         if routing_metrics is None:
@@ -163,12 +163,12 @@ For every task, call `route_and_load` once with the full task, harness `codex`, 
 directory, and available tools/MCPs. Follow `skill_body` for a direct `match`. For a
 `related_match`, use its loaded `skill_body` as a starting point to compose or extend. Only solve
 directly when neither is returned. Never request a skill catalog. Keep the final answer concise.
-Your final answer must contain the complete deliverable itself — e.g. full runnable code inline —
+Your final answer must contain the complete deliverable itself, e.g. full runnable code inline ,
 never just a description of, or reference to, files you created in your workspace: the user cannot
 see your workspace."""
 
 # The quality A/B injects the variant body directly: the experiment compares BODIES, so serving
-# must be guaranteed — a model that skips the routing tool for easy-looking tasks would otherwise
+# must be guaranteed, a model that skips the routing tool for easy-looking tasks would otherwise
 # silently turn both arms into identical no-skill baselines (observed: zero tool calls, both
 # variants' input tokens identical to the digit). Routing fidelity is the description pass's job.
 # The template itself is shared with the candidate search's rollouts (optimize.SERVE_TEMPLATE) so
@@ -178,7 +178,7 @@ from . import SERVE_TEMPLATE as EVAL_SERVE_TEMPLATE  # noqa: E402
 
 def load_tasks(skill: str, log=print) -> tuple[list[dict], list[dict], dict]:
     """Return train, holdout, and split metadata. The candidate search sees train; the gate is
-    judged on holdout — a leakage-clean split so a challenger has to *generalize*, not memorize.
+    judged on holdout, a leakage-clean split so a challenger has to *generalize*, not memorize.
     A flat `tasks:` list is marked leaky and cannot produce a promotable gate. If no task set exists,
     the teacher drafts one; that draft must include a real holdout before promotion."""
     p = TASKS_DIR / f"{skill}.yaml"
@@ -341,9 +341,9 @@ def _eval_variants(dataset, ts: int, champion: dict, challenger: dict, holdout: 
     variants = [("champion", champion), ("challenger", challenger)]
     if cache_path.exists():
         # the champion side is deterministic in (revision, holdout, model, judge) up to judge
-        # noise — reuse the recorded run instead of re-spending the full agent + judge on it
+        # noise, reuse the recorded run instead of re-spending the full agent + judge on it
         results["champion"] = json.loads(cache_path.read_text())
-        log(f"[ab] champion: holdout results reused from cache (revision unchanged) — "
+        log(f"[ab] champion: holdout results reused from cache (revision unchanged), "
             f"mean {results['champion']['mean']:.3f}  {results['champion']['scores']}")
         variants = [("challenger", challenger)]
     if len(variants) == 2:
@@ -371,7 +371,7 @@ def _holdout_dataset(skill: str, holdout: list[dict], log):
     """(langfuse client, dataset) for the holdout when the stack is reachable, else
     (None, None): the gate then runs locally with no experiment logging (lite mode)."""
     if not langfuse_available():
-        log("[ab] Langfuse unreachable — running the holdout gate locally (no experiment logging)")
+        log("[ab] Langfuse unreachable, running the holdout gate locally (no experiment logging)")
         return None, None
     from langfuse import get_client
     langfuse = get_client()
@@ -406,7 +406,7 @@ def run_ab(skill: str, skip_search: bool = False, challenger_file: str | None = 
         challenger, seed_score, best_score = champion, 0.0, 0.0
     else:
         seed, frozen = optimize_split(champion)
-        # rollouts see the frozen description (get_skill serves it) but not frozen files — those
+        # rollouts see the frozen description (get_skill serves it) but not frozen files, those
         # are neither mutated nor measured, and pasting them in would only inflate rollout cost
         rollout_frozen = {k: v for k, v in frozen.items() if k == "description"}
         log(f"[skillopt] searching candidates for '{skill}' (components: {sorted(seed)}; frozen: "
@@ -420,7 +420,7 @@ def run_ab(skill: str, skip_search: bool = False, challenger_file: str | None = 
         log(f"[opt] candidate search score: seed {seed_score:.3f} -> best {best_score:.3f}")
         changed = [k for k in champion if challenger.get(k, "").strip() != champion[k].strip()]
         if not changed:
-            log("[opt] no better candidate found — nothing to A/B.")
+            log("[opt] no better candidate found, nothing to A/B.")
             return {"skill": skill, "improved": False}
         log(f"[opt] components changed: {changed}")
         # checkpoint the candidate so an A/B failure doesn't cost the whole search
@@ -448,7 +448,7 @@ def run_ab(skill: str, skip_search: bool = False, challenger_file: str | None = 
     changed = [k for k in champion if challenger.get(k, "").strip() != champion[k].strip()]
     route_failures = _routing_failures(skill, challenger, holdout) if "description" in changed else []
     route_metrics = _routing_metrics(skill, champion, challenger) if "description" in changed else None
-    # Deterministic invariants on the challenger's holdout answers — grounds the judge the way
+    # Deterministic invariants on the challenger's holdout answers, grounds the judge the way
     # execcheck does. Graded: a pervasive violation blocks (clear reward-hack / non-migration);
     # a minority is a review warning a human weighs, so a big win isn't auto-killed by a residual slip.
     accept_block, accept_warn = acceptance_classify(
@@ -462,7 +462,7 @@ def run_ab(skill: str, skip_search: bool = False, challenger_file: str | None = 
     if accept_block:
         log(f"[ab] ⛔ acceptance criteria violated (blocking): {'; '.join(accept_block)}")
     if accept_warn:
-        log(f"[ab] ⚠ acceptance criteria (minority — flagged for review): {'; '.join(accept_warn)}")
+        log(f"[ab] ⚠ acceptance criteria (minority, flagged for review): {'; '.join(accept_warn)}")
     warnings = retention_warnings(champion, challenger, changed,
                                   len(results["challenger"]["scores"])) + accept_warn
     summary = {
@@ -510,19 +510,19 @@ def run_ab(skill: str, skip_search: bool = False, challenger_file: str | None = 
     if langfuse is not None:
         log(f"[ab] compare runs in Langfuse: Datasets -> {ds_name} (http://localhost:3100)")
 
-    # Promotion gate: a mean win alone isn't enough — it must clear the anti-reward-hacking checks.
+    # Promotion gate: a mean win alone isn't enough, it must clear the anti-reward-hacking checks.
     if wins and not promotable:
         log(f"[ab] ⛔ challenger won the mean but the promotion gate BLOCKED it: {'; '.join(blocked)}.")
     if warnings:
         log(f"[ab] ⚠ {'; '.join(warnings)}")
     if not wins:
-        log("[ab] champion holds — nothing to promote.")
+        log("[ab] champion holds, nothing to promote.")
     elif promotable:
         p = save_pending(skill, summary)
-        log(f"[ab] pending approval written to {p} — review + promote at http://localhost:8080")
-    else:  # won the mean but blocked — still record for human review, flagged
+        log(f"[ab] pending approval written to {p}, review + promote at http://localhost:8080")
+    else:  # won the mean but blocked, still record for human review, flagged
         p = save_pending(skill, summary)
-        log(f"[ab] blocked challenger recorded (flagged) at {p} for review — NOT auto-promotable.")
+        log(f"[ab] blocked challenger recorded (flagged) at {p} for review, NOT auto-promotable.")
     return summary
 
 

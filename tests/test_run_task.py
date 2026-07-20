@@ -96,7 +96,7 @@ def test_behavior_events_capture_tool_order_and_hash_final_output():
 
 def test_build_agent_strong_flag_selects_model_and_endpoint(monkeypatch):
     # weak (default): MODEL on the serving endpoint; strong: strong_model() on the teacher
-    # endpoint — the weak/strong split must never leak the wrong key or base_url across roles
+    # endpoint, the weak/strong split must never leak the wrong key or base_url across roles
     import agent.run as run_mod
     import deepagents
     import langchain_openai
@@ -139,7 +139,7 @@ def test_strong_model_resolution(monkeypatch):
 
 
 def test_langfuse_config_carries_tags_only_when_keys_are_set(monkeypatch):
-    # the skill/revision trace tags ride on langfuse_tags metadata — and tracing must stay a
+    # the skill/revision trace tags ride on langfuse_tags metadata, and tracing must stay a
     # clean no-op when Langfuse isn't configured
     from agent.run import langfuse_config
     monkeypatch.delenv("LANGFUSE_PUBLIC_KEY", raising=False)
@@ -154,7 +154,7 @@ def test_langfuse_config_carries_tags_only_when_keys_are_set(monkeypatch):
 
 def test_serving_contract_requires_inline_deliverables():
     # the scaffold habit of writing code to its scratch FS and describing it must be countered in
-    # BOTH serving contracts, symmetrically — production agent and A/B eval agent
+    # BOTH serving contracts, symmetrically, production agent and A/B eval agent
     from agent.run import INSTRUCTIONS
     from optimize.ab import EVAL_INSTRUCTIONS
     for contract in (INSTRUCTIONS, EVAL_INSTRUCTIONS):

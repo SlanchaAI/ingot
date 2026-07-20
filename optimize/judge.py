@@ -1,5 +1,5 @@
-"""LLM judge: scores an answer 0..1 and — following the SkillForge paper's multi-dimensional Failure
-Analyzer (Liu et al., "SkillForge", arXiv:2604.08618) — classifies each failure across fixed
+"""LLM judge: scores an answer 0..1 and, following the SkillForge paper's multi-dimensional Failure
+Analyzer (Liu et al., "SkillForge", arXiv:2604.08618), classifies each failure across fixed
 dimensions so the search gets *categorized* feedback, not one opaque score. The dimension labels
 also drive success/failure mining (optimize/mine.py) and the candidate search's diagnosis.
 
@@ -19,7 +19,7 @@ from . import usage as usage_ledger
 # If the author and the grader share blind spots, the search learns to please the judge instead of
 # improving the skill. Default judge is a model distinct from both the reflection LM (GLM) and the
 # student (Qwen).
-# JUDGE_MODELS (comma-separated) runs an ensemble and averages — harder still to game.
+# JUDGE_MODELS (comma-separated) runs an ensemble and averages, harder still to game.
 MODELS = [m.strip() for m in os.environ.get(
     "JUDGE_MODELS", os.environ.get("JUDGE_MODEL", "google/gemini-2.5-flash")).split(",") if m.strip()]
 from . import ZDR_PROVIDER, client_kwargs, teacher_base_url  # noqa: E402  (endpoint + ZDR policy)
@@ -39,7 +39,7 @@ ASSISTANT'S ANSWER:
 {answer}
 {code_block}
 Score the answer from 0.0 to 1.0, and write one short paragraph of concrete, actionable feedback.
-Treat any OBJECTIVE CODE CHECK above as ground truth — do not rate broken or absent code highly.
+Treat any OBJECTIVE CODE CHECK above as ground truth, do not rate broken or absent code highly.
 Then classify each failure dimension as "pass" or a short (<=12 word) note on what's wrong:
 - correctness: is the core logic / API usage right?
 - completeness: does it cover the whole request, including edge cases named above?
@@ -53,12 +53,12 @@ _llms: dict[str, ChatOpenAI] = {}
 
 
 def _get_llm(model: str):
-    if model not in _llms:  # built once per model — reuses the HTTP pool across many judge calls
+    if model not in _llms:  # built once per model, reuses the HTTP pool across many judge calls
         _llms[model] = ChatOpenAI(model=model, temperature=0, **client_kwargs(teacher_base_url()))
     return _llms[model]
 
 
-# OpenRouter phrasings that mean "your model/provider configuration can never work" — retrying
+# OpenRouter phrasings that mean "your model/provider configuration can never work", retrying
 # only burns time, so explain and stop instead.
 _PERMANENT = ("no allowed providers", "no providers are available", "not a valid model",
               "no endpoints found", "is not available")
@@ -68,7 +68,7 @@ def _config_error(exc: Exception) -> str | None:
     text = str(exc).lower()
     if any(marker in text for marker in _PERMANENT):
         pins = os.environ.get("OPENROUTER_PROVIDERS", "")
-        hint = (f" You have OPENROUTER_PROVIDERS={pins} — the pinned provider may not serve this "
+        hint = (f" You have OPENROUTER_PROVIDERS={pins}, the pinned provider may not serve this "
                 f"model, or may not be ZDR-qualified for it; unset the pin or change the model."
                 if pins else
                 " No ZDR-qualified endpoint may exist for this model; try another model.")
@@ -93,7 +93,7 @@ def invoke_retry(llm, messages, tries: int = 3):
 
 
 def _extract_json(text: str) -> dict:
-    """First valid JSON object with a 'score' key — robust to prose/braces around the JSON."""
+    """First valid JSON object with a 'score' key, robust to prose/braces around the JSON."""
     dec = json.JSONDecoder()
     for m in re.finditer(r"\{", text):
         try:
@@ -123,7 +123,7 @@ def judge(task: str, rubric: str = "", answer: str = "", reference: str = "",
     """Return {score, feedback, dimensions}. With multiple JUDGE_MODELS this is an ensemble: score is
     the mean, and a dimension counts as failed if a majority of judges flag it (harder to game).
     `deliverable` (task yaml) declares the expected answer kind; non-code values skip the static
-    Python check — see execcheck.judge_note."""
+    Python check, see execcheck.judge_note."""
     rubric_block = f"GRADING RUBRIC: {rubric}\n" if rubric else ""
     reference_block = f"KNOWN-GOOD REFERENCE ANSWER (judge consistency against it): {reference}\n" if reference else ""
     from . import execcheck  # objective code-validity signal to ground the judge

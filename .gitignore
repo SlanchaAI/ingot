@@ -1,4 +1,4 @@
-# secrets & local config — never commit
+# secrets & local config, never commit
 .env
 *.env
 !.env.example

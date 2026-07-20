@@ -1,6 +1,6 @@
 """Runs INSIDE the throwaway sandbox container (see execcheck._sandbox): reads a JSON spec
 {fixture, code, assertion, timeout} on stdin, runs each present phase as its own subprocess in the
-scratch workdir, and prints a single JSON verdict on stdout — {"ok": true}, or the first failing
+scratch workdir, and prints a single JSON verdict on stdout, {"ok": true}, or the first failing
 phase as {"phase", "returncode", "stderr", "timeout"}. This file is trusted repo code; the
 untrusted text is only ever executed as a child process, never exec()'d in this interpreter.
 The container provides the containment (no network, no mounts, dropped caps, nobody user,

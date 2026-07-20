@@ -1,4 +1,4 @@
-"""Body-pass optimizer — SkillOpt's reflective training loop (microsoft/SkillOpt, MIT, v0.2.0)
+"""Body-pass optimizer, SkillOpt's reflective training loop (microsoft/SkillOpt, MIT, v0.2.0)
 adapted to skill_router's rollout + judge.
 
 Treats the skill `body` as trainable state and improves it with SkillOpt's four disciplines,
@@ -7,7 +7,7 @@ each driven through `optimize.skillopt_bridge` (the single dependency seam):
   1. a step buffer of prior failures + *rejected* edits, fed back into each reflection so the
      optimizer stops re-proposing what the gate already threw out;
   2. bounded patch edits (append / insert_after / replace / delete) clipped to a top-L budget,
-     instead of full-body rewrites — minimal, reviewable diffs;
+     instead of full-body rewrites, minimal, reviewable diffs;
   3. an autonomous learning-rate (the optimizer picks how many edits to apply per step) plus an
      epoch-end slow/meta consolidation over the whole epoch's longitudinal change;
   4. a held-out gate on a hard/soft/mixed metric that only accepts a strictly-improving candidate.
@@ -28,7 +28,7 @@ _MAX_WORKERS = 16
 PASS = float(os.environ.get("PROMOTE_PASS_SCORE", "0.5"))          # a task "passes" (hard) at/above this
 # How hard a candidate is penalized for train answers that violate the skill's acceptance criteria
 # (the fraction of violating answers scales it). Turns the promotion-time invariant into a *training*
-# signal so the loop learns to delete/replace forbidden content instead of appending around it —
+# signal so the loop learns to delete/replace forbidden content instead of appending around it ,
 # general to whatever `forbid` patterns a skill declares, not tied to any one skill.
 ACCEPT_PENALTY = float(os.environ.get("SKILLOPT_ACCEPT_PENALTY", "0.5"))
 _SLOW_START, _SLOW_END = "<!-- SLOW_UPDATE_START -->", "<!-- SLOW_UPDATE_END -->"
@@ -75,7 +75,7 @@ def run_skillopt(seed: dict[str, str], tasks: list[dict], frozen: dict[str, str]
                  acceptance: list[dict] | None = None, budget: int | None = None,
                  log=print) -> tuple[dict[str, str], float, float]:
     if not tasks:
-        log("[skillopt] no train tasks — keeping the seed.")
+        log("[skillopt] no train tasks, keeping the seed.")
         return seed, 0.0, 0.0
     acceptance = acceptance or []       # the skill's forbid-regex criteria, used as a training signal
     epochs = int(os.environ.get("SKILLOPT_EPOCHS", "2"))
@@ -93,10 +93,10 @@ def run_skillopt(seed: dict[str, str], tasks: list[dict], frozen: dict[str, str]
             return list(pool.map(lambda ex: adapter._rollout(system, ex), subset))
 
     def evaluate(doc: str) -> tuple[float, float, dict]:
-        """(hard pass-rate, penalized soft mean, per-task pass map) over the full train set — the
+        """(hard pass-rate, penalized soft mean, per-task pass map) over the full train set, the
         held-out selection signal for the inner gate. The soft score is docked a length penalty and,
         proportional to the fraction of answers that violate the skill's acceptance criteria, an
-        acceptance penalty — so a candidate that removes forbidden content outscores one that only
+        acceptance penalty, so a candidate that removes forbidden content outscores one that only
         appends around it."""
         rs = rollout_all(doc, tasks)
         soft = sum(r[1] for r in rs) / len(rs)
@@ -133,7 +133,7 @@ def run_skillopt(seed: dict[str, str], tasks: list[dict], frozen: dict[str, str]
             violations = acceptance_evaluate(acceptance, [a for a, _, _ in rolls]) if acceptance else []
             if violations:
                 buf_ctx = ("The skill's current answers STILL emit forbidden content that must be "
-                           "REMOVED — use replace/delete edits to strip the offending lines from the "
+                           "REMOVED, use replace/delete edits to strip the offending lines from the "
                            "skill, do not merely append around them:\n"
                            + "\n".join(f"- {v}" for v in violations) + "\n\n" + buf_ctx)
             edits, summary = sk.reflect_edits(current, failing, buf_ctx, max_edits, reflection_lm)
@@ -162,10 +162,10 @@ def run_skillopt(seed: dict[str, str], tasks: list[dict], frozen: dict[str, str]
                 accepted = True
                 buffer.append({"failures": summary, "rejected": []})
                 log(f"[skillopt] step {step}: {decision.action} ({len(edits)} edit(s)) "
-                    f"— gate {current_score:.3f}")
+                    f", gate {current_score:.3f}")
             else:
                 buffer.append({"failures": summary, "rejected": edits})
-                log(f"[skillopt] step {step}: rejected ({len(edits)} edit(s)) — buffered")
+                log(f"[skillopt] step {step}: rejected ({len(edits)} edit(s)), buffered")
 
         # mechanic #3: epoch-end slow/meta consolidation over the epoch's longitudinal change.
         if accepted and epochs > 1:
@@ -185,7 +185,7 @@ def run_skillopt(seed: dict[str, str], tasks: list[dict], frozen: dict[str, str]
                     log(f"[skillopt] epoch {epoch + 1}: slow update rejected ({sc:.3f} < {current_score:.3f})")
 
     if best_score <= seed_gate:
-        log(f"[skillopt] best gate {best_score:.3f} does not beat seed {seed_gate:.3f} — keeping the seed.")
+        log(f"[skillopt] best gate {best_score:.3f} does not beat seed {seed_gate:.3f}, keeping the seed.")
         return seed, seed_score, best_soft
     log(f"[skillopt] winner after {step} step(s): gate {best_score:.3f} (seed {seed_gate:.3f})")
     return {**seed, doc_key: best}, seed_score, best_soft

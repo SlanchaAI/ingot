@@ -4,14 +4,14 @@ Guidance for coding agents working on the Ingot repository.
 
 - Run everything in Docker: build with `docker compose`, run tests as
   `docker run --rm -v "$PWD:/app" -w /app ingot-mcp python -m pytest tests -q`.
-- The README's tutorial numbers come from real runs — never edit them to values that were not
+- The README's tutorial numbers come from real runs, never edit them to values that were not
   actually produced by a run.
 - Real keys live only in `.env` (gitignored); everything in `docker-compose.yml` is a local-demo
   literal.
-- Never use an em dash (—) in any prose, docs, or comments you write in this repo. Use a comma,
+- Never use an em dash (,) in any prose, docs, or comments you write in this repo. Use a comma,
   colon, period, or parentheses instead.
 
-## CodeScene MCP — Code Health guardrails
+## CodeScene MCP, Code Health guardrails
 
 This repo uses the [CodeScene MCP server](https://github.com/codescene-oss/codescene-mcp-server)
 for objective maintainability checks. Setup (one of):
@@ -33,16 +33,16 @@ The guidance below is CodeScene's upstream `AGENTS.md`, reproduced from
 - **Code Health is authoritative.** Treat it as the single source of truth for maintainability.
 - **Target Code Health 10.0.** This is the standard for AI-friendly code. 9+ is not “good enough.”
 - **Safeguard all AI-touched code** before suggesting a commit.
-- If Code Health regresses or violates goals, **refactor — don’t declare done.**
+- If Code Health regresses or violates goals, **refactor, don’t declare done.**
 - Use Code Health to guide **incremental, high-impact refactorings.**
-- When in doubt, **call the appropriate CodeScene MCP tool — don’t guess.**
+- When in doubt, **call the appropriate CodeScene MCP tool, don’t guess.**
 
 ### 1. Safeguard all AI-generated or modified code (mandatory)
 
 Two tools enforce Code Health at different scopes:
 
-- **`pre_commit_code_health_safeguard`** — uncommitted/staged files only. Run before each commit.
-- **`analyze_change_set`** — full branch vs base ref (PR pre-flight). Run before opening a PR.
+- **`pre_commit_code_health_safeguard`**, uncommitted/staged files only. Run before each commit.
+- **`analyze_change_set`**, full branch vs base ref (PR pre-flight). Run before opening a PR.
 
 If either reports a regression:
 

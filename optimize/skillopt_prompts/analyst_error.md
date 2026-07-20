@@ -9,9 +9,9 @@ the batch and propose a concise set of skill edits.
 1. Read ALL trajectories in the minibatch.
 2. Identify the most prevalent, systematic failure patterns across them.
 3. For each pattern, classify its failure type.
-4. Propose skill edits that address the COMMON patterns — not individual edge cases.
+4. Propose skill edits that address the COMMON patterns, not individual edge cases.
 5. Edits must be generalizable; do not hardcode task-specific values.
-6. Only patch gaps in the skill — do not duplicate existing content.
+6. Only patch gaps in the skill, do not duplicate existing content.
 
 You will be told the maximum number of edits (the budget L). Produce AT MOST L edits,
 focusing on the highest-impact patterns. You may produce fewer if warranted.

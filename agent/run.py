@@ -115,7 +115,7 @@ def behavior_events(messages) -> list[dict]:
 
 async def run_task(agent, task: str, config: dict | None = None, include_behavior: bool = False):
     """Run one task; returns final answer, routed skill revisions, and token usage.
-    Usage sums usage_metadata over every LLM call in the run — the full cost of solving the task."""
+    Usage sums usage_metadata over every LLM call in the run, the full cost of solving the task."""
     result = await agent.ainvoke({"messages": [{"role": "user", "content": task}]}, config=config or {})
     messages = result["messages"]
     loaded = []
@@ -129,7 +129,7 @@ async def run_task(agent, task: str, config: dict | None = None, include_behavio
             content = "\n".join(block.get("text", "") if isinstance(block, dict) else str(block)
                                 for block in content)
         if isinstance(content, str) and content.startswith("# Skill: "):
-            # get_skill's header carries name@revision — upgrade the bare name from the tool call
+            # get_skill's header carries name@revision, upgrade the bare name from the tool call
             identity = content.split("\n", 1)[0].removeprefix("# Skill: ").strip()
             bare = identity.split("@", 1)[0]
             loaded = [identity if item == bare else item for item in loaded]
