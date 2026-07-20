@@ -43,6 +43,8 @@ class _Layout(HTMLParser):
 def client(tmp_path, monkeypatch):
     from ui import auth
     monkeypatch.setattr(auth, "AUTH_FILE", tmp_path / "no-auth.json")  # auth off unless a test opts in
+    monkeypatch.delenv("AUTH_USER", raising=False)
+    monkeypatch.delenv("AUTH_PASSWORD", raising=False)
     monkeypatch.setattr(P, "PENDING_DIR", tmp_path / "pending")
     monkeypatch.setattr(P, "REVISIONS_DIR", tmp_path / "revisions")
     monkeypatch.setenv("OPENROUTER_API_KEY", "sk-or-test")

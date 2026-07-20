@@ -29,6 +29,15 @@ from fastapi import HTTPException, Request
 AUTH_FILE = Path(os.environ.get("AUTH_FILE") or Path(__file__).resolve().parent.parent / "runs" / "auth.json")
 _ITERATIONS = 200_000
 _ANON = "local-operator"   # actor when auth is disabled — matches the pre-auth default
+# The compose default (docker-compose.yml sets AUTH_PASSWORD=${AUTH_PASSWORD:-ingot}); we warn while
+# it is unchanged so nobody exposes the UI on it. Documented in .env.example and the README.
+DEFAULT_PASSWORD = "ingot"
+
+
+def _env_user() -> tuple[str, str] | None:
+    """A single user from AUTH_USER / AUTH_PASSWORD (both must be set), the compose-friendly path."""
+    user, password = os.environ.get("AUTH_USER"), os.environ.get("AUTH_PASSWORD")
+    return (user, password) if user and password else None
 
 
 def hash_password(password: str) -> str:
@@ -55,14 +64,27 @@ def load_users() -> dict[str, str]:
 
 
 def auth_enabled() -> bool:
-    """Auth turns on as soon as one user exists; otherwise the UI stays open (local default)."""
-    return bool(load_users())
+    """Auth turns on as soon as an AUTH_USER/AUTH_PASSWORD pair or a users file exists; otherwise the
+    UI stays open (local default)."""
+    return _env_user() is not None or bool(load_users())
+
+
+def _valid(user: str, password: str) -> bool:
+    env = _env_user()
+    if env and secrets.compare_digest(user, env[0]) and secrets.compare_digest(password, env[1]):
+        return True
+    stored = load_users().get(user)
+    return bool(stored and _verify(password, stored))
+
+
+def using_default_password() -> bool:
+    env = _env_user()
+    return bool(env and env[1] == DEFAULT_PASSWORD)
 
 
 def _actor_from(request: Request) -> str | None:
     """The authenticated username, `_ANON` when auth is off, or None when creds are missing/invalid."""
-    users = load_users()
-    if not users:
+    if not auth_enabled():
         return _ANON
     header = request.headers.get("Authorization", "")
     if not header.startswith("Basic "):
@@ -71,8 +93,7 @@ def _actor_from(request: Request) -> str | None:
         user, _, password = base64.b64decode(header[6:]).decode("utf-8").partition(":")
     except (ValueError, UnicodeDecodeError):
         return None
-    stored = users.get(user)
-    return user if (stored and _verify(password, stored)) else None
+    return user if _valid(user, password) else None
 
 
 def _challenge() -> HTTPException:

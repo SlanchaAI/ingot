@@ -18,7 +18,7 @@ from fastapi.responses import FileResponse
 
 from mcp_server.registry import SLUG_RE, load_skills
 from optimize.ab import TASKS_DIR, run_ab
-from ui.auth import current_actor, require_auth
+from ui.auth import current_actor, require_auth, using_default_password
 from optimize.promote import (approve_pending, list_pending, list_revisions,
                               list_snapshotted_skills, load_pending, pending_path, read_audit,
                               rollback, stale_evidence_reason)
@@ -53,6 +53,10 @@ app = FastAPI(title="ingot change control",
               # LAN-grade gate: no-op when no users file exists (local default stays open);
               # HTTP Basic against runs/auth.json once a user is added (see ui/auth.py).
               dependencies=[Depends(require_auth)])
+
+if using_default_password():
+    logger.warning("change-control UI is using the DEFAULT password — set AUTH_PASSWORD in .env "
+                   "before exposing it beyond your own machine")
 
 RUNS: dict[str, dict] = {}  # skill -> {"status": running|done|error, "log": [lines]}
 

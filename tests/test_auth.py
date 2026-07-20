@@ -19,10 +19,39 @@ def test_hash_and_verify_roundtrip():
     assert not auth._verify("wrong", h)
 
 
-def test_open_when_no_users_file(tmp_path, monkeypatch):
+def test_open_when_no_users_file_and_no_env(tmp_path, monkeypatch):
     monkeypatch.setattr(auth, "AUTH_FILE", tmp_path / "auth.json")
+    monkeypatch.delenv("AUTH_USER", raising=False)
+    monkeypatch.delenv("AUTH_PASSWORD", raising=False)
     assert not auth.auth_enabled()
     assert TestClient(app).get("/api/config").status_code == 200   # no credentials needed
+
+
+def test_env_credentials_gate_the_ui(tmp_path, monkeypatch):
+    monkeypatch.setattr(auth, "AUTH_FILE", tmp_path / "auth.json")   # no users file; env creds only
+    monkeypatch.setenv("AUTH_USER", "admin")
+    monkeypatch.setenv("AUTH_PASSWORD", "s3cret")
+    assert auth.auth_enabled()
+    c = TestClient(app)
+    assert c.get("/api/config").status_code == 401
+    assert c.get("/api/config", headers=_basic("admin", "nope")).status_code == 401
+    assert c.get("/api/config", headers=_basic("admin", "s3cret")).status_code == 200
+
+
+def test_empty_password_env_means_open(tmp_path, monkeypatch):
+    monkeypatch.setattr(auth, "AUTH_FILE", tmp_path / "auth.json")
+    monkeypatch.setenv("AUTH_USER", "admin")
+    monkeypatch.setenv("AUTH_PASSWORD", "")          # the documented "run open" escape hatch
+    assert not auth.auth_enabled()
+    assert TestClient(app).get("/api/config").status_code == 200
+
+
+def test_using_default_password_flag(monkeypatch):
+    monkeypatch.setenv("AUTH_USER", "admin")
+    monkeypatch.setenv("AUTH_PASSWORD", auth.DEFAULT_PASSWORD)
+    assert auth.using_default_password()
+    monkeypatch.setenv("AUTH_PASSWORD", "changed")
+    assert not auth.using_default_password()
 
 
 def test_enabled_gate_requires_valid_credentials(tmp_path, monkeypatch):
