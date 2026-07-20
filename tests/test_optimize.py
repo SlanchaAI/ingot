@@ -80,6 +80,13 @@ def test_gate_blocks_description_that_regresses_routing():
     assert not ok and any("routing regression" in reason for reason in reasons)
 
 
+def test_gate_blocks_acceptance_violation():
+    # a clean mean win, but a holdout answer violated a hard invariant -> blocked regardless
+    ok, reasons = promotion_gate("pdf", [0.2, 0.2, 0.2], [0.9, 0.9, 0.9], changed=[], challenger={},
+                                 acceptance_violations=["acceptance 'no_init': 1/3 holdout answer(s) matched"])
+    assert not ok and any("acceptance" in reason for reason in reasons)
+
+
 def test_gate_blocks_training_holdout_leakage():
     ok, reasons = promotion_gate("pdf", [0.2, 0.2, 0.2], [0.9, 0.9, 0.9],
                                  changed=[], challenger={}, leakage=True)
@@ -321,16 +328,7 @@ def test_removed_gepa_body_loop_leaves_one_candidate_search():
     assert "strategy" not in inspect.signature(ab_mod.run_ab).parameters
 
 
-def test_removed_strategy_env_var_is_reported_once(monkeypatch):
-    lines = []
-    monkeypatch.delenv("OPTIMIZE_STRATEGY", raising=False)
-    assert ab_mod.warn_removed_strategy(lines.append) is False and lines == []
-    monkeypatch.setenv("OPTIMIZE_STRATEGY", "gepa")
-    assert ab_mod.warn_removed_strategy(lines.append) is True
-    assert "OPTIMIZE_STRATEGY is no longer read" in lines[0]
-
-
-@pytest.mark.parametrize("flag", ["--scripts", "--gepa", "--skip-gepa", "--strategy"])
+@pytest.mark.parametrize("flag", ["--scripts", "--gepa", "--skip-gepa", "--strategy", "--candidates"])
 def test_cli_rejects_flags_for_passes_that_do_not_exist(flag):
     """A flag naming a removed or never-shipped pass must fail the parse, not be quietly ignored.
     Asserting on the parser rather than the source text is what proves the refusal."""
@@ -342,7 +340,7 @@ def test_cli_accepts_the_passes_that_do_exist():
     body = ab_mod.parse_args(["pdf"])
     assert body.description is False and body.skill == "pdf"
     assert ab_mod.parse_args(["pdf", "--description"]).description is True
-    assert ab_mod.parse_args(["pdf", "--candidates", "3"]).candidates == 3
+    assert ab_mod.parse_args(["pdf", "--skip-search"]).skip_search is True
 
 
 def test_cli_refuses_a_budget_the_body_pass_would_ignore():

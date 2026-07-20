@@ -26,7 +26,8 @@ from mcp_server.registry import SKILLS_DIR, load_skills, optimizable_components,
 
 from . import agent_model, langfuse_available
 from . import usage as usage_ledger
-from .judge import judge
+from .acceptance import classify as acceptance_classify, load_criteria as load_acceptance
+from .judge import MODELS as JUDGE_MODELS, judge
 from .promote import save_pending
 from .evidence import build_evidence, recorded_path, write_evidence
 
@@ -40,6 +41,10 @@ PROMOTE_MIN_SAMPLES = int(os.environ.get("PROMOTE_MIN_SAMPLES", "3"))       # mi
 PASS = float(os.environ.get("PROMOTE_PASS_SCORE", "0.5"))                   # a task "passes" at/above this
 COLLISION_SCORE = float(os.environ.get("COLLISION_SCORE", "0.93"))          # route-shadow cutoff
 RETENTION_WARN = float(os.environ.get("RETENTION_WARN", "0.5"))             # body-retention review warning
+# Acceptance violations block promotion only past this fraction of holdout answers; a smaller
+# share is a review warning (a large improvement shouldn't be auto-killed by a residual model
+# slip). 0 = strict zero-tolerance (any violation blocks); >=1 = pure warning.
+PROMOTE_ACCEPT_BLOCK_RATE = float(os.environ.get("PROMOTE_ACCEPT_BLOCK_RATE", "0.5"))
 # Which components the candidate search may rewrite. Default: body only, because the description is
 # a routing trigger matched by embedding, not instructions the agent reads, so quality search has no
 # business there (bare rollouts can't tell the difference and will happily stuff behavior rules into
@@ -52,18 +57,6 @@ OPTIMIZE_COMPONENTS = [c.strip() for c in os.environ.get("OPTIMIZE_COMPONENTS", 
                        if c.strip()]
 
 EVAL_CACHE_DIR = Path(__file__).resolve().parent.parent / "runs" / "eval-cache"
-
-
-def warn_removed_strategy(log=print) -> bool:
-    """OPTIMIZE_STRATEGY used to select between best-of-N and a sequential GEPA body loop. The GEPA
-    body loop is gone, so an inherited setting would silently mean nothing; say so instead. Called
-    by each entry point that can start candidate generation: the CLI, the background loop, and the
-    UI's run thread."""
-    if not os.environ.get("OPTIMIZE_STRATEGY", "").strip():
-        return False
-    log("[opt] OPTIMIZE_STRATEGY is no longer read: the sequential GEPA body loop was removed and "
-        "candidate generation is always parallel best-of-N. Tune it with OPTIMIZE_CANDIDATES.")
-    return True
 
 
 def _champion_cache_key(revision: str, holdout: list[dict]) -> str:
@@ -123,11 +116,13 @@ def promotion_gate(skill: str, champ_scores: list[float], chall_scores: list[flo
                    changed: list[str], challenger: dict,
                    routing_failures: list[str] | None = None,
                    leakage: bool = False,
-                   routing_metrics: dict | None = None) -> tuple[bool, list[str]]:
+                   routing_metrics: dict | None = None,
+                   acceptance_violations: list[str] | None = None) -> tuple[bool, list[str]]:
     """A challenger that merely 'wins the mean' can be reward-hacking a small/noisy eval. Require a
-    real margin, enough samples, no per-task catastrophic regression, and no routing-shadow from a
-    rewritten description. Returns (promotable, reasons-it-was-blocked)."""
-    reasons = []
+    real margin, enough samples, no per-task catastrophic regression, no acceptance-criteria
+    violation on the holdout answers, and no routing-shadow from a rewritten description. Returns
+    (promotable, reasons-it-was-blocked)."""
+    reasons = list(acceptance_violations or [])
     margin = (statistics.mean(chall_scores) if chall_scores else 0.0) - \
              (statistics.mean(champ_scores) if champ_scores else 0.0)
     if margin < PROMOTE_MIN_MARGIN:
@@ -255,6 +250,7 @@ def _run_variant(dataset, variant: str, agent, tasks: list[dict]):
     scores_by_task: dict[str, float] = {}
     usage_by_task: dict[str, dict] = {}
     behavior_by_task: dict[str, list[dict]] = {}
+    answer_by_task: dict[str, str] = {}
 
     async def task_fn(*, item, **kwargs):
         # run_experiment drives its own event loop and awaits async tasks
@@ -263,6 +259,7 @@ def _run_variant(dataset, variant: str, agent, tasks: list[dict]):
             include_behavior=True)
         usage_by_task[item.input["task"]] = usage
         behavior_by_task[item.input["task"]] = behavior
+        answer_by_task[item.input["task"]] = str(answer)
         usage_ledger.add("agent_ab", usage)
         return answer
 
@@ -283,7 +280,8 @@ def _run_variant(dataset, variant: str, agent, tasks: list[dict]):
                                        token_evaluator("input_tokens"), token_evaluator("output_tokens")])
     return ([scores_by_task.get(t["task"], 0.0) for t in tasks],
             [usage_by_task.get(t["task"], {"input_tokens": 0, "output_tokens": 0}) for t in tasks],
-            [behavior_by_task.get(t["task"], []) for t in tasks])
+            [behavior_by_task.get(t["task"], []) for t in tasks],
+            [answer_by_task.get(t["task"], "") for t in tasks])
 
 
 def _run_variant_local(agent, tasks: list[dict]):
@@ -309,7 +307,8 @@ def _run_variant_local(agent, tasks: list[dict]):
     zero = {"input_tokens": 0, "output_tokens": 0}
     return (scores,
             [zero if isinstance(o, BaseException) else o[2] for o in outs],
-            [[] if isinstance(o, BaseException) else o[3] for o in outs])
+            [[] if isinstance(o, BaseException) else o[3] for o in outs],
+            ["" if isinstance(o, BaseException) else str(o[0]) for o in outs])
 
 
 def _eval_variants(dataset, ts: int, champion: dict, challenger: dict, holdout: list[dict],
@@ -322,9 +321,9 @@ def _eval_variants(dataset, ts: int, champion: dict, challenger: dict, holdout: 
         # Guaranteed serving: the variant body is injected into the instructions (see
         # EVAL_SERVE_TEMPLATE) instead of hoping the model fetches it through a tool call.
         agent = build_agent([], instructions=EVAL_SERVE_TEMPLATE.format(body=comps["body"]))
-        scores, usages, behaviors = (_run_variant(dataset, run_name, agent, holdout)
-                                     if dataset is not None
-                                     else _run_variant_local(agent, holdout))
+        scores, usages, behaviors, answers = (_run_variant(dataset, run_name, agent, holdout)
+                                              if dataset is not None
+                                              else _run_variant_local(agent, holdout))
         return {
             "run": run_name, "scores": scores,
             "mean": statistics.mean(scores) if scores else 0.0,  # all items failing must not crash the run
@@ -335,6 +334,7 @@ def _eval_variants(dataset, ts: int, champion: dict, challenger: dict, holdout: 
                 "mean_output": statistics.mean(u["output_tokens"] for u in usages),
             },
             "behavior": behaviors,
+            "answers": answers,
         }
 
     results = {}
@@ -383,7 +383,7 @@ def _holdout_dataset(skill: str, holdout: list[dict], log):
 
 
 def run_ab(skill: str, skip_search: bool = False, challenger_file: str | None = None,
-           candidates: int | None = None, log=print) -> dict:
+           log=print) -> dict:
     usage_ledger.reset()
     train, holdout, split = load_tasks(skill)
     skill_dir = SKILLS_DIR / skill
@@ -409,11 +409,13 @@ def run_ab(skill: str, skip_search: bool = False, challenger_file: str | None = 
         # rollouts see the frozen description (get_skill serves it) but not frozen files — those
         # are neither mutated nor measured, and pasting them in would only inflate rollout cost
         rollout_frozen = {k: v for k, v in frozen.items() if k == "description"}
-        log(f"[bestofn] searching candidates for '{skill}' (components: {sorted(seed)}; frozen: "
-            f"{sorted(frozen)}) on {len(train)} train tasks (parallel best-of-N + racing)…")
-        from .bestofn import run_bestofn
-        best, seed_score, best_score = run_bestofn(seed, train, frozen=rollout_frozen,
-                                                   candidates=candidates, log=log)
+        log(f"[skillopt] searching candidates for '{skill}' (components: {sorted(seed)}; frozen: "
+            f"{sorted(frozen)}) on {len(train)} train tasks (SkillOpt reflective training loop)…")
+        from .skillopt_loop import run_skillopt
+        # the skill's acceptance criteria become a training signal so the loop removes forbidden
+        # content instead of appending around it (the promotion gate still enforces them on holdout)
+        best, seed_score, best_score = run_skillopt(seed, train, frozen=rollout_frozen,
+                                                    acceptance=load_acceptance(skill, TASKS_DIR), log=log)
         challenger = {**champion, **best}
         log(f"[opt] candidate search score: seed {seed_score:.3f} -> best {best_score:.3f}")
         changed = [k for k in champion if challenger.get(k, "").strip() != champion[k].strip()]
@@ -446,23 +448,37 @@ def run_ab(skill: str, skip_search: bool = False, challenger_file: str | None = 
     changed = [k for k in champion if challenger.get(k, "").strip() != champion[k].strip()]
     route_failures = _routing_failures(skill, challenger, holdout) if "description" in changed else []
     route_metrics = _routing_metrics(skill, champion, challenger) if "description" in changed else None
+    # Deterministic invariants on the challenger's holdout answers — grounds the judge the way
+    # execcheck does. Graded: a pervasive violation blocks (clear reward-hack / non-migration);
+    # a minority is a review warning a human weighs, so a big win isn't auto-killed by a residual slip.
+    accept_block, accept_warn = acceptance_classify(
+        load_acceptance(skill, TASKS_DIR), results["challenger"].get("answers", []),
+        PROMOTE_ACCEPT_BLOCK_RATE)
     promotable, blocked = promotion_gate(skill, results["champion"]["scores"],
                                          results["challenger"]["scores"], changed, challenger,
                                          routing_failures=route_failures, leakage=split["leakage"],
-                                         routing_metrics=route_metrics)
-    warnings = retention_warnings(champion, challenger, changed, len(results["challenger"]["scores"]))
+                                         routing_metrics=route_metrics,
+                                         acceptance_violations=accept_block)
+    if accept_block:
+        log(f"[ab] ⛔ acceptance criteria violated (blocking): {'; '.join(accept_block)}")
+    if accept_warn:
+        log(f"[ab] ⚠ acceptance criteria (minority — flagged for review): {'; '.join(accept_warn)}")
+    warnings = retention_warnings(champion, challenger, changed,
+                                  len(results["challenger"]["scores"])) + accept_warn
     summary = {
         "skill": skill, "improved": wins, "created": ts,
         "inner_loop": {"seed_score": seed_score, "best_score": best_score},
         "ab": {v: {"run": r["run"], "mean": r["mean"], "scores": r["scores"], "tokens": r["tokens"]}
                for v, r in results.items()},
         "dataset": ds_name,
-        "gate": {"promotable": promotable, "blocked": blocked, "warnings": warnings},
+        "gate": {"promotable": promotable, "blocked": blocked, "warnings": warnings,
+                 "acceptance_violations": accept_block + accept_warn},
         "changed_components": changed,
         "champion_components": champion,
         "challenger_components": challenger,
         "harness": "codex",
         "model": agent_model(),
+        "judge": ", ".join(JUDGE_MODELS),
         "behavior": {variant: result["behavior"] for variant, result in results.items()},
         "routing_failures": route_failures,
         "routing": route_metrics,
@@ -523,8 +539,6 @@ def build_parser() -> argparse.ArgumentParser:
                         help="quality pass over the SKILL.md body (the default)")
     passes.add_argument("--description", action="store_true",
                         help="routing pass over the description (embedding-scored inner loop)")
-    ap.add_argument("--candidates", type=int, default=None,
-                    help="candidates to author and race (default 5; also OPTIMIZE_CANDIDATES)")
     ap.add_argument("--budget", type=int, default=None,
                     help=f"--description only: max GEPA metric calls for the routing pass "
                          f"(default {DEFAULT_ROUTING_BUDGET})")
@@ -548,10 +562,8 @@ if __name__ == "__main__":
     args = parse_args()
     from . import require_openrouter_key
     require_openrouter_key()
-    warn_removed_strategy()
     if args.description:
         from .routing import run_routing
         run_routing(args.skill, budget=args.budget)
     else:
-        run_ab(args.skill, skip_search=args.skip_search, challenger_file=args.challenger_file,
-               candidates=args.candidates)
+        run_ab(args.skill, skip_search=args.skip_search, challenger_file=args.challenger_file)

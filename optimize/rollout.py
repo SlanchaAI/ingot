@@ -4,7 +4,7 @@ serving contract, answers one train task, and judges that answer against the tas
 judge's textual feedback is what the candidate search reads.
 
 This module owns the rollout and the teacher (reflection) client only. The candidate search lives in
-`optimize.bestofn`; the held-out A/B that produces promotion evidence lives in `optimize.ab`.
+`optimize.skillopt_loop`; the held-out A/B that produces promotion evidence lives in `optimize.ab`.
 """
 import os
 
@@ -68,7 +68,8 @@ class SkillAdapter:
     def _client(self):
         if self._llm is None:
             self._llm = ChatOpenAI(model=MODEL, temperature=0,
-                                   **client_kwargs(model_base_url(), key=model_api_key()))
+                                   **client_kwargs(model_base_url(), key=model_api_key(),
+                                                   reasoning=True))
         return self._llm
 
     def serve(self, candidate: dict[str, str]) -> str:

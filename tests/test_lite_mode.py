@@ -19,10 +19,11 @@ def test_local_variant_matches_run_variant_shape(monkeypatch):
     monkeypatch.setattr(ab_mod, "judge",
                         lambda t, r, ans, check=None, deliverable=None:
                         {"score": 0.9 if t == "a" else 0.4, "feedback": "f", "dimensions": {}})
-    scores, usages, behaviors = ab_mod._run_variant_local(agent=None, tasks=tasks)
+    scores, usages, behaviors, answers = ab_mod._run_variant_local(agent=None, tasks=tasks)
     assert scores == [0.9, 0.4]                      # aligned to task order
     assert [u["input_tokens"] for u in usages] == [10, 10]
     assert behaviors == [[{"step": "x"}], [{"step": "x"}]]
+    assert answers == ["ans-a", "ans-b"]             # holdout answers for the acceptance gate
 
 
 def test_local_variant_scores_failed_rollouts_zero(monkeypatch):
@@ -32,9 +33,10 @@ def test_local_variant_scores_failed_rollouts_zero(monkeypatch):
     monkeypatch.setattr(ab_mod, "judge",
                         lambda t, r, ans, check=None, deliverable=None:
                         {"score": 1.0, "feedback": "f", "dimensions": {}})
-    scores, usages, behaviors = ab_mod._run_variant_local(agent=None, tasks=tasks)
+    scores, usages, behaviors, answers = ab_mod._run_variant_local(agent=None, tasks=tasks)
     assert scores == [0.0, 1.0]                      # failure defaults to 0, like _run_variant
     assert usages[0] == {"input_tokens": 0, "output_tokens": 0} and behaviors[0] == []
+    assert answers == ["", "ans-b"]                  # a failed rollout contributes no answer
 
 
 def test_estimated_cost_uses_role_model_prices(monkeypatch):

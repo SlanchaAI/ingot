@@ -82,6 +82,22 @@ services:
     # no langfuse-web dependency: mining falls back to the local trace store without the stack
     profiles: ["optimize"]
 
+  # Cross-model skill compatibility: run a skill's held-out tasks through several serving models
+  # (skill vs no-skill) and report per-model lift: `docker compose run --rm optimize-compat tailwind`
+  # Set COMPAT_MODELS=modelA,modelB,... in .env. Langfuse-free (local rollout + judge).
+  optimize-compat:
+    build: .
+    entrypoint: ["python", "-m", "optimize.compat"]
+    env_file:
+      - path: .env
+        required: false
+    volumes:
+      - ./skills:/app/skills
+      - ./runs:/app/runs                       # writes the compatibility matrix to runs/compat/
+      - ./optimize/tasks:/app/optimize/tasks   # held-out task sets (auto-drafted if missing)
+      - /var/run/docker.sock:/var/run/docker.sock  # EXEC_SANDBOX=docker launches locked-down sandbox containers
+    profiles: ["optimize"]
+
   # Background loop: mine health, propose changes for the failing skills, leave them quarantined
   # for review: `docker compose run --rm optimize-loop`
   optimize-loop:
@@ -117,6 +133,11 @@ services:
         required: false
     environment:
       MCP_URL: http://mcp:8000/mcp
+      # Change-control UI login (HTTP Basic). Defaults to admin/ingot so the shared UI is gated out
+      # of the box — CHANGE AUTH_PASSWORD in .env before exposing it beyond your own LAN. Set
+      # AUTH_PASSWORD= (empty) to run the UI open.
+      AUTH_USER: ${AUTH_USER-admin}
+      AUTH_PASSWORD: ${AUTH_PASSWORD-ingot}
       LANGFUSE_BASE_URL: ${LANGFUSE_BASE_URL:-http://langfuse-web:3000}
       LANGFUSE_PUBLIC_KEY: ${LANGFUSE_PUBLIC_KEY:-pk-lf-local-demo}
       LANGFUSE_SECRET_KEY: ${LANGFUSE_SECRET_KEY:-sk-lf-local-demo}

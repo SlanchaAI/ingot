@@ -91,14 +91,19 @@ def openrouter_extra_body() -> dict:
     return {"provider": provider}
 
 
-def client_kwargs(base_url: str, key: str | None = None) -> dict:
+def client_kwargs(base_url: str, key: str | None = None, reasoning: bool = False) -> dict:
     """ChatOpenAI connection kwargs for an endpoint. OpenRouter gets the hardcoded ZDR provider
     preference (plus the optional OPENROUTER_PROVIDERS allowlist); any other OpenAI-compatible
     endpoint (Fireworks/Together direct, local vLLM/Ollama) gets no provider preferences and a
-    placeholder api_key if none is set (the client requires one)."""
+    placeholder api_key if none is set (the client requires one). reasoning=True pins OpenRouter's
+    unified reasoning parameter on rather than relying on per-model defaults; local endpoints
+    ignore it (thinking is a server-side setting there)."""
     key = key if key is not None else api_key()
     if is_openrouter(base_url):
-        return {"base_url": base_url, "api_key": key, "extra_body": openrouter_extra_body()}
+        extra = openrouter_extra_body()
+        if reasoning:
+            extra["reasoning"] = {"enabled": True}
+        return {"base_url": base_url, "api_key": key, "extra_body": extra}
     return {"base_url": base_url, "api_key": key or "local", "extra_body": {}}
 
 

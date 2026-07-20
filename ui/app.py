@@ -18,6 +18,7 @@ from fastapi.responses import FileResponse
 
 from mcp_server.registry import SLUG_RE, load_skills
 from optimize.ab import TASKS_DIR, run_ab
+from ui.auth import current_actor, require_auth, using_default_password
 from optimize.promote import (approve_pending, list_pending, list_revisions,
                               list_snapshotted_skills, load_pending, pending_path, read_audit,
                               rollback, stale_evidence_reason)
@@ -48,7 +49,14 @@ def same_origin(request: Request):
 
 app = FastAPI(title="ingot change control",
               description="Review evidence for quarantined skill changes, promote them "
-                          "atomically, and roll back a promoted revision.")
+                          "atomically, and roll back a promoted revision.",
+              # LAN-grade gate: no-op when no users file exists (local default stays open);
+              # HTTP Basic against runs/auth.json once a user is added (see ui/auth.py).
+              dependencies=[Depends(require_auth)])
+
+if using_default_password():
+    logger.warning("change-control UI is using the DEFAULT password — set AUTH_PASSWORD in .env "
+                   "before exposing it beyond your own machine")
 
 RUNS: dict[str, dict] = {}  # skill -> {"status": running|done|error, "log": [lines]}
 
@@ -70,9 +78,12 @@ def skills():
 
 
 def _active_skill_rows(tasksets: set[str]) -> list[dict]:
+    from mcp_server.usage_counts import load_counts
+    counts = load_counts()
     return [
         {"name": s.name, "description": s.description, "has_tasks": s.name in tasksets,
          "pending": load_pending(s.name) is not None, "revision": s.revision,
+         "uses": counts.get(s.name, 0),
          "status": RUNS.get(s.name, {}).get("status"), "creation": False}
         for s in load_skills()
         if SLUG_RE.fullmatch(s.name)  # a non-slug name (hostile frontmatter) can't be optimized anyway
@@ -148,8 +159,6 @@ def _preflight_provider() -> None:
 
 def _run_optimization(skill: str, state: dict, log) -> None:
     try:
-        from optimize.ab import warn_removed_strategy
-        warn_removed_strategy(log)
         run_ab(skill, log=log)
         state["status"] = "done"
     except BaseException as e:  # surface SystemExit etc. in the UI
@@ -190,6 +199,7 @@ def pending(skill: str):
     return {"skill": skill, "kind": p.get("kind", "quality"), "inner_loop": _inner_loop(p),
             "ab": p.get("ab"), "routing": p.get("routing"), "dataset": p.get("dataset"),
             "evidence": p.get("evidence_paths"), "stale": _stale_reason(skill, p),
+            "model": p.get("model"), "judge": p.get("judge"),
             "gate": p.get("gate", {"promotable": True, "blocked": []}),
             "changed": [_label(c) for c in p.get("changed_components", [])], "diff": "\n\n".join(blocks)}
 
@@ -229,7 +239,7 @@ def change_control(skill: str):
 
 
 @app.post("/api/promote/{skill}", dependencies=[Depends(same_origin)])
-def approve(skill: str):
+def approve(skill: str, actor: str = Depends(current_actor)):
     p = load_pending(_check(skill))
     if not p:
         raise HTTPException(404, f"no pending change for '{skill}'")
@@ -237,7 +247,7 @@ def approve(skill: str):
         raise HTTPException(409, "the evidence gate blocked this change")
     with change_control(skill):
         try:
-            return {"result": approve_pending(skill)}
+            return {"result": approve_pending(skill, actor=actor)}
         except ValueError as e:  # stale evidence, a name collision, a failed safety re-check
             raise HTTPException(409, str(e))
 
@@ -346,9 +356,9 @@ def _audit_page() -> dict:
 
 
 @app.post("/api/rollback/{skill}/{revision}", dependencies=[Depends(same_origin)])
-def rollback_revision(skill: str, revision: str):
+def rollback_revision(skill: str, revision: str, actor: str = Depends(current_actor)):
     with change_control(_check(skill)):
         try:
-            return {"result": rollback(skill, revision)}
+            return {"result": rollback(skill, revision, actor=actor)}
         except ValueError as e:
             raise HTTPException(404, str(e))

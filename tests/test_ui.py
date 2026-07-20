@@ -41,6 +41,10 @@ class _Layout(HTMLParser):
 
 @pytest.fixture
 def client(tmp_path, monkeypatch):
+    from ui import auth
+    monkeypatch.setattr(auth, "AUTH_FILE", tmp_path / "no-auth.json")  # auth off unless a test opts in
+    monkeypatch.delenv("AUTH_USER", raising=False)
+    monkeypatch.delenv("AUTH_PASSWORD", raising=False)
     monkeypatch.setattr(P, "PENDING_DIR", tmp_path / "pending")
     monkeypatch.setattr(P, "REVISIONS_DIR", tmp_path / "revisions")
     monkeypatch.setenv("OPENROUTER_API_KEY", "sk-or-test")
@@ -156,6 +160,44 @@ def test_pending_renders_component_diff_and_warnings(client):
     assert p["evidence"]["markdown"].endswith("EVIDENCE.md")
 
 
+def test_pending_exposes_model_and_judge_for_the_comparison_panel(client):
+    P.save_pending("pdf", {
+        "skill": "pdf", "model": "qwen/qwen3-32b", "judge": "google/gemini-2.5-flash",
+        "champion_components": {"description": "d", "body": "a"},
+        "challenger_components": {"description": "d", "body": "b"},
+        "changed_components": ["body"],
+        "ab": {"champion": {"mean": 0.2, "scores": [0.2], "tokens": {"mean_output": 100, "mean_input": 200}},
+               "challenger": {"mean": 0.8, "scores": [0.8], "tokens": {"mean_output": 90, "mean_input": 180}}}})
+    p = client.get("/api/pending/pdf").json()
+    assert p["model"] == "qwen/qwen3-32b" and p["judge"] == "google/gemini-2.5-flash"
+    # the panel reads model/judge, both means, per-task scores, and before/after tokens
+    assert p["ab"]["challenger"]["tokens"]["mean_output"] == 90
+    assert p["ab"]["challenger"]["tokens"]["mean_input"] == 180
+    assert p["ab"]["champion"]["scores"] == [0.2] and p["ab"]["challenger"]["scores"] == [0.8]
+
+
+def test_comparison_panel_controls_are_in_the_page(client):
+    """The two-step approve panel (Approve -> comparison -> final Approve -> Confirm) must ship in
+    the served page, with the confirm button nested inside the modal overlay."""
+    layout = _Layout(client.get("/").text)
+    for element_id in ("cmp-overlay", "cmp-body", "cmp-approve", "cmp-confirm", "cmp-cancel"):
+        assert element_id in layout.ancestors, f"comparison panel missing #{element_id}"
+    assert "cmp-overlay" in layout.ancestors["cmp-confirm"]
+
+
+def test_api_skills_rows_carry_a_load_count(client, monkeypatch):
+    """Every active skill row exposes `uses` so the UI can render the load-counter chip."""
+    import ui.app as ui_app
+    from mcp_server import usage_counts
+
+    class _Skill:
+        name, description, revision = "pdf", "merge PDFs", "rev1"
+    monkeypatch.setattr(ui_app, "load_skills", lambda: [_Skill()])
+    monkeypatch.setattr(usage_counts, "load_counts", lambda: {"pdf": 7})
+    active = [r for r in client.get("/api/skills").json() if not r.get("creation")]
+    assert active and active[0]["uses"] == 7
+
+
 def test_pending_reads_legacy_gepa_scores(client):
     """Review slots written before the GEPA body loop was removed store the candidate-search
     scores under `gepa`; an existing queue must still render."""
@@ -187,7 +229,7 @@ def test_promote_passes_through_result(client, monkeypatch):
     import ui.app as ui_app
     P.save_pending("pdf", {"skill": "pdf", "gate": {"promotable": True, "blocked": []},
                            "champion_components": {}, "challenger_components": {}})
-    monkeypatch.setattr(ui_app, "approve_pending", lambda skill: f"promoted '{skill}'")
+    monkeypatch.setattr(ui_app, "approve_pending", lambda skill, actor="?": f"promoted '{skill}'")
     r = client.post("/api/promote/pdf")
     assert r.status_code == 200 and r.json() == {"result": "promoted 'pdf'"}
 
@@ -463,7 +505,7 @@ def test_a_second_promotion_is_refused_while_the_first_is_still_swapping(client,
     _promotable_pending()
     entered, release, first = threading.Event(), threading.Event(), {}
 
-    def slow_approve(skill):
+    def slow_approve(skill, actor="?"):
         entered.set()
         release.wait(10)
         return f"promoted '{skill}'"

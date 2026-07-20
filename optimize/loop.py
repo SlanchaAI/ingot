@@ -9,7 +9,7 @@ Usage: python -m optimize.loop [skill ...]   (default: every skill with an eval 
 import argparse
 import os
 
-from .ab import TASKS_DIR, run_ab, warn_removed_strategy
+from .ab import TASKS_DIR, run_ab
 from .mine import mine
 
 HEALTH_THRESHOLD = float(os.environ.get("LOOP_HEALTH_THRESHOLD", "0.7"))  # mine mean below this = propose
@@ -24,7 +24,6 @@ def skills_with_tasksets() -> list[str]:
 
 
 def loop(skills: list[str] | None = None, force: bool = False, budget: int = 60, log=print) -> dict:
-    warn_removed_strategy(log)
     targets = skills or skills_with_tasksets()
     if not targets:
         log("[loop] no skills have eval task sets yet, so there is nothing to propose.")
