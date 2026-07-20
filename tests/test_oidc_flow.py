@@ -318,4 +318,7 @@ def test_check_domain_accepts_any_listed_domain_case_insensitively():
     oidc_flow._check_domain({"email_verified": True, "hd": "sub.corp.com"}, allowed)  # second domain
     with pytest.raises(HTTPException):
         oidc_flow._check_domain({"email_verified": True, "hd": "other.com"}, allowed)
-    oidc_flow._check_domain({"hd": "anything.com"}, [])   # empty allowlist disables the gate
+    # empty allowlist disables the domain gate but never the verified-email requirement
+    oidc_flow._check_domain({"email_verified": True, "hd": "anything.com"}, [])
+    with pytest.raises(HTTPException):
+        oidc_flow._check_domain({"hd": "anything.com"}, [])

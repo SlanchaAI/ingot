@@ -77,8 +77,10 @@ in. The top bar shows the signed-in email and role, with a **Log out** link.
 On each login Ingot validates the Google ID token (signature via Google's JWKS, issuer, audience,
 expiry, and the login `nonce`), then:
 
-1. **Domain gate.** The token's verified hosted-domain (`hd`) claim must be one of
-   `OIDC_ALLOWED_DOMAINS`, and the email must be verified. Otherwise the login is refused (403).
+1. **Domain gate.** The email must be verified (`email_verified`), always — even when no domain
+   allowlist is configured — because roles are mapped from the email claim. With
+   `OIDC_ALLOWED_DOMAINS` set, the token's hosted-domain (`hd`) claim must also be on the
+   allowlist. Otherwise the login is refused (403).
 2. **Role.** The email is looked up in `OIDC_ROLE_MAP`; an unmapped domain member defaults to
    `viewer`. Google ID tokens carry no roles or groups, which is why roles come from this map rather
    than from the provider.

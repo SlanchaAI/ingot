@@ -65,11 +65,13 @@ def _config() -> dict:
 
 def _check_domain(claims: dict, allowed_domains: list[str]) -> None:
     """Google-Workspace access gate: refuse a sign-in whose verified hosted domain (`hd`) is not on
-    the allowlist. No allowlist means the domain check is off (e.g. the Keycloak CI provider)."""
+    the allowlist. No allowlist means the domain check is off (e.g. the Keycloak CI provider), but
+    the email must be verified regardless: roles are mapped from the email claim, so an unverified
+    address could impersonate its way into a privileged role."""
+    if not claims.get("email_verified"):
+        raise HTTPException(403, "your account's email address is not verified")
     if not allowed_domains:
         return
-    if not claims.get("email_verified"):
-        raise HTTPException(403, "your Google account's email address is not verified")
     if (claims.get("hd") or "").lower() not in allowed_domains:
         raise HTTPException(403, "sign-in is restricted to an approved Google Workspace domain")
 
