@@ -3,7 +3,7 @@
 Pure, provider-agnostic authorization logic: map an authenticated identity's OIDC claims to one app
 role, and gate actions by role. The *authentication* source (LAN password today, OIDC later) supplies
 the identity and its raw role/group claim values; this module never talks to an IdP, so it is fully
-unit-testable now — independent of the deferred provider integration and the self-hosted-vs-SaaS call.
+unit-testable now, independent of the deferred provider integration and the self-hosted-vs-SaaS call.
 
 Wiring `require_role` into the endpoints and populating the identity from an OIDC session is the
 implementation phase; this is the decision-independent core it will build on.
@@ -43,7 +43,7 @@ def has_role(user_role: str, required: str) -> bool:
 
 
 def authorize(user_role: str, required: str) -> None:
-    """Raise 403 unless `user_role` satisfies `required` — the primitive `require_role` will call."""
+    """Raise 403 unless `user_role` satisfies `required`, the primitive `require_role` will call."""
     if not has_role(user_role, required):
         raise HTTPException(status_code=403,
                             detail=f"requires the '{required}' role; you have '{user_role}'")
@@ -52,7 +52,7 @@ def authorize(user_role: str, required: str) -> None:
 def identity_from_claims(claims: dict, role_claim: str = "roles",
                          role_map: dict[str, str] | None = None) -> dict:
     """OIDC ID-token claims -> {sub, email, name, role}. `role_claim` names the claim carrying the
-    app-role/group values — Entra app roles use `roles`, Okta groups use `groups`. The value may be a
+    app-role/group values, Entra app roles use `roles`, Okta groups use `groups`. The value may be a
     single string or a list; email falls back to `preferred_username`."""
     values = claims.get(role_claim) or []
     if isinstance(values, str):

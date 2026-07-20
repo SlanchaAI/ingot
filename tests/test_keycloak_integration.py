@@ -1,4 +1,4 @@
-"""Live-OIDC integration test — layer 3 of the SSO/RBAC strategy (a real provider in a container,
+"""Live-OIDC integration test, layer 3 of the SSO/RBAC strategy (a real provider in a container,
 between the forged-token unit tests and the hosted-vendor smoke).
 
 Skipped unless KEYCLOAK_URL is set, so the default suite stays fast and hermetic. To run it:
@@ -8,7 +8,7 @@ Skipped unless KEYCLOAK_URL is set, so the default suite stays fast and hermetic
       ingot-mcp python -m pytest tests/test_keycloak_integration.py -q
 
 It exercises the real discovery + JWKS + token endpoints against `ui.oidc.verify_id_token` and the
-RBAC mapping — no browser flow needed (the test user's token comes via the direct-grant / ROPC path,
+RBAC mapping, no browser flow needed (the test user's token comes via the direct-grant / ROPC path,
 which is fine for tests). When the OIDC callback lands, its Playwright test reuses this same realm.
 """
 import os

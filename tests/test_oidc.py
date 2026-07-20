@@ -1,4 +1,4 @@
-"""OIDC ID-token validation, tested against forged tokens (no IdP, no network) — layer 2 of the
+"""OIDC ID-token validation, tested against forged tokens (no IdP, no network), layer 2 of the
 SSO/RBAC test strategy. The `idp` fixture (tests/conftest.FakeIdp) mints RS256 tokens and exposes a
 matching JWKS; `verify_id_token` is the primitive the OIDC callback will call."""
 import pytest
@@ -51,6 +51,31 @@ def test_nonce_must_match_when_required(idp):
     assert verify_id_token(token, idp.jwks, idp.issuer, idp.audience, nonce="n-123")["nonce"] == "n-123"
     with pytest.raises(InvalidToken):
         verify_id_token(token, idp.jwks, idp.issuer, idp.audience, nonce="wrong")
+
+
+def test_token_without_sub_is_rejected(idp):
+    import time
+
+    import jwt as pyjwt
+    now = int(time.time())
+    token = pyjwt.encode({"iss": idp.issuer, "aud": idp.audience, "iat": now, "exp": now + 300},
+                         idp._key, algorithm="RS256", headers={"kid": idp.kid})
+    with pytest.raises(InvalidToken):
+        verify_id_token(token, idp.jwks, idp.issuer, idp.audience)
+
+
+def test_multi_audience_requires_matching_azp(idp):
+    without_azp = idp.id_token(aud=["ingot", "other-app"])
+    with pytest.raises(InvalidToken):
+        verify_id_token(without_azp, idp.jwks, idp.issuer, idp.audience)
+    with_azp = idp.id_token(aud=["ingot", "other-app"], azp="ingot")
+    assert verify_id_token(with_azp, idp.jwks, idp.issuer, idp.audience)["azp"] == "ingot"
+
+
+def test_malformed_jwks_key_raises_invalid_token_not_500(idp):
+    bad_jwks = {"keys": [{"kid": idp.kid, "kty": "RSA", "n": "!!!not-base64!!!", "e": "AQAB"}]}
+    with pytest.raises(InvalidToken):
+        verify_id_token(idp.id_token(), bad_jwks, idp.issuer, idp.audience)
 
 
 def test_verify_then_map_to_role_end_to_end(idp):

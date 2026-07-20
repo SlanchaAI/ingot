@@ -1,12 +1,12 @@
-# SSO + RBAC for the shared change-control UI — design
+# SSO + RBAC for the shared change-control UI, design
 
 Status: proposed (with the decision-independent RBAC core landed) · Scope: UI authentication +
 authorization for a shared/enterprise deployment.
 
 > **Already on this branch** (decision-independent, IdP-free, fully unit-tested):
-> - **Authorization core** — `ui/rbac.py`: roles, `parse_role_map`, `role_from_claims`, `authorize`,
+> - **Authorization core**, `ui/rbac.py`: roles, `parse_role_map`, `role_from_claims`, `authorize`,
 >   and OIDC-claims→identity parsing (`tests/test_rbac.py`).
-> - **ID-token validation primitive** — `ui/oidc.py` `verify_id_token` (signature via JWKS, `iss`,
+> - **ID-token validation primitive**, `ui/oidc.py` `verify_id_token` (signature via JWKS, `iss`,
 >   `aud`, `exp`/`iat`, `nonce`), plus the **layer-2 test harness** `tests/conftest.FakeIdp` that
 >   forges RS256 tokens against an in-memory JWKS. Tested valid + expired / wrong-aud / wrong-iss /
 >   bad-signature / unknown-kid / nonce-mismatch, and end-to-end forge→verify→role (`tests/test_oidc.py`).
@@ -15,7 +15,7 @@ authorization for a shared/enterprise deployment.
 > (redirect / callback / signed session), **discovery + JWKS fetch/caching**, and **endpoint wiring**
 > (`require_role` on the routes, session identity feeding `identity_from_claims`).
 
-Follow-up to the minimal LAN password auth (PR #24). That work made approvals *attributable* — the
+Follow-up to the minimal LAN password auth (PR #24). That work made approvals *attributable*, the
 authenticated user is written as the audit `actor` on promote/reject/rollback. This spec takes the
 next step for a shared, enterprise deployment: real SSO (OIDC) and role-based authorization, while
 keeping the local/LAN paths unchanged.
@@ -24,7 +24,7 @@ keeping the local/LAN paths unchanged.
 
 - Let people sign in with their **corporate identity** (no per-user passwords to manage).
 - Gate the state-changing actions by **role** (who may propose vs approve vs promote vs administer).
-- Keep the existing **attributable audit trail** — the SSO identity becomes the `actor`.
+- Keep the existing **attributable audit trail**, the SSO identity becomes the `actor`.
 - **Do not** regress the zero-config local default or the LAN password mode; SSO is an opt-in
   deployment profile layered on top.
 
@@ -46,16 +46,16 @@ providers" is really **which we test and document against**.
   standard independent one. Together they cover the large majority of enterprise buyers.
 - **Generic OIDC underneath** so Google Workspace / Ping / OneLogin / etc. work without new code.
 - **Amazon Cognito is intentionally not a certified target.** Cognito is AWS's CIAM / user-pool
-  service (customer identity, or an IdP broker) — enterprises don't use it for *workforce* SSO. It
+  service (customer identity, or an IdP broker), enterprises don't use it for *workforce* SSO. It
   only becomes relevant if the product pivots from self-hosted to a **hosted multi-tenant SaaS**,
   in which case the right move is a single broker (Cognito, Auth0, or **WorkOS**) that federates to
-  each customer's IdP — see "Deployment model" below.
+  each customer's IdP, see "Deployment model" below.
 - **SAML** is on the roadmap (some large/old enterprises are SAML-only and it appears in RFPs) but
   out of scope for phase 1; OIDC-first.
 
 ### Deployment model changes the answer
 
-- **Self-hosted** (customer runs Ingot on their LAN/cloud — the OSS/enterprise-self-hostable path):
+- **Self-hosted** (customer runs Ingot on their LAN/cloud, the OSS/enterprise-self-hostable path):
   the customer brings *their* IdP. Support the customer's IdP directly → Entra + Okta + generic
   OIDC. This is the assumed model here.
 - **Hosted SaaS** (we run it multi-tenant): integrate *one* broker (WorkOS / Auth0 / Cognito
@@ -68,16 +68,27 @@ providers" is really **which we test and document against**.
 
 Extend `ui/auth.py` with an OIDC mode selected by config (below). When enabled:
 
-1. Unauthenticated request → redirect to the provider's authorize endpoint (auth-code + PKCE).
-2. `/auth/callback` validates the returned ID token against the provider JWKS (issuer, audience,
-   expiry, nonce), then establishes a **signed session cookie** (Starlette `SessionMiddleware` /
-   `itsdangerous`). Store `{sub, email, name, roles}` in the session.
+1. Before redirecting, mint and persist a fresh `state`, PKCE `code_verifier`, and `nonce` (in the
+   signed session). Redirect to the provider's authorize endpoint (auth-code + PKCE).
+2. `/auth/callback` **must match the returned `state`** to the persisted one and redeem the code with
+   **that exact `code_verifier` once** (single-use), then validate the returned ID token against the
+   provider JWKS (issuer, audience, `exp`/`iat`, and the persisted `nonce`) via
+   `ui.oidc.verify_id_token`. ID-token checks alone are not enough: without the `state`/verifier/nonce
+   binding, login-CSRF and code-injection are possible. On success establish a **signed session
+   cookie** (Starlette `SessionMiddleware` / `itsdangerous`, `HttpOnly` + `Secure` + `SameSite`);
+   store `{sub, email, name, roles}`.
 3. `/auth/logout` clears the session.
 4. The existing `current_actor` dependency returns the session's `email`/`sub` instead of the Basic
    username, so the audit `actor` path is unchanged.
 
+The app-wide `Depends(require_auth)` gate must be made **mode-aware and exempt the OIDC bootstrap
+routes** (`/auth/login`, `/auth/callback`, `/auth/logout`); otherwise the existing Basic-auth
+challenge blocks the login flow before it can complete.
+
 Library: **authlib** (OIDC discovery + JWKS handled for us). The three modes coexist and are chosen
-by config precedence: **OIDC → LAN password (`AUTH_USER`/users file) → open**.
+by config precedence: **OIDC → LAN password (`AUTH_USER`/users file) → open**. `AUTH_MODE=oidc` must
+**fail closed at startup** when `OIDC_ISSUER`, `OIDC_CLIENT_ID`, `OIDC_REDIRECT_URL`, or
+`SESSION_SECRET` is missing or invalid: it must never silently downgrade to LAN password or open.
 
 ### Authorization (RBAC)
 
@@ -94,14 +105,20 @@ Roles, least- to most-privileged:
   - **Entra: use *app roles*, not groups.** App roles are always present in the token; groups hit
     the ">200 groups overage" problem where Entra omits them and forces a Microsoft Graph call.
   - **Okta / others: groups claim** → app role via a configured map.
+- Roles are **hierarchical**: `admin` satisfies `approver`, `proposer`, and read; `require_role(r)`
+  passes for any role at least as privileged (this is `ui.rbac.has_role`, already implemented as a
+  rank comparison, so an exact-match check must not be used).
 - Enforcement: a small `require_role(role)` dependency on the state-changing endpoints
   (`/api/promote`, `/api/reject`, `/api/rollback` → `approver`; `/api/optimize` → `proposer`).
   Read endpoints require only a valid session.
+- `require_role` is **added alongside** the existing `same_origin` dependency on `/api/optimize`,
+  `/api/promote`, `/api/reject`, and `/api/rollback`, never a replacement: dropping `same_origin`
+  would regress the CSRF protection those routes already have.
 - Default-deny: a session with no mapped role is `viewer`.
 
 ### Config (per provider, env-driven, compose-wired)
 
-```
+```bash
 AUTH_MODE=oidc                         # oidc | password | open  (default: password behavior from #24)
 OIDC_ISSUER=https://login.microsoftonline.com/<tenant>/v2.0   # or the Okta issuer URL
 OIDC_CLIENT_ID=...
@@ -118,7 +135,7 @@ SESSION_SECRET=...                     # signs the session cookie
 2. **Redirect URI + TLS.** OIDC needs a stable HTTPS callback; this couples to the enterprise
    network profile (real host + TLS), not just the app.
 3. **Machine agents ≠ SSO** (deferred, but must be said so it doesn't silently balloon scope).
-4. **Clock skew / token expiry** on validation; **session lifetime** (re-login vs refresh — phase 1
+4. **Clock skew / token expiry** on validation; **session lifetime** (re-login vs refresh, phase 1
    can just re-login on expiry).
 
 ## Phasing & estimate
@@ -126,21 +143,21 @@ SESSION_SECRET=...                     # signs the session cookie
 Roughly **~1 week** of focused work for tested phase 1+2; the real tax is integration against two
 live tenants, which can't be mocked.
 
-- **Phase 1 — OIDC login (~2–3 days).** Auth-code+PKCE, session cookie, callback validation, one
+- **Phase 1, OIDC login (~2–3 days).** Auth-code+PKCE, session cookie, callback validation, one
   coarse role (`admin` vs everyone). Certified against Entra + Okta.
-- **Phase 2 — RBAC (~1–2 days).** The four roles, claim→role mapping, `require_role` on endpoints,
+- **Phase 2, RBAC (~1–2 days).** The four roles, claim→role mapping, `require_role` on endpoints,
   actor = SSO identity in the audit.
-- **Phase 3 — SAML (later).** For SAML-only enterprises.
+- **Phase 3, SAML (later).** For SAML-only enterprises.
 - Tests throughout: mock the IdP (stub discovery/JWKS/callback) for CI; manual integration against
   real Entra + Okta tenants before release.
 
 ## Open decisions (need a call before building)
 
-1. **Self-hosted vs hosted SaaS** — determines "certify Entra + Okta" vs "integrate one broker."
-2. **Entra app roles vs groups** — recommend app roles; needs the customer to define app roles in
+1. **Self-hosted vs hosted SaaS**, determines "certify Entra + Okta" vs "integrate one broker."
+2. **Entra app roles vs groups**, recommend app roles; needs the customer to define app roles in
    their tenant (a small onboarding ask).
-3. **How many roles for v1** — ship all four, or start `admin`-vs-everyone and add the middle roles
+3. **How many roles for v1**, ship all four, or start `admin`-vs-everyone and add the middle roles
    in phase 2?
-4. **Where the audit trail lives at scale** — the attributed `actor` currently lands in
+4. **Where the audit trail lives at scale**, the attributed `actor` currently lands in
    `runs/approval-audit.jsonl`; a shared enterprise deployment likely wants it in a real store
    (ties to the trace-backend / observability profile decision).
