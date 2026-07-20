@@ -14,11 +14,11 @@ from pathlib import Path
 from urllib.parse import urlparse
 
 from fastapi import Depends, FastAPI, HTTPException, Request
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, RedirectResponse
 
 from mcp_server.registry import SLUG_RE, load_skills
 from optimize.ab import TASKS_DIR, run_ab
-from ui.auth import current_actor, require_auth, using_default_password
+from ui.auth import (auth_mode, current_actor, require_auth, require_role, using_default_password)
 from optimize.promote import (approve_pending, list_pending, list_revisions,
                               list_snapshotted_skills, load_pending, pending_path, read_audit,
                               rollback, stale_evidence_reason)
@@ -58,11 +58,29 @@ if using_default_password():
     logger.warning("change-control UI is using the DEFAULT password, set AUTH_PASSWORD in .env "
                    "before exposing it beyond your own machine")
 
+# OIDC (Sign in with Google) profile: a signed-session cookie + the /auth/* browser flow. Wired only
+# in this mode so password/open deployments carry no session machinery; validate_oidc_config() fails
+# closed at startup if the config is incomplete (see ui/auth.py, docs/sso.md).
+if auth_mode() == "oidc":
+    import os
+
+    from starlette.middleware.sessions import SessionMiddleware
+
+    from ui.auth import oidc_cookie_kwargs, validate_oidc_config
+    from ui.oidc_flow import router as oidc_router
+    validate_oidc_config()
+    app.add_middleware(SessionMiddleware, secret_key=os.environ["SESSION_SECRET"],
+                       **oidc_cookie_kwargs())
+    app.include_router(oidc_router)
+
 RUNS: dict[str, dict] = {}  # skill -> {"status": running|done|error, "log": [lines]}
 
 
 @app.get("/")
-def index():
+def index(request: Request):
+    # OIDC mode: bounce an unauthenticated visitor straight to the provider (no interstitial page).
+    if auth_mode() == "oidc" and not request.session.get("user"):
+        return RedirectResponse("/auth/login")
     return FileResponse(Path(__file__).parent / "static" / "index.html")
 
 
@@ -120,7 +138,8 @@ def _pending_creation_rows(active: list[dict]) -> list[dict]:
     return creations
 
 
-@app.post("/api/optimize/{skill}", dependencies=[Depends(same_origin)])
+@app.post("/api/optimize/{skill}",
+          dependencies=[Depends(same_origin), Depends(require_role("proposer"))])
 def optimize(skill: str):
     """Start the optional candidate generator for one skill. It never activates anything: the
     result is a quarantined pending record for review."""
@@ -238,7 +257,8 @@ def change_control(skill: str):
         CHANGE_LOCK.release()
 
 
-@app.post("/api/promote/{skill}", dependencies=[Depends(same_origin)])
+@app.post("/api/promote/{skill}",
+          dependencies=[Depends(same_origin), Depends(require_role("approver"))])
 def approve(skill: str, actor: str = Depends(current_actor)):
     p = load_pending(_check(skill))
     if not p:
@@ -307,7 +327,8 @@ def _evidence_file(recorded: str) -> Path:
     return resolved
 
 
-@app.post("/api/reject/{skill}", dependencies=[Depends(same_origin)])
+@app.post("/api/reject/{skill}",
+          dependencies=[Depends(same_origin), Depends(require_role("approver"))])
 def reject(skill: str):
     pending_path(_check(skill)).unlink(missing_ok=True)
     return {"result": f"rejected the pending change for '{skill}'"}
@@ -355,7 +376,8 @@ def _audit_page() -> dict:
         return {"records": [], "total": 0}
 
 
-@app.post("/api/rollback/{skill}/{revision}", dependencies=[Depends(same_origin)])
+@app.post("/api/rollback/{skill}/{revision}",
+          dependencies=[Depends(same_origin), Depends(require_role("approver"))])
 def rollback_revision(skill: str, revision: str, actor: str = Depends(current_actor)):
     with change_control(_check(skill)):
         try:

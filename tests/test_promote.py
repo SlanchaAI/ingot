@@ -392,16 +392,18 @@ def test_stamping_recovers_from_a_malformed_index_and_still_orders_the_newest_fi
     assert [r["revision"] for r in P.list_revisions("pdf")] == [displaced, "a" * 8]
 
 
-def test_promotion_survives_a_corrupt_index_that_breaks_stamping(tmp_path, monkeypatch, caplog):
-    """Stamping is best effort for every failure, not only an unwritable store: a promotion that
-    already swapped the directory must not be lost to whatever the index makes the stamp raise."""
+@pytest.mark.parametrize("stamp_error", [TypeError("unorderable index"), OSError("read-only store")])
+def test_promotion_survives_a_stamp_failure(tmp_path, monkeypatch, caplog, stamp_error):
+    """Stamping is best effort for every failure, a corrupt/unorderable index or an unwritable store
+    alike: a promotion that already swapped the directory must not be lost to whatever makes the
+    stamp raise."""
     skill = _library(tmp_path, monkeypatch)
     P.save_pending("pdf", _pending(skill))
     monkeypatch.setattr(P, "_stamp_snapshot",
-                        lambda *a: (_ for _ in ()).throw(TypeError("unorderable index")))
+                        lambda *a: (_ for _ in ()).throw(stamp_error))
 
     assert "Promoted 'pdf'" in P.approve_pending("pdf")
-    assert "new body" in (skill / "SKILL.md").read_text()
+    assert "new body" in (skill / "SKILL.md").read_text()   # the directory swap still happened
     assert "snapshot index write failed" in caplog.text
     assert [r["revision"] for r in P.list_revisions("pdf")]   # mtime fallback still lists it
 
@@ -415,17 +417,6 @@ def test_snapshot_index_is_not_restored_into_the_live_skill(tmp_path, monkeypatc
     assert P.snapshot_index_path("pdf").exists()
     assert not (skill / ".snapshots.json").exists()
     assert sorted(p.name for p in skill.iterdir()) == ["SKILL.md"]
-
-
-def test_promotion_survives_an_unwritable_snapshot_index(tmp_path, monkeypatch, caplog):
-    skill = _library(tmp_path, monkeypatch)
-    P.save_pending("pdf", _pending(skill))
-    monkeypatch.setattr(P, "_stamp_snapshot",
-                        lambda *a: (_ for _ in ()).throw(OSError("read-only store")))
-
-    assert "Promoted 'pdf'" in P.approve_pending("pdf")
-    assert "snapshot index write failed" in caplog.text
-    assert [r["revision"] for r in P.list_revisions("pdf")]   # mtime fallback still lists it
 
 
 # --- approval trail ---------------------------------------------------------------------------

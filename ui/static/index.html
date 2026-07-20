@@ -343,8 +343,20 @@
     <a class="lnk" href="#run-section">Activity</a>
     <a class="lnk ext" id="lf" href="#" target="_blank" rel="noopener">Langfuse</a>
     <span class="pill idle" id="status-pill">…</span>
+    <span class="who" id="who" hidden><span id="who-email"></span>
+      <a class="lnk" href="/auth/logout">Log out</a></span>
   </div>
 </nav>
+<script>
+  // OIDC (Sign in with Google) mode only: show who is signed in + a logout link. /auth/me is 404 in
+  // password/open mode and 401 when signed out, both simply leave the indicator hidden.
+  fetch("/auth/me").then(r => r.ok ? r.json() : null).then(u => {
+    if (!u || !u.authenticated) return;
+    document.getElementById("who-email").textContent =
+      (u.email || u.name || "signed in") + (u.role ? " (" + u.role + ")" : "");
+    document.getElementById("who").hidden = false;
+  }).catch(() => {});
+</script>
 
 <div class="page">
   <header class="board-head reveal">

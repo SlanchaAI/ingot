@@ -90,6 +90,7 @@ The component map is in [docs/how-it-works.md](docs/how-it-works.md); deeper des
 | [Configuration](docs/configuration.md) | Env reference, candidate generation, cross-model compatibility, eval task sets, Langfuse |
 | [The evidence gate](docs/evidence-gate.md) | The anti reward-hacking checks a reviewer relies on |
 | [Privacy & security](docs/security.md) | Zero-data-retention, network exposure, threat model, prompt-injection guard |
+| [Sign in with Google (SSO)](docs/sso.md) | Domain-restricted login and roles for a shared deployment |
 | [Bring your own agent](docs/mcp-integration.md) | Use the MCP server from your own harness; tracing |
 | [Skill sources](docs/skill-sources.md) | Where `scripts/fetch_skills.sh` gets skills, and their licenses |
 

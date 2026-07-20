@@ -65,12 +65,12 @@ def _python_blocks(answer: str) -> list[str]:
     return [b for b in _CODE.findall(answer) if any(k in b for k in markers)]
 
 
-def _failure(stderr: str, error_status: str, inconclusive_status: str, note: str) -> dict:
+def _failure(stderr: str, error_status: str, note: str) -> dict:
     """Classify a nonzero-exit stderr: environment-shaped errors are inconclusive, the rest are
     genuine code defects."""
     last = (stderr.strip().splitlines() or ["nonzero exit"])[-1]
     if any(k in stderr for k in _INCONCLUSIVE):
-        return {"status": inconclusive_status, "detail": f"{last[:100]} ({note})"}
+        return {"status": "inconclusive", "detail": f"{last[:100]} ({note})"}
     return {"status": error_status, "detail": last[:120]}
 
 
@@ -110,7 +110,7 @@ def _sandbox(spec: dict, timeout: int) -> dict | None:
 
 
 def check(answer: str) -> dict:
-    """{status, detail}: no_code | syntax_error | code_error | runtime_error (inconclusive) | ok."""
+    """{status, detail}: no_code | syntax_error | code_error | inconclusive | ok."""
     blocks = _python_blocks(answer)
     if not blocks:
         return {"status": "no_code", "detail": "the answer contains no runnable python code block"}
@@ -122,13 +122,12 @@ def check(answer: str) -> dict:
     if EXEC_MODE == "docker":
         verdict = _sandbox({"code": code}, timeout=10)
         if verdict is None:
-            return {"status": "runtime_error", "detail": "sandbox unavailable (docker unreachable), inconclusive"}
+            return {"status": "inconclusive", "detail": "sandbox unavailable (docker unreachable)"}
         if verdict.get("ok"):
             return {"status": "ok", "detail": "runs cleanly (sandboxed)"}
         if verdict.get("timeout"):
-            return {"status": "runtime_error", "detail": "timed out (>10s), inconclusive"}
-        return _failure(verdict.get("stderr", ""), "code_error", "runtime_error",
-                        "inconclusive, likely a missing input fixture")
+            return {"status": "inconclusive", "detail": "timed out (>10s)"}
+        return _failure(verdict.get("stderr", ""), "code_error", "likely a missing input fixture")
     if not EXEC_SANDBOX:
         return {"status": "ok", "detail": "code parses (static check only, execution is off; "
                                           "EXEC_SANDBOX=docker enables the sandbox)"}
@@ -139,15 +138,12 @@ def check(answer: str) -> dict:
         p = subprocess.run([sys.executable, path], capture_output=True, text=True, timeout=10,
                            env={"PATH": os.environ.get("PATH", "")})
     except subprocess.TimeoutExpired:
-        return {"status": "runtime_error", "detail": "timed out (>10s), inconclusive"}
+        return {"status": "inconclusive", "detail": "timed out (>10s)"}
     finally:
         os.unlink(path)
     if p.returncode == 0:
         return {"status": "ok", "detail": "runs cleanly"}
-    last = (p.stderr.strip().splitlines() or ["nonzero exit"])[-1]
-    if any(k in p.stderr for k in _INCONCLUSIVE):
-        return {"status": "runtime_error", "detail": f"{last[:100]} (inconclusive, likely a missing input fixture)"}
-    return {"status": "code_error", "detail": last[:120]}
+    return _failure(p.stderr, "code_error", "likely a missing input fixture")
 
 
 def _run(code: str, cwd: str, timeout: int) -> subprocess.CompletedProcess:
@@ -192,8 +188,8 @@ def check_with_fixture(answer: str, fixture: str = "", assertion: str = "", time
             last = (stderr.strip().splitlines() or ["fixture failed"])[-1]
             return {"status": "fixture_error", "detail": f"fixture failed: {last[:100]}, inconclusive"}
         if phase == "assertion":
-            return _failure(stderr, "assert_failed", "inconclusive", "assertion could not run")
-        return _failure(stderr, "exec_error", "inconclusive", "likely a missing dependency")
+            return _failure(stderr, "assert_failed", "assertion could not run")
+        return _failure(stderr, "exec_error", "likely a missing dependency")
     if not EXEC_SANDBOX:
         return {"status": "inconclusive",
                 "detail": "execution disabled, set EXEC_SANDBOX=docker (sandboxed, the default) "
@@ -212,20 +208,14 @@ def check_with_fixture(answer: str, fixture: str = "", assertion: str = "", time
         except subprocess.TimeoutExpired:
             return {"status": "inconclusive", "detail": f"timed out (>{timeout}s)"}
         if run.returncode != 0:
-            last = (run.stderr.strip().splitlines() or ["nonzero exit"])[-1]
-            if any(k in run.stderr for k in _INCONCLUSIVE):
-                return {"status": "inconclusive", "detail": f"{last[:100]} (likely a missing dependency)"}
-            return {"status": "exec_error", "detail": last[:120]}
+            return _failure(run.stderr, "exec_error", "likely a missing dependency")
         if assertion:
             try:
                 verdict = _run(assertion, cwd, timeout)
             except subprocess.TimeoutExpired:
                 return {"status": "inconclusive", "detail": "assertion timed out"}
             if verdict.returncode != 0:
-                last = (verdict.stderr.strip().splitlines() or ["assertion failed"])[-1]
-                if any(k in verdict.stderr for k in _INCONCLUSIVE):
-                    return {"status": "inconclusive", "detail": f"{last[:100]} (assertion could not run)"}
-                return {"status": "assert_failed", "detail": last[:120]}
+                return _failure(verdict.stderr, "assert_failed", "assertion could not run")
     return {"status": "passed", "detail": "code ran against the fixture and the assertion held"}
 
 
@@ -255,4 +245,4 @@ def judge_note(answer: str, task: str, rubric: str = "", check_spec: dict | None
         return f"OBJECTIVE CODE CHECK, FAILED: {r['detail']}. A correct answer must contain complete, valid code."
     if r["status"] == "ok":
         return f"OBJECTIVE CODE CHECK, {r['detail']}."
-    return ""  # inconclusive runtime error -> stay silent, don't punish a missing fixture
+    return ""  # inconclusive -> stay silent, don't punish a missing fixture

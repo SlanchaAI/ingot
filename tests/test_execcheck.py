@@ -72,7 +72,7 @@ def test_sandbox_treats_missing_fixture_as_inconclusive(monkeypatch):
     # a missing input file is the environment's fault, not the code's -> inconclusive, not punished
     monkeypatch.setattr(E, "EXEC_MODE", "1")
     monkeypatch.setattr(E, "EXEC_SANDBOX", True)
-    assert E.check("```python\nopen('/no/such/fixture_zzz.pdf', 'rb')\n```")["status"] == "runtime_error"
+    assert E.check("```python\nopen('/no/such/fixture_zzz.pdf', 'rb')\n```")["status"] == "inconclusive"
 
 
 def test_exec_sandbox_env_modes():
@@ -113,7 +113,7 @@ def test_sandbox_timeout_is_inconclusive(monkeypatch):
 
     monkeypatch.setattr(E.subprocess, "run", hang)
     r = E.check("```python\nprint(1)\n```")
-    assert r["status"] == "runtime_error" and "timed out" in r["detail"]
+    assert r["status"] == "inconclusive" and "timed out" in r["detail"]
 
 
 ANSWER_OK = """Here you go:
@@ -285,7 +285,7 @@ def test_docker_sandbox_fails_closed_when_unavailable(monkeypatch):
     # never a bare-subprocess fallback
     _fake_docker(monkeypatch, raise_exc=FileNotFoundError("docker"))
     r = E.check("```python\nprint(1)\n```")
-    assert r["status"] == "runtime_error" and "unavailable" in r["detail"]
+    assert r["status"] == "inconclusive" and "unavailable" in r["detail"]
     r = E.check_with_fixture(ANSWER_OK, CHECK["fixture"], CHECK["assert"])
     assert r["status"] == "inconclusive" and "unavailable" in r["detail"]
     assert E.judge_note(ANSWER_OK, "task", check_spec=CHECK) == ""
@@ -360,7 +360,7 @@ def test_docker_sandbox_garbage_output_fails_closed(monkeypatch):
     _fake_docker(monkeypatch, stdout="not json at all")
     assert E.check_with_fixture(ANSWER_OK, "", "")["status"] == "inconclusive"
     _fake_docker(monkeypatch, stdout="")
-    assert E.check("```python\nprint(1)\n```")["status"] == "runtime_error"
+    assert E.check("```python\nprint(1)\n```")["status"] == "inconclusive"
 
 
 def test_judge_note_stays_silent_for_formula_tasks():

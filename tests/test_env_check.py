@@ -184,7 +184,8 @@ def test_preflight_skips_roles_on_local_endpoints(monkeypatch):
     monkeypatch.setenv("OPENROUTER_BASE_URL", "http://localhost:11434/v1")  # fully local
     monkeypatch.setattr(optimize, "provider_conflict",
                         lambda model, pins: f"nope for {model}")
-    optimize.preflight_provider_pins()  # nothing talks to OpenRouter -> nothing to check
+    # nothing talks to OpenRouter, so the (always-conflicting) role check is skipped entirely
+    assert optimize.preflight_provider_pins() == []
 
 
 def test_invoke_retry_fails_fast_on_permanent_config_errors(monkeypatch):

@@ -1,19 +1,25 @@
 # SSO + RBAC for the shared change-control UI, design
 
-Status: proposed (with the decision-independent RBAC core landed) · Scope: UI authentication +
-authorization for a shared/enterprise deployment.
+Status: implemented (Sign in with Google) · Scope: UI authentication + authorization for a
+shared/enterprise deployment. Operator guide: [docs/sso.md](../../sso.md).
 
-> **Already on this branch** (decision-independent, IdP-free, fully unit-tested):
+> **Landed** (the whole flow, Google as the certified provider):
 > - **Authorization core**, `ui/rbac.py`: roles, `parse_role_map`, `role_from_claims`, `authorize`,
 >   and OIDC-claims→identity parsing (`tests/test_rbac.py`).
 > - **ID-token validation primitive**, `ui/oidc.py` `verify_id_token` (signature via JWKS, `iss`,
->   `aud`, `exp`/`iat`, `nonce`), plus the **layer-2 test harness** `tests/conftest.FakeIdp` that
->   forges RS256 tokens against an in-memory JWKS. Tested valid + expired / wrong-aud / wrong-iss /
->   bad-signature / unknown-kid / nonce-mismatch, and end-to-end forge→verify→role (`tests/test_oidc.py`).
+>   `aud`, `exp`/`iat`, `nonce`, `azp`), with the **layer-2 harness** `tests/conftest.FakeIdp`
+>   (`tests/test_oidc.py`).
+> - **Browser flow**, `ui/oidc_flow.py`: discovery + JWKS fetch/caching, `/auth/login` (state + PKCE
+>   + nonce), `/auth/callback` (state match, code redemption, validation, Google-domain gate,
+>   email→role), `/auth/logout`, `/auth/me`. Unit-tested against FakeIdp (`tests/test_oidc_flow.py`)
+>   and end-to-end against a live Keycloak (`tests/test_keycloak_integration.py`).
+> - **Wiring**, `ui/auth.py` + `ui/app.py`: mode-aware `require_auth` with `/auth/*` exemptions,
+>   fail-closed startup, `SessionMiddleware`, `require_role` alongside `same_origin` on the
+>   state-changing routes, SSO email as the audit `actor`.
 >
-> What remains (deferred pending the open decisions + real test tenants): the OIDC **browser flow**
-> (redirect / callback / signed session), **discovery + JWKS fetch/caching**, and **endpoint wiring**
-> (`require_role` on the routes, session identity feeding `identity_from_claims`).
+> The one deliberate deviation from the plan below: the flow is hand-rolled on `httpx` +
+> `verify_id_token` rather than authlib, so the audited validation path is the one already unit
+> tested. Roles come from an **email→role map** because Google ID tokens carry no roles/groups claim.
 
 Follow-up to the minimal LAN password auth (PR #24). That work made approvals *attributable*, the
 authenticated user is written as the audit `actor` on promote/reject/rollback. This spec takes the

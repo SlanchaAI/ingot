@@ -118,8 +118,10 @@ docker compose run --rm ui python -m ui.auth add alice   # prompts for a passwor
 
 It's off until the first user exists (the local default stays zero-config). This is LAN-grade:
 Basic credentials ride every request, so keep the server inside your network boundary and add TLS
-if you can. For SSO, RBAC, and per-team policy, and for authenticating the MCP serving endpoints
-themselves, put an authenticating reverse proxy in front, or use the enterprise profile.
+if you can. For a shared or company-wide deployment, [Sign in with Google](sso.md)
+(`AUTH_MODE=oidc`) adds domain-restricted login and the viewer/proposer/approver/admin roles, with
+the signed-in email as the audit actor. For authenticating the MCP serving endpoints themselves, put
+an authenticating reverse proxy in front.
 
 Deliberately not done: we do not denylist shell commands, `.env` mentions, or `curl … | sh` in
 skill bodies, because legitimate skills routinely contain code and install steps. Contain the

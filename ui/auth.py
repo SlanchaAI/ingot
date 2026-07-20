@@ -104,18 +104,85 @@ def _challenge() -> HTTPException:
                          headers={"WWW-Authenticate": 'Basic realm="ingot"'})
 
 
+# --- Auth mode selection ---------------------------------------------------------------------
+# Three modes coexist: `oidc` (Sign in with Google, ui/oidc_flow.py), `password` (LAN Basic, above),
+# and `open` (the zero-config local default). Explicit AUTH_MODE wins; otherwise infer password when
+# credentials exist, else open. OIDC is opt-in via AUTH_MODE=oidc because it needs the OIDC_* config.
+_OIDC_BOOTSTRAP = ("/auth/login", "/auth/callback", "/auth/logout")
+_REQUIRED_OIDC_ENV = ("OIDC_CLIENT_ID", "OIDC_REDIRECT_URL", "SESSION_SECRET")
+
+
+def auth_mode() -> str:
+    """`oidc` | `password` | `open`."""
+    mode = (os.environ.get("AUTH_MODE") or "").strip().lower()
+    if mode in ("oidc", "password", "open"):
+        return mode
+    return "password" if (_env_user() or load_users()) else "open"
+
+
+def validate_oidc_config() -> None:
+    """Fail closed at startup: AUTH_MODE=oidc must have its config, never silently downgrade to LAN
+    password or open. Called from ui/app.py before the middleware/routes are wired."""
+    missing = [k for k in _REQUIRED_OIDC_ENV if not (os.environ.get(k) or "").strip()]
+    if missing:
+        raise RuntimeError(f"AUTH_MODE=oidc is missing {', '.join(missing)}; refusing to start "
+                           "(it must not fall back to password/open). See docs/sso.md.")
+    if len((os.environ.get("SESSION_SECRET") or "").strip()) < 16:
+        raise RuntimeError("SESSION_SECRET must be at least 16 characters; refusing to start. "
+                           "Generate one with `python -c \"import secrets; print(secrets.token_urlsafe(32))\"`.")
+
+
+def oidc_cookie_kwargs() -> dict:
+    """SessionMiddleware settings for the signed session cookie. `Secure` follows the redirect URL's
+    scheme so local http still works while production https gets the flag; an explicit max-age means
+    a stolen cookie expires (phase 1 re-logs in rather than refreshing)."""
+    https = (os.environ.get("OIDC_REDIRECT_URL") or "").lower().startswith("https")
+    max_age = int(os.environ.get("SESSION_MAX_AGE") or 8 * 3600)
+    return {"same_site": "lax", "https_only": https, "max_age": max_age}
+
+
 def require_auth(request: Request) -> None:
-    """App-wide gate: reject a request with missing/invalid credentials when auth is enabled."""
+    """App-wide gate. OIDC mode: allow the bootstrap routes (`/auth/*`) and the index (which
+    redirects to login itself), require a session everywhere else. Password/open mode: unchanged."""
+    if auth_mode() == "oidc":
+        if request.url.path in _OIDC_BOOTSTRAP or request.url.path == "/":
+            return
+        if not request.session.get("user"):
+            raise HTTPException(401, "authentication required", headers={"Location": "/auth/login"})
+        return
     if _actor_from(request) is None:
         raise _challenge()
 
 
 def current_actor(request: Request) -> str:
-    """The username to attribute a state-changing action to (`_ANON` when auth is disabled)."""
+    """The identity to attribute a state-changing action to: the SSO email/sub in OIDC mode, the
+    Basic username in password mode, `_ANON` when auth is disabled."""
+    if auth_mode() == "oidc":
+        user = request.session.get("user")
+        if not user:
+            raise HTTPException(401, "authentication required")
+        return user.get("email") or user.get("sub") or "sso-user"
     actor = _actor_from(request)
     if actor is None:
         raise _challenge()
     return actor
+
+
+def require_role(role: str):
+    """Dependency factory gating an endpoint by app role. RBAC is the SSO profile: in password/open
+    mode (single trust domain) it is a no-op, so the LAN/local behavior is unchanged. Composed
+    *alongside* `same_origin`, never replacing it."""
+    from ui.rbac import authorize
+
+    def dep(request: Request) -> None:
+        if auth_mode() != "oidc":
+            return
+        user = request.session.get("user")
+        if not user:
+            raise HTTPException(401, "authentication required")
+        authorize(user.get("role", "viewer"), role)
+
+    return dep
 
 
 def _add_user_cli() -> None:
