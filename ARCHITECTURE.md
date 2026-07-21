@@ -55,8 +55,12 @@ Both passes end at a quarantined pending record and an evidence bundle under `ru
 There is one candidate search, by design. A second, sequential GEPA body loop was removed: it
 optimized the same objective at roughly twenty times the cost, was reachable only through an opt-in
 flag, and had no test coverage of its own. `OPTIMIZE_STRATEGY` is no longer read; a run that finds it
-set says so instead of silently ignoring it. There is no scripts pass: bundled files are opt-in text
-components (`OPTIMIZE_COMPONENTS=body,file:<path>`), diffed for review and never executed.
+set says so instead of silently ignoring it. The scripts pass (`--scripts`) optimizes bundled
+`scripts/` files, but only when the skill's holdout carries execution-grounded `check:` assertions,
+since the judge alone cannot tell a broken script from a working one; when it runs, both the
+candidate rollouts and the A/B serve the assembled skill (body plus files), so a rewritten file is
+actually executed by the evidence run. Other bundled files can still join the body pass as opt-in
+text components (`OPTIMIZE_COMPONENTS=body,file:<path>`), diffed for review and not executed.
 
 ## Invariants
 

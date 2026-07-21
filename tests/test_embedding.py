@@ -34,10 +34,12 @@ class _StubSession:
     def run(self, outputs, feeds):
         self.feeds = feeds
         batch, width = feeds["input_ids"].shape
-        hidden = np.zeros((batch, width, 1), dtype=np.float32)
+        # second dim is a constant 1 so a wrongly-pooled position produces a distinct normalized
+        # vector (a 1-dim positive value would normalize to [1.0] from any position and hide it)
+        hidden = np.zeros((batch, width, 2), dtype=np.float32)
         for b in range(batch):
             for t in range(width):
-                hidden[b, t, 0] = b * 100 + t
+                hidden[b, t] = [b * 100 + t, 1]
         return [hidden]
 
 
@@ -62,9 +64,10 @@ def test_qwen_pools_last_real_token_and_appends_eos():
     assert ids.shape == (2, 4)
     assert ids[0][-1] == E._EOS and ids[1][1] == E._EOS      # eos appended before padding
     assert list(backend._session.feeds["attention_mask"][1]) == [1, 1, 0, 0]
-    # normalized 1-dim vectors: pooled positions were 3 (last real token of row 0) and 1 (row 1),
-    # never the pad positions
-    assert [np.sign(v[0]) for v in vectors] == [1.0, 1.0]
+    # exact normalized vectors prove the pooled position: row 0's last real token is t=3 (value
+    # [3, 1]), row 1's is t=1 (value [101, 1]) -- a pad position would give a different vector
+    np.testing.assert_allclose(vectors[0], [3 / np.sqrt(10), 1 / np.sqrt(10)], rtol=1e-5)
+    np.testing.assert_allclose(vectors[1], [101 / np.sqrt(10202), 1 / np.sqrt(10202)], rtol=1e-5)
     kv = backend._session.feeds["past_key_values.0.key"]
     assert kv.shape == (2, 8, 0, 128) and kv.dtype == np.float32
 
