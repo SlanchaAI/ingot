@@ -572,8 +572,8 @@ DEFAULT_ROUTING_BUDGET = 60
 def script_pass_components(skill: str) -> list[str]:
     """The `file:scripts/*` components the scripts pass may rewrite, after checking the pass can
     be measured at all. Refuses loudly (SystemExit with the reason as the message) when the skill
-    bundles no scripts, or when no holdout task carries an execution-grounded `check:` — the LLM
-    judge alone cannot tell a broken script from a working one, so a scripts pass without checks
+    bundles no scripts, or when no holdout task carries an execution-grounded `check:` (the LLM
+    judge alone cannot tell a broken script from a working one), so a scripts pass without checks
     would produce evidence worth nothing."""
     from mcp_server.registry import read_components
     skill_dir = SKILLS_DIR / skill

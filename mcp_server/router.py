@@ -3,7 +3,7 @@ task by cosine similarity. CPU-only ONNX, no GPU, so the demo is `docker compose
 
 Model is `EMBED_MODEL` (default Qwen3-Embedding-0.6B q4, ~15 ms/query on CPU; queries get the
 retrieval instruction prefix, descriptions don't). Any fastembed model name also works (e.g. the
-previous default `BAAI/bge-small-en-v1.5`, ~4 ms/query) — but recalibrate MIN_SCORE /
+previous default `BAAI/bge-small-en-v1.5`, ~4 ms/query), but recalibrate MIN_SCORE /
 RELATED_SCORE / COLLISION_SCORE with the model (mcp_server/embedding.py)."""
 from __future__ import annotations
 import os

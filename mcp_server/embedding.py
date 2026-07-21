@@ -6,15 +6,15 @@ descriptions) do not, and pooling is last-token.
 
 The choice is a deliberate ranking-over-discrimination trade, measured on that eval:
   - RANKING (which skill is #1, the router's primary job): q4 serves the correct skill 80.1% vs
-    bge-small's 72.7%, never dropping a correct match to novel — the extra matches land in the
-    related/compose band, not lost, so no extra strong-model escalation.
+    bge-small's 72.7%, never dropping a correct match to novel (the extra matches land in the
+    related/compose band, not lost), so no extra strong-model escalation.
   - DISCRIMINATION (route-vs-novel threshold sharpness): q4 is WORSE (best balanced-acc 0.782 vs
     bge 0.859); its compressed cosine range makes the direct/related/novel boundaries mushier.
 Among Qwen quant levels, q4 (4-bit weight-only) both ranks best and is fastest (~15 ms/query on
-CPU); q8 (dynamic activation quant) ranks no better than bge and separates worse — dominated.
+CPU); q8 (dynamic activation quant) ranks no better than bge and separates worse (dominated).
 
 Any fastembed model name (e.g. the previous default BAAI/bge-small-en-v1.5) still works as
-`EMBED_MODEL`, embedded symmetrically exactly as before — but the routing thresholds are
+`EMBED_MODEL`, embedded symmetrically exactly as before, but the routing thresholds are
 calibrated per model (see docs/configuration.md), so override MIN_SCORE / RELATED_SCORE /
 COLLISION_SCORE together with the model."""
 from __future__ import annotations
