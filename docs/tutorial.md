@@ -19,7 +19,7 @@ runs the agent once on a demo task. The UI lists every skill the router serves, 
 content-hash revision and a load count (how often it has actually been served), and surfaces
 anything awaiting review:
 
-![Change-control UI, the skills library, with revisions and load counts](ui-home.png)
+![Change-control UI, the skills library, with revisions and load counts](ui-home.webp)
 
 No skills are committed to this repo. `fetch_skills.sh` clones each source, copies its skills in,
 and deletes the clone, so everything stays under its own upstream license. Without an API key
@@ -50,8 +50,9 @@ followed it. The `@…` suffix is the skill's content-hash revision, which also 
 a tag. Unconstrained suggestions never control the serving model or loaded instructions.
 A routed task runs on the cheap `AGENT_MODEL` because the skill carries the method; only truly
 novel tasks escalate to `STRONG_MODEL` (step 10). Steps 2 to 4 were recorded on Fireworks model
-IDs and steps 5 to 8 on the OpenRouter defaults (`qwen/qwen3-32b` serving); the `SERVING MODEL`
-line always shows whatever `AGENT_MODEL` you configure. The run's full trace just landed in
+IDs and steps 5 to 8 on the OpenRouter `AGENT_MODEL` default at recording time, `qwen/qwen3-32b`
+(the current default is `qwen/qwen3.6-27b`); the `SERVING MODEL` line always shows whatever
+`AGENT_MODEL` you configure. The run's full trace just landed in
 `runs/traces.jsonl`; that local store is what the miner reads in step 4.
 
 ### 3. Write a first-draft skill and watch it under-deliver
@@ -221,13 +222,13 @@ carries the champion-vs-challenger judge scores, the before/after token shift, t
 its warnings, the recorded evidence bundle, and the component diff, here the red lines are the v3
 guidance SkillOpt removed and the green lines are the v4 body it wrote:
 
-![Review card, the tailwind v3→v4 challenger, promotable with warnings](ui-review.png)
+![Review card, the tailwind v3→v4 challenger, promotable with warnings](ui-review.webp)
 
 **Approve** doesn't promote in one click: it opens a comparison panel with the model breakdown,
 the before/after token usage, and the per-task judge scores, and a final **Approve & promote** that
 reveals a separate **Confirm**, so a promotion is deliberate.
 
-![Comparison panel, model, tokens, and judge scores before Confirm](ui-compare.png)
+![Comparison panel, model, tokens, and judge scores before Confirm](ui-compare.webp)
 
 **Approve & promote** verifies the evidence still matches the on-disk champion, snapshots the prior
 revision into `runs/revisions/tailwind/<revision>/`, swaps the challenger into `skills/tailwind/` by

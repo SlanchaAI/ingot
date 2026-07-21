@@ -15,6 +15,7 @@ Set in `.env` (never committed):
 | `MIN_SCORE` | `0.53` | at/above: routable match; below: `related` band or novel. Calibrated to `EMBED_MODEL` (0.65 for bge-small) |
 | `RELATED_SCORE` | `0.37` | floor of the `related` band; below it a task is novel (weak/strong escalation). Calibrated to `EMBED_MODEL` (0.45 for bge-small) |
 | `EMBED_MODEL` | `onnx-community/Qwen3-Embedding-0.6B-ONNX` | router embedding model (q4 ONNX, ~15 ms/query on CPU; +7 top-1 over bge-small on a 297-query eval). Any fastembed name also works, but recalibrate the three score thresholds with it. Keep in sync with the Dockerfile's build arg |
+| `EMBED_ONNX_FILE` | `onnx/model_q4.onnx` | which ONNX weight file to load inside the `EMBED_MODEL` repo; only relevant for ONNX exports that ship multiple quantizations |
 | `BODY_TARGET_CHARS` | `6000` | length penalty starts past this body size |
 | `LENGTH_PENALTY` | `0.10` | max score subtracted for a very long body |
 | `LOOP_HEALTH_THRESHOLD` | `0.7` | the background loop proposes a change for skills whose mined mean score is below this |
@@ -34,13 +35,20 @@ Set in `.env` (never committed):
 | `SANDBOX_IMAGE` | `ingot-optimize` | image sandbox containers run |
 | `SANDBOX_RUNTIME` | (none) | optional container runtime, e.g. `runsc` for gVisor |
 | `TRACES_FILE` | `runs/traces.jsonl` | local JSONL trace store: written by every agent run, read by `optimize-mine` when Langfuse is unreachable, so mining works without the tracing stack |
+| `LOCAL_TRACE_MAX_BYTES` / `LOCAL_TRACE_BACKUPS` | `10485760` (10 MiB) / `3` | size-based rotation of the local trace store: roll `TRACES_FILE` past the byte cap, keeping this many `.1`…`.N` backups (`0` bytes disables size rotation) |
+| `LOCAL_TRACE_MAX_AGE_DAYS` | `30` | age-based pruning: drop rotated trace backups older than this many days (`0` disables age pruning) |
 | `SKILL_USAGE_FILE` | `runs/skill_usage.json` | per-skill load counter: the MCP server increments it on every `get_skill` / `route_and_load` match, and the UI shows each skill's `uses` |
-| `AUTH_USER` / `AUTH_PASSWORD` | `admin` / `ingot` (compose) | UI login (HTTP Basic). docker-compose sets these so the shared UI is gated by default, **change `AUTH_PASSWORD`** before exposing it; set `AUTH_PASSWORD=` empty to run open |
-| `AUTH_FILE` | `runs/auth.json` | additional UI users (salted PBKDF2) for more than one login; add with `python -m ui.auth add <name>`. Absent + no `AUTH_*` env = UI open (bare local default) |
+| `AUTH_MODE` | `password` (compose) | UI auth mode: `password` (HTTP Basic), `oidc` (Sign in with Google + roles, see [SSO](sso.md)), or `open` (no auth). When unset it is inferred as `password` if `AUTH_*` creds or an auth file exist, else `open`; set `AUTH_MODE=open` to force the UI open |
+| `AUTH_USER` / `AUTH_PASSWORD` | `admin` / `ingot` (compose) | UI login for `password` mode. docker-compose sets these so the shared UI is gated by default, **change `AUTH_PASSWORD`** before exposing it |
+| `AUTH_FILE` | `runs/auth.json` | additional `password`-mode users (salted PBKDF2) for more than one login; add with `python -m ui.auth add <name>` |
 | `MAX_RUN_USD` | (none) | hard spend cap per optimize run: the ledger estimates cost from OpenRouter list prices after every call and aborts the run past the cap |
 | `LANGFUSE_BASE_URL` | `http://langfuse-web:3000` | Langfuse endpoint every service traces to and mines from |
 | `LANGFUSE_PUBLIC_KEY` / `LANGFUSE_SECRET_KEY` | `pk-lf-local-demo` / `sk-lf-local-demo` | project keys; defaults are the bundled stack's local demo literals |
 | `LANGFUSE_PUBLIC_URL` | `http://localhost:3100` | where your browser reaches Langfuse (UI trace links) |
+
+OIDC/SSO variables (`OIDC_ISSUER`, `OIDC_CLIENT_ID`, `OIDC_CLIENT_SECRET`, `OIDC_REDIRECT_URL`,
+`OIDC_ALLOWED_DOMAINS`, `OIDC_ROLE_MAP`, `OIDC_ROLE_CLAIM`, `SESSION_SECRET`) are covered in
+[Sign in with Google (SSO)](sso.md).
 
 Evidence-gate knobs (`PROMOTE_MIN_MARGIN`, `PROMOTE_MIN_SAMPLES`, `COLLISION_SCORE`,
 `JUDGE_MODELS`) are covered in [The evidence gate](evidence-gate.md).

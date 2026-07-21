@@ -15,9 +15,12 @@ See [ARCHITECTURE.md](ARCHITECTURE.md) for component flows, stores, invariants, 
 
 Ingot is a local development system, not a hardened multi-tenant service.
 
-- MCP and change-control UI endpoints have no built-in authentication. Docker publishes them on
-  `127.0.0.1` by default. Add authenticated transport before exposing them to a network. Anyone who
-  can reach the UI can approve a change or roll a skill back.
+- The MCP endpoints have no built-in authentication; Docker publishes them on `127.0.0.1` by
+  default, so add authenticated transport before exposing them to a network. The change-control UI
+  has a built-in password gate (HTTP Basic, default `admin`/`ingot` under Docker) and an optional
+  Sign in with Google mode (OIDC + roles, `AUTH_MODE=oidc`; see [SSO](docs/sso.md)). In the
+  zero-config `open` mode it is unauthenticated, so anyone who can reach it can approve a change or
+  roll a skill back.
 - Candidate generation only creates quarantined pending records. A normal application flow can
   activate a rewrite only through an explicit approval action in the UI; reviewers own every
   activation decision.
@@ -43,10 +46,11 @@ Approval and rollback actions write metadata-only records to `runs/approval-audi
 records provide local accountability, not tamper-proof audit storage. Forward them to an append-only
 system if regulatory or multi-user assurance is required.
 
-Every record's `actor` is the constant `local-operator`. The local UI has no identity or
-authentication, so the trail can record that a local operator approved a change, never who did.
-Attributing a decision to a person requires an authenticating proxy in front of the UI and an
-identity carried into the record, neither of which Ingot provides.
+Each record's `actor` is the identity of the approver: the constant `local-operator` in the
+zero-config `open` mode, the HTTP Basic username when the LAN password gate is enabled
+(`ui/auth.py`), or the signed-in email under Sign in with Google (`AUTH_MODE=oidc`, see
+[SSO](docs/sso.md)). In `open` mode the trail can record only that *a* local operator approved a
+change, not who; enabling the password or OIDC gate attributes each decision to a person.
 
 The review surface reads recorded evidence bundles through one read-only endpoint. It opens only
 the path a pending record wrote, resolves it, and refuses anything that lands outside

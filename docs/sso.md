@@ -18,7 +18,7 @@ This is an opt-in deployment profile. The zero-config local default and the LAN 
   | role | may |
   |------|-----|
   | `viewer` | read the board, pending evidence, history |
-  | `proposer` | trigger candidate generation (`/api/optimize`) |
+  | `proposer` | trigger candidate generation (`/api/optimize/{skill}`) |
   | `approver` | promote, reject, roll back |
   | `admin` | the above, plus configuration |
 

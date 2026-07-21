@@ -47,15 +47,18 @@ Optimization proposes changes; it never makes them. It is off the review path an
 in the background (`optimize.loop`) or on demand from the UI.
 
 Mining selects difficult, semantically diverse failures from real traces. The body pass runs one
-candidate search, `optimize/bestofn.py`: parallel best-of-N authored from the seed's judged failures,
-then successive halving over the train tasks. The description pass (`optimize/routing.py`) scores
+candidate search, `optimize/skillopt_loop.py` (SkillOpt's reflective training loop, driven
+per-component by `_greedy_search` in `optimize/ab.py`): bounded patch edits reflected from the seed's
+judged failures and prior rejected edits, accepted only against a held-out strictly-improving gate.
+The description pass (`optimize/routing.py`) scores
 candidate descriptions with the real embedding router and uses GEPA only for its reflection step.
 Both passes end at a quarantined pending record and an evidence bundle under `runs/evidence/`.
 
 There is one candidate search, by design. A second, sequential GEPA body loop was removed: it
 optimized the same objective at roughly twenty times the cost, was reachable only through an opt-in
-flag, and had no test coverage of its own. `OPTIMIZE_STRATEGY` is no longer read; a run that finds it
-set says so instead of silently ignoring it. The scripts pass (`--scripts`) optimizes bundled
+flag, and had no test coverage of its own. `OPTIMIZE_STRATEGY` is no longer read, and the removed
+pass flags (`--strategy`, `--gepa`, `--skip-gepa`, `--candidates`) fail the argument parse rather than
+being silently ignored. The scripts pass (`--scripts`) optimizes bundled
 `scripts/` files, but only when the skill's holdout carries execution-grounded `check:` assertions,
 since the judge alone cannot tell a broken script from a working one; when it runs, both the
 candidate rollouts and the A/B serve the assembled skill (body plus files), so a rewritten file is

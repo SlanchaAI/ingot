@@ -18,8 +18,9 @@ Three properties, all defaults, none optional:
   retains prompts. Provider-direct endpoints work too: Fireworks AI, for example, is
   [zero-data-retention by default](https://docs.fireworks.ai/guides/security_compliance/data_handling)
   for open models on serverless, under its own retention policy.
-- **Self-hosted tracing.** Langfuse (with its Postgres, ClickHouse, and MinIO) runs inside the
-  compose stack. Traces, skill contents, and eval outputs never leave your machine.
+- **Self-hosted tracing.** Traces default to a local JSONL store on your machine; the full Langfuse
+  stack (Postgres, ClickHouse, MinIO) runs self-hosted inside the compose stack under
+  `--profile langfuse`. Either way, traces, skill contents, and eval outputs never leave your machine.
 - **Localhost only.** No service is reachable off the machine (see
   [Network exposure](#network-exposure)).
 

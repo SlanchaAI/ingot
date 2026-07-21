@@ -1,7 +1,7 @@
 """Generate a candidate change for one skill and produce the evidence a reviewer needs.
 
-The candidate search (optimize.bestofn) turns the skill's components into a challenger on the train
-tasks. Champion and challenger then run through the full agent with a local `route_and_load` on the
+The candidate search (optimize.skillopt_loop, driven per-component by `_greedy_search`) turns the
+skill's components into a challenger on the train tasks. Champion and challenger then run through the full agent with a local `route_and_load` on the
 held-out tasks; each variant is a Langfuse dataset run (side-by-side in the UI) when the stack is
 up. The result is a quarantined record in runs/pending/<skill>.json plus a portable evidence bundle
 in runs/evidence/. Nothing here activates anything: promotion is a human action in the UI.
