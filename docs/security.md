@@ -138,8 +138,11 @@ does not also publish traces. For a new deployment:
    values before the first `docker compose up`. At minimum set `LANGFUSE_ENCRYPTION_KEY`,
    `LANGFUSE_SALT`, `LANGFUSE_NEXTAUTH_SECRET`, `LANGFUSE_INIT_USER_PASSWORD`, every datastore
    credential, and the Langfuse project keys.
-2. Set `LANGFUSE_PUBLIC_URL=https://<this-box's-name-or-IP>:3443` in `.env`. This must match the URL
-   used by browsers so Langfuse generates the correct authentication URLs.
+2. Set `LANGFUSE_HOST` and `LANGFUSE_BIND_ADDRESS` to the host's trusted DNS name or private IP.
+   Set `LANGFUSE_PUBLIC_URL=https://<same-name-or-IP>:3443`. The public URL must match the URL used
+   by browsers so Langfuse generates the correct authentication URLs. The explicit host also keeps
+   certificate issuance limited to that identity, and the bind address keeps the listener off
+   unrelated host interfaces.
 3. Run `docker compose --profile langfuse-lan up -d langfuse-proxy`, then browse to that URL. Caddy
    uses its local CA, with the same trust considerations described under Network exposure.
 

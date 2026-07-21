@@ -19,7 +19,7 @@ Tailscale, or an authenticating reverse proxy. Never expose port `8000` directly
 
 ## 1. Prepare the Ingot host
 
-Install Git, Docker with the Compose plugin, and OpenSSL. Clone the repository, then create the
+Install Git, Docker with Compose 2.24.4 or newer, and OpenSSL. Clone the repository, then create the
 production environment file:
 
 ```bash
@@ -33,6 +33,8 @@ Before the first start, edit `.env` and set all of these values. Keep real value
 
 ```dotenv
 LANGFUSE_PUBLIC_URL=https://192.168.1.40:3443
+LANGFUSE_HOST=192.168.1.40
+LANGFUSE_BIND_ADDRESS=192.168.1.40
 LANGFUSE_PUBLIC_KEY=pk-lf-replace-me
 LANGFUSE_SECRET_KEY=sk-lf-replace-me
 LANGFUSE_ENCRYPTION_KEY=replace-with-64-hex-characters
@@ -79,8 +81,9 @@ services:
       - "192.168.1.40:8000:8000"
 ```
 
-Restrict inbound TCP `8000` and `3443` to the agent subnet or VPN in the host firewall. Do not
-expose Postgres, ClickHouse, Redis, or MinIO.
+The checked-in Langfuse proxy binds `3443` to `LANGFUSE_BIND_ADDRESS`, which the previous step set
+to the trusted interface. Restrict inbound TCP `8000` and `3443` to the agent subnet or VPN in the
+host firewall. Do not expose Postgres, ClickHouse, Redis, or MinIO.
 
 ## 3. Start open source Langfuse and Ingot
 

@@ -20,7 +20,7 @@ import urllib.request
 from collections import Counter, defaultdict
 from pathlib import Path
 from typing import Callable, NamedTuple
-from urllib.parse import urlencode
+from urllib.parse import urlencode, urlparse
 
 from .judge import DIMENSIONS, MODELS, _PROMPT, failed_dimensions, judge
 
@@ -49,6 +49,11 @@ def fetch_traces(limit: int = 0) -> list[dict]:
     unreachable: mining has no other source of real traffic, so a silent empty result would read
     as 'nothing failing' when it means 'no traces'. A zero limit paginates through all available
     traces; a positive limit is an explicit newest-N operational cap."""
+    parsed_url = urlparse(LF_URL)
+    if parsed_url.scheme not in {"http", "https"} or not parsed_url.netloc:
+        raise SystemExit(
+            "LANGFUSE_BASE_URL must be an absolute http:// or https:// URL; "
+            f"got {LF_URL!r}.")
     auth = base64.b64encode(f"{LF_PK}:{LF_SK}".encode()).decode()
     out = []
     seen = set()
@@ -56,7 +61,7 @@ def fetch_traces(limit: int = 0) -> list[dict]:
     while True:
         page_limit = min(TRACE_PAGE_SIZE, limit - len(out)) if limit else TRACE_PAGE_SIZE
         query = urlencode({"limit": max(1, page_limit), "page": page})
-        req = urllib.request.Request(f"{LF_URL}/api/public/traces?{query}",
+        req = urllib.request.Request(f"{LF_URL.rstrip('/')}/api/public/traces?{query}",
                                      headers={"Authorization": f"Basic {auth}"})
         try:
             with urllib.request.urlopen(req, timeout=60) as response:

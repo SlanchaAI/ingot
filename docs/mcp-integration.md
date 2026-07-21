@@ -152,7 +152,7 @@ agent is written in.
 
 **The contract is on the trace root.** Mine reads each trace's top-level `input` and `output` to
 select and grade it; child spans from an auto-instrumenting connector are ignored for selection
-(they still give you the rich per-call detail in the Langfuse UI). The root must match one of two
+(they still give you the rich per-call detail in the Langfuse UI). The root must match one of three
 shapes:
 
 1. **Explicit**: `input = {"task": "<user request>"}` (optionally `{"task", "rubric"}`) and
@@ -211,8 +211,9 @@ three options:
 1. **Bundled Langfuse** (default): self-hosted in the compose stack, nothing to configure. Secure
    its demo credentials before exposing it: [Securing the Langfuse deployment](security.md#securing-the-langfuse-deployment).
 2. **Your own Langfuse**: Cloud or self-hosted elsewhere. Point `LANGFUSE_BASE_URL` /
-   `LANGFUSE_PUBLIC_KEY` / `LANGFUSE_SECRET_KEY` at it; the bundled containers keep running unless
-   you stop them. See [Using your own Langfuse project](configuration.md#using-your-own-langfuse-project).
+   `LANGFUSE_PUBLIC_KEY` / `LANGFUSE_SECRET_KEY` at it and use the external-Langfuse Compose
+   override so the bundled containers do not start. See
+   [Using your own Langfuse project](configuration.md#using-your-own-langfuse-project).
 3. **A different platform** (Arize Phoenix, etc.): **not wired yet.** The write side already works
    for any platform: it's OpenTelemetry, and so is Langfuse, so your harness can export spans
    anywhere. The *read* side is the gap: mining pulls traces from Langfuse's public trace API

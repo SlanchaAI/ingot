@@ -1,11 +1,16 @@
 """Security / malicious-input tests for the skill library's write paths. Pure-function tests (no
 network, no LLM), run in Docker: `docker run --rm -v $(pwd):/app ingot-mcp python -m pytest tests -q`."""
+from pathlib import Path
+
 import pytest
 
 from mcp_server.registry import (
     SLUG_RE, parse_skill, read_components, write_components, write_skill_md,
 )
 from optimize.promote import check_slug
+
+
+ROOT = Path(__file__).resolve().parents[1]
 
 
 # --- name validation: path traversal --------------------------------------------------------
@@ -79,3 +84,19 @@ def test_write_components_rejects_skill_md_as_bundled_file(tmp_path):
         })
     assert "body" in (skill / "SKILL.md").read_text()
     assert "safe" not in (skill / "SKILL.md").read_text()
+
+
+def test_langfuse_proxy_has_fixed_identity_and_loopback_default():
+    caddyfile = (ROOT / "ops/caddy/Langfuse.Caddyfile").read_text()
+    compose = (ROOT / "docker-compose.yml").read_text()
+
+    assert "on_demand" not in caddyfile
+    assert "{$LANGFUSE_HOST:localhost}" in caddyfile
+    assert "${LANGFUSE_BIND_ADDRESS:-127.0.0.1}:3443:3443" in compose
+
+
+def test_external_langfuse_override_disables_bundled_stack():
+    override = (ROOT / "docker-compose.external-langfuse.yml").read_text()
+
+    assert "optimize-mine:\n    depends_on: !reset {}" in override
+    assert override.count('profiles: !override ["bundled-langfuse"]') == 7

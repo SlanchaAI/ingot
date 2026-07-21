@@ -1,0 +1,37 @@
+# Use this override when LANGFUSE_* points at Langfuse Cloud or another external deployment.
+# It removes dependencies on the bundled service and places the unused local stack behind an
+# inactive profile. Keep both files in every Compose command, or set COMPOSE_FILE in your shell.
+services:
+  agent:
+    depends_on: !override
+      mcp:
+        condition: service_started
+
+  optimize-mine:
+    depends_on: !reset {}
+
+  optimize-loop:
+    depends_on: !override
+      mcp:
+        condition: service_started
+
+  langfuse-proxy:
+    profiles: !override ["bundled-langfuse"]
+
+  langfuse-worker:
+    profiles: !override ["bundled-langfuse"]
+
+  langfuse-web:
+    profiles: !override ["bundled-langfuse"]
+
+  clickhouse:
+    profiles: !override ["bundled-langfuse"]
+
+  minio:
+    profiles: !override ["bundled-langfuse"]
+
+  redis:
+    profiles: !override ["bundled-langfuse"]
+
+  postgres:
+    profiles: !override ["bundled-langfuse"]

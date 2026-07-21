@@ -31,8 +31,8 @@ What the system guarantees:
 Built for individual users first, ready to share:
 
 - **Batteries included.** `docker compose up` starts the router, the change-control UI, and a
-  self-hosted Langfuse for traces and experiments; point `LANGFUSE_*` at your own Langfuse (Cloud or
-  self-hosted) to send traces there instead.
+  self-hosted Langfuse for traces and experiments. An included Compose override connects Cloud or
+  another self-hosted Langfuse without starting the bundled stack.
 - **Local.** Point it at Ollama or vLLM and it runs with no API key; nothing leaves your machine.
 - **Secure.** Hosted calls default to OpenRouter with zero-data-retention routing enforced on every
   request, everything binds localhost, and the shared UI has an optional password gate.
@@ -62,9 +62,10 @@ open), see [Privacy & security](docs/security.md#network-exposure).
 
 `docker compose up` brings up a self-hosted Langfuse (traces + experiment UI) alongside the router
 and UI; trace mining reads from it and has no local fallback, so it fails loudly if no
-Langfuse-compatible backend is reachable. Point `LANGFUSE_*` at your own Langfuse (Cloud or
-self-hosted) to send traces there instead (the bundled containers keep running unless you stop
-them). Backend, model, and gate settings live in [Configuration](docs/configuration.md).
+Langfuse-compatible backend is reachable. To send traces to your own Langfuse without starting the
+bundled containers, set `LANGFUSE_*` and use `docker-compose.external-langfuse.yml` as documented in
+[Configuration](docs/configuration.md#using-your-own-langfuse-project). Backend, model, and gate
+settings live in [Configuration](docs/configuration.md).
 
 Then walk the full loop, a stale Tailwind skill mined, rewritten, gated, and promoted, in the
 [**Tutorial**](docs/tutorial.md).

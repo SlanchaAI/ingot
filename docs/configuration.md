@@ -199,7 +199,7 @@ Langfuse is the default evals backend and comes up with `docker compose up` (UI 
 **http://localhost:3100**, login `demo@local.dev` / `localdemo123`). Mining has no local fallback,
 so it fails loudly unless a Langfuse-compatible endpoint is reachable. To point ingot at an
 existing Langfuse project (Cloud or self-hosted elsewhere) instead of the bundled one, set all
-three in `.env` and restart (`docker compose up -d`):
+three in `.env`:
 
 ```bash
 LANGFUSE_PUBLIC_KEY=pk-lf-...                  # your project's keys: Project Settings -> API Keys
@@ -208,11 +208,21 @@ LANGFUSE_BASE_URL=https://cloud.langfuse.com   # or your self-hosted URL
 LANGFUSE_PUBLIC_URL=https://cloud.langfuse.com # optional: where your browser reaches it
 ```
 
+Start Ingot with the external-Langfuse override. Keep both files in subsequent Compose commands:
+
+```bash
+docker compose -f docker-compose.yml -f docker-compose.external-langfuse.yml up -d
+docker compose -f docker-compose.yml -f docker-compose.external-langfuse.yml \
+  run --rm optimize-mine <skill>
+```
+
+The override removes dependencies on `langfuse-web` and places the bundled Langfuse services and
+datastores behind an inactive profile, so they are not started or waited on. It requires Docker
+Compose 2.24.4 or newer for the standard `!override` merge tag.
+
 One gotcha: `LANGFUSE_BASE_URL` must be reachable from inside the containers (not
 `http://localhost:<port>`, which inside a container is the container itself; use
-`http://host.docker.internal:<port>` or your host's LAN IP). Pointing at your own project leaves the
-bundled Langfuse containers running but unused; stop them with `docker compose stop langfuse-web
-langfuse-worker postgres clickhouse minio redis` if you don't want them.
+`http://host.docker.internal:<port>` or your host's LAN IP).
 
 Securing the bundled Langfuse and connecting a non-Langfuse evals platform (Arize, …) are covered
 in [Using your own evals platform](mcp-integration.md#using-your-own-evals-platform) and

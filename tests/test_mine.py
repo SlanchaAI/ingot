@@ -89,6 +89,18 @@ def test_fetch_traces_fails_loudly_when_backend_unreachable(monkeypatch):
     assert "unreachable" in str(exc.value).lower()
 
 
+@pytest.mark.parametrize("url", ["file:///etc/passwd", "ftp://langfuse.example", "localhost:3100"])
+def test_fetch_traces_rejects_non_http_backend_urls_before_opening(monkeypatch, url):
+    monkeypatch.setattr(mine, "LF_URL", url)
+    opened = []
+    monkeypatch.setattr(mine.urllib.request, "urlopen", lambda *args, **kwargs: opened.append(args))
+
+    with pytest.raises(SystemExit, match="absolute http:// or https://"):
+        mine.fetch_traces(1)
+
+    assert opened == []
+
+
 def test_fetch_traces_zero_limit_paginates_all_uses(monkeypatch):
     pages = {
         1: [{"id": "one", "input": "task one", "output": "answer one"}],
