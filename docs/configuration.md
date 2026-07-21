@@ -153,9 +153,9 @@ LANGFUSE_PUBLIC_URL=https://cloud.langfuse.com # optional: where your browser re
 
 One gotcha: `LANGFUSE_BASE_URL` must be reachable from inside the containers (not
 `http://localhost:<port>`, which inside a container is the container itself; use
-`http://host.docker.internal:<port>` or your host's LAN IP). Pointing at your own project makes the
-bundled Langfuse containers redundant; skip them with `docker compose up mcp ui agent` (or your own
-service list) if you don't want them running.
+`http://host.docker.internal:<port>` or your host's LAN IP). Pointing at your own project leaves the
+bundled Langfuse containers running but unused; stop them with `docker compose stop langfuse-web
+langfuse-worker postgres clickhouse minio redis` if you don't want them.
 
 Securing the bundled Langfuse and connecting a non-Langfuse evals platform (Arize, …) are covered
 in [Using your own evals platform](mcp-integration.md#using-your-own-evals-platform) and

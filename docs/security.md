@@ -22,7 +22,7 @@ Three properties, all defaults, none optional:
   ClickHouse, MinIO) that runs inside the compose stack, so traces stay on your machine (hosted
   inference is the separate exception noted below). Its ports are bound to `127.0.0.1` and its
   datastores publish no host port; before exposing it beyond your machine, rotate the demo
-  credentials — see [Securing the Langfuse deployment](#securing-the-langfuse-deployment).
+  credentials; see [Securing the Langfuse deployment](#securing-the-langfuse-deployment).
 - **Localhost only.** No service is reachable off the machine (see
   [Network exposure](#network-exposure)).
 
@@ -132,7 +132,7 @@ Two things keep the defaults safe on a single machine:
 
 Before exposing Langfuse beyond your machine, treat it like the UI: put it behind the `lan` TLS
 proxy (or your own) rather than republishing its port, **and rotate every demo secret first**. Each
-one overrides a `docker-compose.yml` default from `.env` with no file edit — the full list and the
+one overrides a `docker-compose.yml` default from `.env` with no file edit; the full list and the
 `openssl rand` recipes are in `.env.example` under "LANGFUSE SECURITY". At minimum rotate
 `LANGFUSE_ENCRYPTION_KEY`, `LANGFUSE_SALT`, `LANGFUSE_NEXTAUTH_SECRET`, `LANGFUSE_INIT_USER_PASSWORD`,
 and the datastore passwords; a shared or exposed deployment should also use a real Langfuse project's

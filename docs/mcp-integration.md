@@ -20,7 +20,7 @@ To keep the trace-mining loop fed from your own harness, see
 
 Trace mining reads from Langfuse over its public API; it does not care which harness or SDK wrote
 the traces, only that each one meets a small contract. That contract is what lets any Langfuse
-integration feed mining — the LangChain / LangGraph callback, the OpenAI and Anthropic drop-in
+integration feed mining: the LangChain / LangGraph callback, the OpenAI and Anthropic drop-in
 wrappers, LiteLLM, LlamaIndex, the TypeScript SDK, or raw OpenTelemetry all work, whatever your
 agent is written in.
 
@@ -29,10 +29,10 @@ select and grade it; child spans from an auto-instrumenting connector are ignore
 (they still give you the rich per-call detail in the Langfuse UI). The root must match one of two
 shapes:
 
-1. **Explicit** — `input = {"task": "<user request>"}` (optionally `{"task", "rubric"}`) and
+1. **Explicit**: `input = {"task": "<user request>"}` (optionally `{"task", "rubric"}`) and
    `output` a plain answer string. Connector-agnostic: set these on the root span yourself and any
    harness qualifies.
-2. **LangGraph state** — `input = {"messages": [...]}` and `output = {"messages": [...]}`; mine
+2. **LangGraph state**: `input = {"messages": [...]}` and `output = {"messages": [...]}`; mine
    takes the first message as the task and the last as the answer. The bundled `agent/run.py` and
    any harness using the Langfuse LangChain `CallbackHandler` produce this automatically.
 
@@ -61,7 +61,7 @@ with lf.propagate_attributes(tags=tags):
 ```
 
 For a LangChain / LangGraph harness you can skip the manual span entirely: pass the Langfuse
-`CallbackHandler`, and the `{"messages": [...]}` state satisfies shape 2 on its own — attach the same
+`CallbackHandler`, and the `{"messages": [...]}` state satisfies shape 2 on its own; attach the same
 tags through the handler's metadata. For a non-Python agent, do the same with the TypeScript SDK, or
 export OpenTelemetry spans to Langfuse's OTel endpoint and set the root span's input/output to shape
 1. The selection contract is identical in every case.
@@ -75,21 +75,21 @@ serving model.
 ## Using your own evals platform
 
 Langfuse is the **default and required** evals backend: it comes up with `docker compose up`, and
-trace mining has no local fallback — `optimize-mine` fails loudly if no Langfuse-compatible endpoint
-is reachable, rather than returning an empty result that would read as "nothing failing". You have
+trace mining has no local fallback (`optimize-mine` fails loudly if no Langfuse-compatible endpoint
+is reachable, rather than returning an empty result that would read as "nothing failing"). You have
 three options:
 
-1. **Bundled Langfuse** (default) — self-hosted in the compose stack, nothing to configure. Secure
+1. **Bundled Langfuse** (default): self-hosted in the compose stack, nothing to configure. Secure
    its demo credentials before exposing it: [Securing the Langfuse deployment](security.md#securing-the-langfuse-deployment).
-2. **Your own Langfuse** — Cloud or self-hosted elsewhere. Point `LANGFUSE_BASE_URL` /
-   `LANGFUSE_PUBLIC_KEY` / `LANGFUSE_SECRET_KEY` at it and skip the bundled containers. See
-   [Using your own Langfuse project](configuration.md#using-your-own-langfuse-project).
-3. **A different platform** (Arize Phoenix, etc.) — **not wired yet.** The write side already works
+2. **Your own Langfuse**: Cloud or self-hosted elsewhere. Point `LANGFUSE_BASE_URL` /
+   `LANGFUSE_PUBLIC_KEY` / `LANGFUSE_SECRET_KEY` at it; the bundled containers keep running unless
+   you stop them. See [Using your own Langfuse project](configuration.md#using-your-own-langfuse-project).
+3. **A different platform** (Arize Phoenix, etc.): **not wired yet.** The write side already works
    for any platform: it's OpenTelemetry, and so is Langfuse, so your harness can export spans
-   anywhere. The *read* side is the gap — mining pulls traces from Langfuse's public trace API
+   anywhere. The *read* side is the gap: mining pulls traces from Langfuse's public trace API
    (`GET /api/public/traces`), and that HTTP call lives in exactly one place, `fetch_traces()` in
    `optimize/mine.py`. Supporting another platform means adding an adapter there that returns the
    same `{task, rubric, answer, tags}` shape from that platform's API; everything downstream (the
    judge, dimension aggregation, mined candidates) is backend-agnostic. First-class adapters for
-   other platforms are planned — until then, option 2 (a Langfuse your platform can forward to, or a
+   other platforms are planned; until then, option 2 (a Langfuse your platform can forward to, or a
    Langfuse-compatible endpoint) is the supported path.

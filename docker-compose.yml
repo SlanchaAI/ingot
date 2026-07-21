@@ -5,11 +5,11 @@
 # local fallback, so it fails loudly unless Langfuse (or a Langfuse-compatible endpoint you point
 # LANGFUSE_* at) is reachable. See docs/mcp-integration.md (Using your own evals platform).
 #
-# SECURITY — the credentials below (postgres/redis/minio/clickhouse passwords, SALT, ENCRYPTION_KEY,
+# SECURITY: the credentials below (postgres/redis/minio/clickhouse passwords, SALT, ENCRYPTION_KEY,
 # NEXTAUTH_SECRET, the LANGFUSE_INIT_* keys and demo login) are LOCAL-DEMO LITERALS for the
 # self-hosted stack, safe only because nothing here is published beyond 127.0.0.1 and the
 # datastores publish no host port at all. Every one is overridable via .env (`${VAR:-demo}`).
-# Before exposing Langfuse beyond your machine you MUST rotate them — see .env.example (Langfuse
+# Before exposing Langfuse beyond your machine you MUST rotate them; see .env.example (Langfuse
 # security) and docs/security.md. Real provider keys (OPENROUTER_API_KEY) live only in .env.
 name: ingot   # fixed project name so image names don't depend on the checkout dir
 services:
@@ -267,7 +267,7 @@ services:
       NEXTAUTH_URL: ${LANGFUSE_PUBLIC_URL:-http://localhost:3100}
       NEXTAUTH_SECRET: ${LANGFUSE_NEXTAUTH_SECRET:-local-demo-nextauth-secret}
       # Headless init: creates org/project/user + API keys on first boot (no UI clicks). These are
-      # local-demo literals — override every one via .env before exposing Langfuse (see .env.example).
+      # local-demo literals; override every one via .env before exposing Langfuse (see .env.example).
       # The project keys reuse LANGFUSE_PUBLIC_KEY / _SECRET_KEY so the agent and mining authenticate
       # with whatever you set there, and the web login below is a real credential on host :3100.
       LANGFUSE_INIT_ORG_ID: local
@@ -326,13 +326,17 @@ services:
   redis:
     image: docker.io/redis:7
     restart: always
+    environment:
+      REDIS_AUTH: ${REDIS_AUTH:-localredissecret}
     command: >
       --requirepass ${REDIS_AUTH:-localredissecret}
       --maxmemory-policy noeviction
     volumes:
       - langfuse_redis_data:/data
     healthcheck:
-      test: ["CMD", "redis-cli", "ping"]
+      # authenticated ping: an unauthenticated `redis-cli ping` still exits 0 on NOAUTH, so it would
+      # not catch a wrong REDIS_AUTH; -a verifies the password Langfuse actually connects with.
+      test: ["CMD-SHELL", "redis-cli -a \"$$REDIS_AUTH\" --no-auth-warning ping | grep -q PONG"]
       interval: 3s
       timeout: 10s
       retries: 10

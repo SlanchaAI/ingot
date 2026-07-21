@@ -102,12 +102,7 @@ generation, and refuses a second approval or rollback with HTTP 409 while one is
 clicks cannot interleave the snapshot, stage, and swap steps of a promotion.
 Appends to the approval trail open the file with `O_APPEND` and loop until the whole record is
 written, so a short write cannot leave a half record; readers skip unparseable and non-UTF-8 lines
-either way. Trace appends use one operating-system append write per record. Operators should still
-mount a single local writer when using network filesystems.
-
-Local trace schema version 1 contains `schema_version`, Unix `ts`, `task`, `answer`, and `tags`.
-Readers also accept the original unversioned shape as version 1. See README privacy controls for
-opt-out, redaction, permissions, and rotation.
+either way.
 
 Pending records store candidate-search scores under `inner_loop`. Records written before the GEPA
 body loop was removed used `gepa`; the review API reads either, so an existing queue still renders.
@@ -136,7 +131,8 @@ revision the approval trail last recorded.
 
 `docker compose up` runs MCP, the UI, and the self-hosted Langfuse evals backend, with one-shot
 agent and candidate-generation containers on demand. Point `LANGFUSE_*` at an external Langfuse
-(Cloud or self-hosted) to skip the bundled observability services. Fully local inference points model
+(Cloud or self-hosted) to send traces there instead; the bundled observability services still start
+unless you stop them. Fully local inference points model
 URLs to vLLM or Ollama. Hosted inference sends prompts and outputs to the selected provider. Endpoint
 auth is independent of these modes: the UI has its own password/OIDC gate (`AUTH_MODE`), but MCP has
 none, so publishing MCP off-loopback requires an authenticating proxy and authorization appropriate to
