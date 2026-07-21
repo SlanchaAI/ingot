@@ -45,8 +45,8 @@ Copy the **Client ID** and **Client secret**.
 Google only accepts redirect URIs that are `https://` on a hostname (never a raw IP), and the
 hostname's domain must end in a real public TLD, so `.local` / `.lan` / `.internal` names are
 rejected. That is the whole constraint: the name does **not** need to be publicly resolvable and
-the certificate does **not** need to be publicly trusted, because Google never connects to it —
-only the signed-in user's browser follows the redirect. (The LAN password mode has none of these
+the certificate does **not** need to be publicly trusted, because Google never connects to it.
+Only the signed-in user's browser follows the redirect. (The LAN password mode has none of these
 constraints.)
 
 So, for a box on a LAN:
@@ -63,7 +63,7 @@ So, for a box on a LAN:
 
 3. **TLS is already handled.** The `lan` compose profile's front door
    ([Security: Network exposure](security.md#network-exposure)) mints a certificate for any
-   hostname on demand from its local CA — nothing to configure. Browsers warn once about the
+   hostname on demand from its local CA, with nothing to configure. Browsers warn once about the
    unknown CA; proceed past it or trust the CA root to remove the warning.
 
 Use `https://ingot.corp.example/auth/callback` both as the Google client's authorized redirect URI
@@ -104,7 +104,7 @@ in. The top bar shows the signed-in email and role, with a **Log out** link.
 
 ### 5. Test it
 
-Before involving Google at all, smoke-test the plumbing — DNS, TLS, and the login bounce — from any
+Before involving Google at all, smoke-test the DNS, TLS, and login bounce from any
 teammate machine (or with `curl --resolve` before the DNS record exists):
 
 ```bash
@@ -139,8 +139,8 @@ The equivalent flow is exercised headlessly in CI against a real Keycloak
 On each login Ingot validates the Google ID token (signature via Google's JWKS, issuer, audience,
 expiry, and the login `nonce`), then:
 
-1. **Domain gate.** The email must be verified (`email_verified`), always — even when no domain
-   allowlist is configured — because roles are mapped from the email claim. With
+1. **Domain gate.** The email must always be verified (`email_verified`), even when no domain
+   allowlist is configured, because roles are mapped from the email claim. With
    `OIDC_ALLOWED_DOMAINS` set, the token's hosted-domain (`hd`) claim must also be on the
    allowlist. Otherwise the login is refused (403).
 2. **Role.** The email is looked up in `OIDC_ROLE_MAP`; an unmapped domain member defaults to

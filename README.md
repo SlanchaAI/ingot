@@ -76,12 +76,14 @@ For a hardened open source Langfuse deployment with agents on other LAN machines
 
 You can use Ingot with your existing coding agent instead of the bundled demo agent. Start the
 stack, then run the setup script for your agent. The Codex connector requires Codex 0.128 or newer,
-Node.js 22 or newer, and Python 3. The Claude Code connector requires Python 3.9 or newer and `pip`:
+Node.js 22 or newer, and Python 3. The Claude Code connector requires `uv` (recommended), or
+Python 3.10 or newer with `pip` and the Langfuse 4.x SDK:
 
 ```bash
 # macOS, install only the dependencies your selected agent needs
 brew install node@22       # Codex
-brew install python@3.12   # Claude Code, or Codex when python3 is missing
+brew install uv            # Claude Code
+brew install python@3.12   # Codex when python3 is missing, or Claude's fallback runtime
 
 docker compose up -d
 ./scripts/claude_setup.sh
@@ -102,8 +104,10 @@ mismatched MCP registration and reinstall managed dependencies or plugins:
 
 Each script adds `http://localhost:8000/mcp` as the user-level `ingot` MCP server and installs the
 official Langfuse observability connector. Claude Code prompts for the Langfuse URL and project keys
-after restart. The Codex script writes a private `~/.codex/langfuse.json`; it defaults to the bundled
-Langfuse at `http://localhost:3100` with the local demo project keys.
+after restart only when configuration is incomplete. The setup script supplies `LANGFUSE_*` values
+or the bundled local defaults during installation. The Codex script writes a private
+`~/.codex/langfuse.json`; it defaults to the bundled Langfuse at `http://localhost:3100` with the
+local demo project keys.
 
 For Langfuse Cloud or another self-hosted project, provide its values when running the Codex setup:
 
@@ -121,6 +125,8 @@ for sessions whose contents must not be stored in Langfuse. Their trace-root sha
 [Bring your own agent](docs/mcp-integration.md) for the trace contract and routing behavior.
 Tell the agent to call `ingot.route_and_load` once at the start of each request and follow the
 returned `skill_body`; connecting the MCP server makes the tool available but does not force its use.
+Add this as a persistent `CLAUDE.md` or `AGENTS.md` rule, not just a one-time chat prompt. See
+[Make skill loading part of the agent instructions](docs/mcp-integration.md#make-skill-loading-part-of-the-agent-instructions).
 For an agent on another machine, see [Agent on another LAN machine](docs/mcp-integration.md#agent-on-another-lan-machine).
 Verify that the services are reachable before starting the agent:
 

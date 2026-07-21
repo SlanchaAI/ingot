@@ -38,6 +38,13 @@ def loop(skills: list[str] | None = None, force: bool = False, budget: int = 60,
         except SystemExit as e:              # no traces yet, optimize anyway if forced, else skip
             log(f"[loop] {skill}: no trace signal ({e})")
             health, mean = None, None
+        if not force and health is not None and not health.get("health_complete", True):
+            coverage = health.get("coverage", 0.0)
+            log(f"[loop] {skill}: mining coverage is {coverage:.0%}; deferring the health decision "
+                "until cached representative judging covers every trace cluster.")
+            results[skill] = {"optimized": False, "mean_score": mean,
+                              "coverage": coverage, "reason": "mining_backlog"}
+            continue
         if not force and mean is not None and mean >= HEALTH_THRESHOLD:
             log(f"[loop] {skill}: healthy (mean {mean:.2f} ≥ {HEALTH_THRESHOLD}), skipping optimize.")
             results[skill] = {"optimized": False, "mean_score": mean}
@@ -78,7 +85,7 @@ if __name__ == "__main__":
     ap.add_argument("skills", nargs="*", help="skills to check (default: all with an eval task set)")
     ap.add_argument("--force", action="store_true", help="propose even for skills that look healthy")
     ap.add_argument("--budget", type=int, default=60,
-                    help="max GEPA metric calls for the description pass (LOOP_PASSES=…,description)")
+                    help="max routing metric calls for the description pass (LOOP_PASSES=…,description)")
     args = ap.parse_args()
     from . import require_openrouter_key
     require_openrouter_key()

@@ -25,6 +25,8 @@ Set in `.env` (never committed):
 | `SKILLOPT_MAX_EDITS` | `3` | body pass: ceiling on edits applied per step (the learning-rate cap) |
 | `SKILLOPT_GATE_METRIC` | `mixed` | body pass: inner accept/reject metric, `hard`, `soft`, or `mixed` |
 | `SKILLOPT_GATE_MIXED_WEIGHT` | `0.5` | weight on soft (mean-judge) when the metric is `mixed` |
+| `MINE_MAX_JUDGE_CALLS` | `24` | maximum new trace-cluster judge calls per mining run; cached verdicts do not count, `<=0` is unlimited |
+| `MINE_CLUSTER_THRESHOLD` | `0.90` | task cosine at or above this value shares a representative trace verdict |
 | `SKILLOPT_ACCEPT_PENALTY` | `0.5` | how hard the inner loop docks a candidate whose train answers violate the skill's acceptance criteria (steers it to remove forbidden content, not append around it) |
 | `PROMOTE_ACCEPT_BLOCK_RATE` | `0.5` | acceptance violations block promotion past this fraction of holdout answers; a smaller share is a ⚠ review warning. `0` = strict (any violation blocks), `>=1` = warning-only |
 | `COMPAT_MODELS` | `AGENT_MODEL` | comma-separated serving models the cross-model compatibility sweep runs (`optimize-compat`) |
@@ -156,20 +158,40 @@ task an entire pool aces is dead weight.
 
 `docker compose run --rm optimize-mine <skill>` does not modify the task YAML and there is currently
 no UI action that promotes mined tasks. It prints and returns up to six `mined_tasks` for an operator
-to review. Copy an accepted task into `train` or `holdout` manually and replace the reference-free
-placeholder rubric with explicit ground truth before relying on it for optimization evidence.
+to review. Replace the reference-free placeholder rubric with explicit ground truth before relying
+on a task for optimization evidence.
 
-The selection is deterministic after judging:
+By default, mining paginates through every trace in the Langfuse project. `--limit N` is an explicit
+newest-N operational cap, not the default. Before spending judge calls, it collapses formatting
+duplicates and task paraphrases at `MINE_CLUSTER_THRESHOLD`. Every real use remains represented by
+its cluster frequency, so repeated uses affect the weighted health score and failure counts without
+being individually sent to an LLM.
+
+Judge verdicts persist in `runs/mine-cache/judgments.json`, keyed by task, rubric, answer, judge
+models, and judge prompt. An unchanged use is never re-judged. A cluster can reuse any cached member
+verdict. A cold run judges at most `MINE_MAX_JUDGE_CALLS` new cluster representatives, prioritizing
+high-frequency clusters. If a backlog remains, the background loop records `mining_backlog` and
+defers its health and optimization decision. The next run continues from the cache. This prevents a
+partially sampled traffic set from incorrectly declaring a skill healthy or triggering a promotion.
+
+The mined-candidate selection is deterministic after representative judging:
 
 1. Keep traces tagged with the skill, plus untagged or misrouted traces whose task ranks the skill in
    the embedding router's top five.
-2. Re-judge each answer. Candidate difficulty is `1 - score`.
-3. Collapse tasks that differ only by case or whitespace, retaining the lowest-scoring occurrence.
-4. Embed the remaining task text and exclude anything with cosine similarity at or above `0.90` to
+2. Cluster tasks by case, whitespace, and semantic similarity, then reuse or obtain one judge
+   verdict per cluster. Cluster frequency weights aggregate health. Candidate difficulty is
+   `1 - representative score`.
+3. Embed the representative task text and exclude anything with cosine similarity at or above `0.90` to
    an existing train task.
-5. Greedily choose the task with the largest `difficulty * novelty`, where novelty is one minus its
+4. Greedily choose the task with the largest `difficulty * novelty`, where novelty is one minus its
    highest cosine similarity to an already selected task. Stop at six tasks or when no task adds
-   positive value. This favors hard failures while preventing a set of near-paraphrases.
+   positive value. Each returned task includes its represented `occurrences`. This favors frequent,
+   hard failures while preventing a set of near-paraphrases.
+
+After inspecting mined failures, add accepted cases to `train`, not to the existing `holdout`.
+Looking at a failure or its score before adding it to holdout contaminates promotion evidence. Add
+new holdout cases only through a separate manual authoring pass, then keep that split stable while
+comparing champion and challenger.
 
 ### Using your own Langfuse project
 

@@ -130,8 +130,9 @@ curl http://192.168.1.40:8000/mcp
 
 ## 5. Enroll a remote Claude Code agent
 
-On the Claude Code machine, install Claude Code, Python 3.9 or newer, and `pip`. Copy or clone this
-repository so the setup script is available, then run:
+On the Claude Code machine, install Claude Code and `uv` (recommended). The fallback is Python 3.10
+or newer with `pip` and `langfuse>=4.0,<5`. Copy or clone this repository so the setup script is
+available, then run:
 
 ```bash
 INGOT_MCP_URL=http://192.168.1.40:8000/mcp \
@@ -186,7 +187,8 @@ Ask each agent to call `ingot.route_and_load` once at the start of a request and
 4. `./scripts/claude_setup.sh --doctor` or `./scripts/codex_setup.sh --doctor` passes on the agent.
 
 Connecting MCP exposes the tools but does not force their use. Add the route-and-load instruction to
-the agent's persistent project instructions.
+the agent's persistent project instructions. Use `CLAUDE.md` for Claude Code and `AGENTS.md` for
+Codex, with the exact rule in [Make skill loading part of the agent instructions](docs/mcp-integration.md#make-skill-loading-part-of-the-agent-instructions).
 
 ## Operations
 

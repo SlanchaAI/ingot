@@ -10,6 +10,19 @@ def test_loop_skips_healthy_skills(monkeypatch):
     assert res["pdf"]["optimized"] is False and called == []   # healthy -> not optimized
 
 
+def test_loop_defers_decision_while_mining_clusters_remain_unjudged(monkeypatch):
+    monkeypatch.setattr(L, "mine", lambda skill, log=print: {
+        "mean_score": 0.9, "traces": 100, "coverage": 0.8, "health_complete": False})
+    called = []
+    monkeypatch.setattr(L, "run_ab", lambda skill, **kwargs: called.append(skill) or {})
+
+    result = L.loop(["pdf"])
+
+    assert result["pdf"]["reason"] == "mining_backlog"
+    assert result["pdf"]["optimized"] is False
+    assert called == []
+
+
 def test_loop_optimizes_failing_skills(monkeypatch):
     monkeypatch.setattr(L, "mine", lambda skill, log=print: {"mean_score": 0.3, "traces": 5})
     monkeypatch.setattr(L, "run_ab", lambda skill, **k: {"improved": True, "gate": {"promotable": True}})

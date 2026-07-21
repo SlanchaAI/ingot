@@ -34,16 +34,19 @@ that still confirms the server is listening. The Langfuse health request should 
 command reports connection refused, wait for Compose to finish starting and check
 `docker compose ps` before configuring an agent.
 
-For Claude Code, install Claude Code plus Python 3.9 or newer with `pip`, then run:
+For Claude Code, install Claude Code plus `uv` (recommended). The fallback is Python 3.10 or newer
+with `pip` and `langfuse>=4.0,<5`. On macOS:
 
 ```bash
+brew install uv
 ./scripts/claude_setup.sh
 ```
 
-The script installs `langfuse>=4.0,<5`, adds the user-level `ingot` MCP server, and installs the
-Langfuse Claude Observability Plugin. Restart Claude Code and enter the Langfuse URL and project
-keys when prompted. For the bundled stack, use `http://localhost:3100` and the project keys from
-`docker-compose.yml`.
+The plugin uses `uv` to provision its pinned SDK environment automatically. Without `uv`, the setup
+script verifies or installs `langfuse>=4.0,<5` into the selected Python environment. It also adds
+the user-level `ingot` MCP server and installs the Langfuse Claude Observability Plugin. Restart
+Claude Code after setup. The install command configures the plugin from `LANGFUSE_BASE_URL`,
+`LANGFUSE_PUBLIC_KEY`, and `LANGFUSE_SECRET_KEY`, or uses the bundled local defaults.
 
 For Codex, install Codex 0.128 or newer, Node.js 22 or newer, and Python 3. Python is used only to
 write the private JSON configuration. On macOS with Homebrew:
@@ -113,6 +116,30 @@ no built-in authentication, so do not publish port 8000 to an untrusted network 
 
 After setup, restart the agent and tell it to call `ingot.route_and_load` once at the start of each
 request. Registration exposes the tool but does not force the agent to use it.
+
+### Make skill loading part of the agent instructions
+
+Installing the MCP server only makes its tools available. Claude Code and Codex may answer directly
+unless the project tells them to route first. Put this instruction in the repository's persistent
+agent file (`CLAUDE.md` for Claude Code and `AGENTS.md` for Codex):
+
+```text
+At the start of every user request, call ingot.route_and_load exactly once with the complete user
+task and the current harness and workspace context. If it returns match or related_match, follow the
+returned skill_body while completing the request. If it returns novel, continue without a skill.
+Do not merely list or suggest the skill: load it and apply it before doing the task.
+```
+
+Use the same rule in organization-managed agent instructions if repositories should not carry local
+agent files. After enrollment, verify behavior with a harmless request and confirm both the
+`route_and_load` tool call and final answer appear in Langfuse. A successful `--doctor` result proves
+the connector is installed and reachable, but it does not prove the model followed this instruction.
+
+For an authenticated live check, start the bundled stack and run
+`./scripts/claude_langfuse_smoke.sh` or `./scripts/codex_langfuse_smoke.sh`. Each script makes one
+real model request, requires a completed `route_and_load` call, waits for the matching Langfuse
+trace, and passes that trace through the mining parser. These are opt-in checks because they use an
+external agent account and are not suitable for ordinary unit CI.
 
 
 ## Tracing from your own harness (MCP only)
@@ -191,7 +218,8 @@ three options:
    anywhere. The *read* side is the gap: mining pulls traces from Langfuse's public trace API
    (`GET /api/public/traces`), and that HTTP call lives in exactly one place, `fetch_traces()` in
    `optimize/mine.py`. Supporting another platform means adding an adapter there that returns the
-   same `{task, rubric, answer, tags}` shape from that platform's API; everything downstream (the
-   judge, dimension aggregation, mined candidates) is backend-agnostic. First-class adapters for
+   same `{task, rubric, answer, tags}` shape from that platform's API and support paginated reads;
+   everything downstream (local clustering, cached representative judging, dimension aggregation,
+   mined candidates) is backend-agnostic. First-class adapters for
    other platforms are planned; until then, option 2 (a Langfuse your platform can forward to, or a
    Langfuse-compatible endpoint) is the supported path.
