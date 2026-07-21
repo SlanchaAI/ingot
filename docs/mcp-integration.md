@@ -15,6 +15,55 @@ agent); the bundled `agent/run.py` is a reference client, not a requirement. Poi
 To keep the trace-mining loop fed from your own harness, see
 [Tracing from your own harness](#tracing-from-your-own-harness-mcp-only).
 
+### Claude Code and Codex setup scripts
+
+The repository includes user-level setup scripts for Claude Code and Codex. Both scripts register
+Ingot as a streamable HTTP MCP server at `http://localhost:8000/mcp` and install the official
+Langfuse observability connector for that agent.
+
+Start the services first:
+
+```bash
+docker compose up -d
+curl http://localhost:8000/mcp
+curl http://localhost:3100/api/public/health
+```
+
+The first `curl` may return an MCP protocol error because it is a plain GET without an MCP session;
+that still confirms the server is listening. The Langfuse health request should succeed. If either
+command reports connection refused, wait for Compose to finish starting and check
+`docker compose ps` before configuring an agent.
+
+For Claude Code, install Claude Code plus Python 3.9 or newer with `pip`, then run:
+
+```bash
+./scripts/claude_setup.sh
+```
+
+The script installs `langfuse>=4.0,<5`, adds the user-level `ingot` MCP server, and installs the
+Langfuse Claude Observability Plugin. Restart Claude Code and enter the Langfuse URL and project
+keys when prompted. For the bundled stack, use `http://localhost:3100` and the project keys from
+`docker-compose.yml`.
+
+For Codex, install Codex 0.128 or newer, Node.js 22 or newer, and Python 3. Python is used only to
+write the private JSON configuration. On macOS with Homebrew:
+
+```bash
+brew install node@22
+brew install python@3.12  # skip when `python3 --version` already works
+node --version  # must report v22 or newer
+./scripts/codex_setup.sh
+```
+
+The Codex script adds the user-level `ingot` MCP server, installs and enables the Langfuse tracing
+plugin, and writes its credentials to `~/.codex/langfuse.json` with mode `0600`. It defaults to the
+bundled local Langfuse. Point it at another project by setting `LANGFUSE_BASE_URL`,
+`LANGFUSE_PUBLIC_KEY`, and `LANGFUSE_SECRET_KEY` for the setup command. Set `INGOT_MCP_URL` for
+either script when Ingot is not running on localhost.
+
+After setup, restart the agent and tell it to call `ingot.route_and_load` once at the start of each
+request. Registration exposes the tool but does not force the agent to use it.
+
 
 ## Tracing from your own harness (MCP only)
 

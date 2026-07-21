@@ -72,9 +72,14 @@ Then walk the full loop, a stale Tailwind skill mined, rewritten, gated, and pro
 ### Connect Claude Code or Codex
 
 You can use Ingot with your existing coding agent instead of the bundled demo agent. Start the
-stack, then run the setup script for your agent:
+stack, then run the setup script for your agent. The Codex connector requires Codex 0.128 or newer,
+Node.js 22 or newer, and Python 3. The Claude Code connector requires Python 3.9 or newer and `pip`:
 
 ```bash
+# macOS, install only the dependencies your selected agent needs
+brew install node@22       # Codex
+brew install python@3.12   # Claude Code, or Codex when python3 is missing
+
 docker compose up -d
 ./scripts/claude_setup.sh
 # or
@@ -102,6 +107,12 @@ for sessions whose contents must not be stored in Langfuse. Their trace-root sha
 [Bring your own agent](docs/mcp-integration.md) for the trace contract and routing behavior.
 Tell the agent to call `ingot.route_and_load` once at the start of each request and follow the
 returned `skill_body`; connecting the MCP server makes the tool available but does not force its use.
+Verify that the services are reachable before starting the agent:
+
+```bash
+curl http://localhost:8000/mcp                 # an HTTP error response still proves MCP is listening
+curl http://localhost:3100/api/public/health  # should return a healthy Langfuse response
+```
 
 ## How it works
 
