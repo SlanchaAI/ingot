@@ -1,10 +1,10 @@
 # How it works
 
 <p align="center">
-  <img src="docs/ingot.jpg" alt="Ingot, the mascot, handing skills out to AI agents" width="720">
+  <img src="ingot.jpg" alt="Ingot, the mascot, handing skills out to AI agents" width="720">
 </p>
 
-- **`mcp_server/`**: [FastMCP](https://github.com/jlowin/fastmcp) v3 server (HTTP transport), six tools:
+- **`mcp_server/`**: [FastMCP](https://github.com/jlowin/fastmcp) v3 server (HTTP transport), five tools:
   - `suggest_skills(task, k)`: routable matches by embedding similarity (Qwen3-Embedding-0.6B
     q4 on CPU ONNX Runtime, no GPU; any fastembed model via `EMBED_MODEL`); near-misses come back flagged
     `related`; empty = truly novel

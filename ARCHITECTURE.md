@@ -27,7 +27,8 @@ exposes only loopback ports.
    champion has moved is refused before the approval click rather than after it.
 5. Rollback restores any snapshot the same way, and also snapshots what it displaces.
 6. Approval and rollback append metadata-only records to `runs/approval-audit.jsonl`. The actor is
-   always `local-operator`: the local UI has no identity or authentication.
+   the approver's authenticated identity (HTTP Basic username or OIDC email), or `local-operator` in
+   the zero-config open mode (see [SECURITY.md](SECURITY.md)).
 
 ## Serving path
 
@@ -47,15 +48,18 @@ Optimization proposes changes; it never makes them. It is off the review path an
 in the background (`optimize.loop`) or on demand from the UI.
 
 Mining selects difficult, semantically diverse failures from real traces. The body pass runs one
-candidate search, `optimize/bestofn.py`: parallel best-of-N authored from the seed's judged failures,
-then successive halving over the train tasks. The description pass (`optimize/routing.py`) scores
+candidate search, `optimize/skillopt_loop.py` (SkillOpt's reflective training loop, driven
+per-component by `_greedy_search` in `optimize/ab.py`): bounded patch edits reflected from the seed's
+judged failures and prior rejected edits, accepted only against a held-out strictly-improving gate.
+The description pass (`optimize/routing.py`) scores
 candidate descriptions with the real embedding router and uses GEPA only for its reflection step.
 Both passes end at a quarantined pending record and an evidence bundle under `runs/evidence/`.
 
 There is one candidate search, by design. A second, sequential GEPA body loop was removed: it
 optimized the same objective at roughly twenty times the cost, was reachable only through an opt-in
-flag, and had no test coverage of its own. `OPTIMIZE_STRATEGY` is no longer read; a run that finds it
-set says so instead of silently ignoring it. The scripts pass (`--scripts`) optimizes bundled
+flag, and had no test coverage of its own. `OPTIMIZE_STRATEGY` is no longer read, and the removed
+pass flags (`--strategy`, `--gepa`, `--skip-gepa`, `--candidates`) fail the argument parse rather than
+being silently ignored. The scripts pass (`--scripts`) optimizes bundled
 `scripts/` files, but only when the skill's holdout carries execution-grounded `check:` assertions,
 since the judge alone cannot tell a broken script from a working one; when it runs, both the
 candidate rollouts and the A/B serve the assembled skill (body plus files), so a rewritten file is
@@ -132,9 +136,10 @@ revision the approval trail last recorded.
 
 Lite mode runs MCP and the UI, with one-shot agent and candidate-generation containers on demand.
 The optional `langfuse` profile adds local observability services. Fully local inference points model
-URLs to vLLM or Ollama. Hosted inference sends prompts and outputs to the selected provider. None of
-these modes adds endpoint authentication, so non-loopback publishing requires an authenticating proxy
-and authorization appropriate to the available tools.
+URLs to vLLM or Ollama. Hosted inference sends prompts and outputs to the selected provider. Endpoint
+auth is independent of these modes: the UI has its own password/OIDC gate (`AUTH_MODE`), but MCP has
+none, so publishing MCP off-loopback requires an authenticating proxy and authorization appropriate to
+the available tools.
 
 ## Failure and recovery
 
@@ -162,7 +167,8 @@ candidate-generation and review services for execution-grounded judging. Do not 
 for untrusted users. Prefer a dedicated Docker context or isolated host, and omit the socket when
 using static checks.
 
-MCP and UI are unauthenticated, so anyone who can reach the UI can approve a change or roll one back.
+MCP has no built-in authentication; the UI carries a password gate (or optional OIDC), unauthenticated
+only in the zero-config open mode, where anyone who can reach it can approve a change or roll one back.
 Skills can contain hostile instructions or executable assets. Hosted providers receive model traffic.
 Local traces can contain task and answer text. These boundaries and concrete deployment safeguards
 are expanded in [SECURITY.md](SECURITY.md).
