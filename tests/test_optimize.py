@@ -328,7 +328,7 @@ def test_removed_gepa_body_loop_leaves_one_candidate_search():
     assert "strategy" not in inspect.signature(ab_mod.run_ab).parameters
 
 
-@pytest.mark.parametrize("flag", ["--scripts", "--gepa", "--skip-gepa", "--strategy", "--candidates"])
+@pytest.mark.parametrize("flag", ["--gepa", "--skip-gepa", "--strategy", "--candidates"])
 def test_cli_rejects_flags_for_passes_that_do_not_exist(flag):
     """A flag naming a removed or never-shipped pass must fail the parse, not be quietly ignored.
     Asserting on the parser rather than the source text is what proves the refusal."""
@@ -340,18 +340,125 @@ def test_cli_accepts_the_passes_that_do_exist():
     body = ab_mod.parse_args(["pdf"])
     assert body.description is False and body.skill == "pdf"
     assert ab_mod.parse_args(["pdf", "--description"]).description is True
+    assert ab_mod.parse_args(["pdf", "--scripts"]).scripts is True
     assert ab_mod.parse_args(["pdf", "--skip-search"]).skip_search is True
 
 
-def test_cli_refuses_a_budget_the_body_pass_would_ignore():
-    """--budget only bounds the routing pass's metric calls. Accepting it on the body pass would
+@pytest.mark.parametrize("pass_flags", [[], ["--scripts"]])
+def test_cli_refuses_a_budget_only_the_routing_pass_honors(pass_flags):
+    """--budget only bounds the routing pass's metric calls. Accepting it elsewhere would
     promise a limit nothing enforces."""
     with pytest.raises(SystemExit):
-        ab_mod.parse_args(["pdf", "--budget", "10"])
+        ab_mod.parse_args(["pdf", *pass_flags, "--budget", "10"])
     assert ab_mod.parse_args(["pdf", "--description", "--budget", "10"]).budget == 10
     assert ab_mod.parse_args(["pdf", "--description"]).budget == ab_mod.DEFAULT_ROUTING_BUDGET
 
 
-def test_cli_refuses_both_passes_at_once():
+@pytest.mark.parametrize("flags", [["--body", "--description"], ["--body", "--scripts"],
+                                   ["--description", "--scripts"]])
+def test_cli_refuses_two_passes_at_once(flags):
     with pytest.raises(SystemExit):
-        ab_mod.parse_args(["pdf", "--body", "--description"])
+        ab_mod.parse_args(["pdf", *flags])
+
+
+# --- scripts pass -----------------------------------------------------------------------------
+
+def _script_skill(tmp_path, monkeypatch, scripts=("scripts/helper.py",), holdout_check=True):
+    import yaml
+    skills = tmp_path / "skills"
+    d = skills / "excel"
+    d.mkdir(parents=True)
+    (d / "SKILL.md").write_text("---\nname: excel\ndescription: Use for excel.\n---\nbody\n")
+    for rel in scripts:
+        p = d / rel
+        p.parent.mkdir(parents=True, exist_ok=True)
+        p.write_text("print('hi')\n")
+    tasks = tmp_path / "tasks"
+    tasks.mkdir()
+    holdout = [{"task": "t", "rubric": "r"}]
+    if holdout_check:
+        holdout[0]["check"] = {"fixture": "x = 1", "assert": "assert x == 1"}
+    (tasks / "excel.yaml").write_text(yaml.safe_dump(
+        {"train": [{"task": "t2", "rubric": "r"}], "holdout": holdout}))
+    monkeypatch.setattr(ab_mod, "SKILLS_DIR", skills)
+    monkeypatch.setattr(ab_mod, "TASKS_DIR", tasks)
+    return d
+
+
+def test_script_pass_components_names_the_bundled_scripts(tmp_path, monkeypatch):
+    _script_skill(tmp_path, monkeypatch, scripts=("scripts/b.py", "scripts/a.sh"))
+    assert ab_mod.script_pass_components("excel") == ["file:scripts/a.sh", "file:scripts/b.py"]
+
+
+def test_script_pass_refuses_skill_without_scripts(tmp_path, monkeypatch):
+    _script_skill(tmp_path, monkeypatch, scripts=())
+    with pytest.raises(SystemExit, match="bundles no scripts"):
+        ab_mod.script_pass_components("excel")
+
+
+def test_script_pass_refuses_without_exec_checks(tmp_path, monkeypatch):
+    """The LLM judge can't tell a broken script from a working one, so the pass must refuse to
+    produce judge-only evidence for script changes."""
+    _script_skill(tmp_path, monkeypatch, holdout_check=False)
+    with pytest.raises(SystemExit, match="execution-grounded"):
+        ab_mod.script_pass_components("excel")
+
+
+def test_served_injects_bare_body_without_file_components():
+    assert ab_mod._served({"description": "d", "body": "the body"}) == "the body"
+
+
+def test_served_assembles_files_when_present():
+    served = ab_mod._served({"description": "d", "body": "the body",
+                             "file:scripts/h.py": "print(1)"})
+    assert "the body" in served and "# scripts/h.py" in served and "print(1)" in served
+
+
+def test_greedy_search_trains_each_component_with_the_others_frozen(tmp_path, monkeypatch):
+    monkeypatch.setattr(ab_mod, "TASKS_DIR", tmp_path)  # no acceptance file -> no criteria
+    calls = []
+
+    def fake_skillopt(seed, tasks, frozen=None, acceptance=None, log=print):
+        (key, text), = seed.items()
+        calls.append({"key": key, "frozen": dict(frozen)})
+        return {key: text + "!"}, 0.5, 0.9
+
+    monkeypatch.setattr("optimize.skillopt_loop.run_skillopt", fake_skillopt)
+    champion = {"description": "d", "body": "b",
+                "file:scripts/a.py": "A", "file:scripts/b.py": "B"}
+    challenger, seed_score, best_score = ab_mod._greedy_search(
+        "excel", champion, ["file:scripts/a.py", "file:scripts/b.py"], [{"task": "t", "rubric": "r"}],
+        log=lambda *_: None)
+
+    assert [c["key"] for c in calls] == ["file:scripts/a.py", "file:scripts/b.py"]
+    # each run renders the frozen text components plus the OTHER script at its latest text
+    assert calls[0]["frozen"] == {"description": "d", "body": "b", "file:scripts/b.py": "B"}
+    assert calls[1]["frozen"] == {"description": "d", "body": "b", "file:scripts/a.py": "A!"}
+    assert challenger == {"description": "d", "body": "b",
+                          "file:scripts/a.py": "A!", "file:scripts/b.py": "B!"}
+    assert (seed_score, best_score) == (0.5, 0.9)
+
+
+def test_greedy_search_body_pass_matches_the_old_single_run_contract(tmp_path, monkeypatch):
+    monkeypatch.setattr(ab_mod, "TASKS_DIR", tmp_path)
+    calls = []
+
+    def fake_skillopt(seed, tasks, frozen=None, acceptance=None, log=print):
+        calls.append({"seed": dict(seed), "frozen": dict(frozen)})
+        return {"body": "better"}, 0.3, 0.8
+
+    monkeypatch.setattr("optimize.skillopt_loop.run_skillopt", fake_skillopt)
+    champion = {"description": "d", "body": "b"}
+    challenger, s0, s1 = ab_mod._greedy_search("excel", champion, ["body"],
+                                               [{"task": "t", "rubric": "r"}], log=lambda *_: None)
+    # one run, body mutable, description (and only text components) frozen -> unchanged behavior
+    assert calls == [{"seed": {"body": "b"}, "frozen": {"description": "d"}}]
+    assert challenger == {"description": "d", "body": "better"} and (s0, s1) == (0.3, 0.8)
+
+
+def test_champion_cache_key_depends_on_served_components():
+    holdout = [{"task": "t", "rubric": "r"}]
+    body_only = ab_mod._champion_cache_key("rev", holdout, ["description", "body"])
+    with_scripts = ab_mod._champion_cache_key("rev", holdout,
+                                              ["description", "body", "file:scripts/a.py"])
+    assert body_only != with_scripts

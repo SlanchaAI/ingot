@@ -200,14 +200,18 @@ Generation is greedy: one component per pass, each scored by its own role's metr
 |------|---------|---------------------------|------|
 | body (default) | `optimize tailwind`, or the UI's **Generate candidate** button | LLM judge on train tasks; full-agent A/B for the evidence | ~$0.05 |
 | description | `optimize tailwind --description` | the routing suite, scored by the real embedding router; no LLM rollouts | ~$0.01, a couple of minutes |
+| scripts | `optimize tailwind --scripts` | LLM judge grounded by execution checks; greedy, one bundled `scripts/` file at a time | like the body pass, per file |
 
 The split exists because a quality judge can't measure routing and a router can't measure quality.
-There is no scripts pass: bundled files are opt-in text components
-(`OPTIMIZE_COMPONENTS=body,file:<path>`) that are diffed for review and never executed. The body
-pass's rollouts serve each candidate under the exact contract the A/B serves, so the search can't
-optimize against different instructions than the A/B measures. `GEPA_ROLLOUTS=agent` runs every
-rollout through the full agent scaffold instead (a legacy variable name: it predates the removal of
-the GEPA body loop and now selects the SkillOpt candidate search's rollout mode).
+The scripts pass refuses to run until the skill's holdout has at least one execution-grounded
+`check:` entry, because the judge alone can't tell a broken script from a working one; with checks
+in place, both the rollouts and the A/B serve the assembled skill (body plus bundled files), so a
+rewritten file is actually exercised by the evidence run. Other bundled text files can still join
+the body pass by name (`OPTIMIZE_COMPONENTS=body,file:<path>`). The candidate search serves each
+rollout under the exact contract the A/B serves, so the search can't optimize against different
+instructions than the A/B measures. `GEPA_ROLLOUTS=agent` runs every rollout through the full agent
+scaffold instead (a legacy variable name: it predates the removal of the GEPA body loop and now
+selects the SkillOpt candidate search's rollout mode).
 
 ### 6. Review, promote, roll back
 
@@ -319,6 +323,17 @@ docker compose run --rm optimize-loop            # all skills with eval sets; ad
 [mine] analyzed 23 real traces · mean judge score 0.52 · 11 bad cases
 [loop] pdf: below health bar (mean 0.52), optimizing…
 [loop] done. 1 challenger(s) queued for review: ['pdf']
+```
+
+Routing quality decays as the library *grows* (a new skill's description can shadow an old one),
+so there is also a library-wide routing health check: it replays every skill's routing suite
+against the real router plus a description-collision scan, embedding-only, no LLM, no key. It
+exits non-zero on problems, so it slots into cron or CI:
+
+```bash
+docker compose run --rm --entrypoint "python -m optimize.routing_health" optimize
+# [health] tailwind: top1 1.000 · recall@3 1.000 · no-route precision 0.333 (7 cases)
+# [health] ✓ routing healthy: every suite passes and no descriptions collide.
 ```
 
 ### 10. Grow the library

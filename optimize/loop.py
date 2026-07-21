@@ -14,9 +14,10 @@ from .mine import mine
 
 HEALTH_THRESHOLD = float(os.environ.get("LOOP_HEALTH_THRESHOLD", "0.7"))  # mine mean below this = propose
 # Which passes an unhealthy skill gets, in order. "body" = candidate search + full-agent A/B;
-# "description" = the routing-objective pass (embedding-scored, ~free; routing cases auto-draft).
+# "description" = the routing-objective pass (embedding-scored, ~free; routing cases auto-draft);
+# "scripts" = the bundled-scripts pass (skipped per skill without scripts or exec checks).
 PASSES = [p.strip() for p in os.environ.get("LOOP_PASSES", "body").split(",") if p.strip()]
-_KNOWN_PASSES = ("body", "description")
+_KNOWN_PASSES = ("body", "description", "scripts")
 
 
 def skills_with_tasksets() -> list[str]:
@@ -49,6 +50,15 @@ def loop(skills: list[str] | None = None, force: bool = False, budget: int = 60,
         for pass_name in PASSES:
             if pass_name == "body":
                 r = run_ab(skill, log=log)
+            elif pass_name == "scripts":
+                from .ab import script_pass_components
+                try:  # unattended: a skill without scripts or exec checks is skipped, not fatal
+                    comps = script_pass_components(skill)
+                except SystemExit as e:
+                    log(f"[loop] {skill}: scripts pass skipped ({e})")
+                    passes[pass_name] = {"improved": False, "skipped": str(e)}
+                    continue
+                r = run_ab(skill, components=comps, log=log)
             else:
                 from .routing import run_routing
                 r = run_routing(skill, budget=budget, log=log)

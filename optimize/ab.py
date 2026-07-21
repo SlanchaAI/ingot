@@ -6,7 +6,7 @@ held-out tasks; each variant is a Langfuse dataset run (side-by-side in the UI) 
 up. The result is a quarantined record in runs/pending/<skill>.json plus a portable evidence bundle
 in runs/evidence/. Nothing here activates anything: promotion is a human action in the UI.
 
-Usage: python -m optimize.ab <skill> [--description] [--candidates N] [--skip-search]
+Usage: python -m optimize.ab <skill> [--description | --scripts] [--skip-search]
 """
 import argparse
 import asyncio
@@ -49,34 +49,42 @@ PROMOTE_ACCEPT_BLOCK_RATE = float(os.environ.get("PROMOTE_ACCEPT_BLOCK_RATE", "0
 # a routing trigger matched by embedding, not instructions the agent reads, so quality search has no
 # business there (bare rollouts can't tell the difference and will happily stuff behavior rules into
 # it; the full agent then never sees them). Widen with e.g. OPTIMIZE_COMPONENTS=body,file:reference.md
-# (bundled text files become mutable AND visible in rollouts) or description,body (the
-# routing-regression gate still applies). Caveat for file components: the A/B never executes or
-# serves them, so review those diffs by eye, and keep scripts out unless you have
-# execution-grounded evals.
+# (bundled text files become mutable, render into rollouts, AND are served in the A/B) or
+# description,body (the routing-regression gate still applies). For scripts, prefer the --scripts
+# pass: it names the file:scripts/* components for you and refuses to run without
+# execution-grounded holdout checks (the LLM judge alone can't tell a broken script from a working
+# one).
 OPTIMIZE_COMPONENTS = [c.strip() for c in os.environ.get("OPTIMIZE_COMPONENTS", "body").split(",")
                        if c.strip()]
 
 EVAL_CACHE_DIR = Path(__file__).resolve().parent.parent / "runs" / "eval-cache"
 
 
-def _champion_cache_key(revision: str, holdout: list[dict]) -> str:
-    """Champion holdout results are pure functions of (champion revision, holdout tasks, serving
-    model, judge), cache them so repeat optimize runs only pay for the challenger's side."""
+def _champion_cache_key(revision: str, holdout: list[dict], components: list[str]) -> str:
+    """Champion holdout results are pure functions of (champion revision, holdout tasks, served
+    components, serving model, judge), cache them so repeat optimize runs only pay for the
+    challenger's side. The component names matter because the pass decides what is served: a
+    scripts pass serves the assembled files, a body pass serves the bare body, and the two must
+    not share a cache entry at the same revision."""
     import hashlib
-    payload = json.dumps({"v": 1, "revision": revision, "holdout": holdout, "model": agent_model(),
+    payload = json.dumps({"v": 2, "revision": revision, "holdout": holdout, "model": agent_model(),
+                          "components": sorted(components),
                           "judge": os.environ.get("JUDGE_MODELS") or os.environ.get("JUDGE_MODEL", "")},
                          sort_keys=True)
     return hashlib.sha256(payload.encode()).hexdigest()[:16]
 
 
-def optimize_split(champion: dict[str, str]) -> tuple[dict[str, str], dict[str, str]]:
-    """(mutable seed, frozen context) per OPTIMIZE_COMPONENTS; unknown names fail loudly."""
-    unknown = [c for c in OPTIMIZE_COMPONENTS if c not in champion]
+def optimize_split(champion: dict[str, str],
+                   components: list[str] | None = None) -> tuple[dict[str, str], dict[str, str]]:
+    """(mutable seed, frozen context) per `components` (default OPTIMIZE_COMPONENTS); unknown
+    names fail loudly."""
+    components = components if components is not None else OPTIMIZE_COMPONENTS
+    unknown = [c for c in components if c not in champion]
     if unknown:
         raise SystemExit(f"OPTIMIZE_COMPONENTS names unknown component(s) {unknown}; "
                          f"skill has {sorted(champion)}")
-    seed = {k: v for k, v in champion.items() if k in OPTIMIZE_COMPONENTS}
-    frozen = {k: v for k, v in champion.items() if k not in OPTIMIZE_COMPONENTS}
+    seed = {k: v for k, v in champion.items() if k in components}
+    frozen = {k: v for k, v in champion.items() if k not in components}
     return seed, frozen
 
 
@@ -311,6 +319,16 @@ def _run_variant_local(agent, tasks: list[dict]):
             ["" if isinstance(o, BaseException) else str(o[0]) for o in outs])
 
 
+def _served(comps: dict) -> str:
+    """What the A/B injects for a variant: the bare body for the body/description passes
+    (unchanged), or the full assembled skill (body + bundled files) when file components are in
+    play, so a rewritten file is actually served by the evidence run instead of only being diffed."""
+    if any(k.startswith("file:") for k in comps):
+        from .rollout import assemble
+        return assemble(comps)
+    return comps["body"]
+
+
 def _eval_variants(dataset, ts: int, champion: dict, challenger: dict, holdout: list[dict],
                    cache_path: Path, log=print) -> dict:
     """Champion and challenger holdout experiments, concurrently when both run live. The
@@ -320,7 +338,7 @@ def _eval_variants(dataset, ts: int, champion: dict, challenger: dict, holdout: 
         log(f"[ab] running variant '{run_name}' through the deep agent ({len(holdout)} held-out tasks)…")
         # Guaranteed serving: the variant body is injected into the instructions (see
         # EVAL_SERVE_TEMPLATE) instead of hoping the model fetches it through a tool call.
-        agent = build_agent([], instructions=EVAL_SERVE_TEMPLATE.format(body=comps["body"]))
+        agent = build_agent([], instructions=EVAL_SERVE_TEMPLATE.format(body=_served(comps)))
         scores, usages, behaviors, answers = (_run_variant(dataset, run_name, agent, holdout)
                                               if dataset is not None
                                               else _run_variant_local(agent, holdout))
@@ -382,17 +400,50 @@ def _holdout_dataset(skill: str, holdout: list[dict], log):
     return langfuse, langfuse.get_dataset(ds_name)
 
 
+def _greedy_search(skill: str, champion: dict, components: list[str], train: list[dict],
+                   log=print) -> tuple[dict, float, float]:
+    """Candidate search over the mutable components: greedy, one component per SkillOpt run
+    (run_skillopt trains a single doc), the others frozen at their latest text, so a multi-file
+    scripts pass improves each file instead of silently training only the first. seed_score is
+    the first run's (the untouched champion); best_score is the last run's (the fully
+    accumulated challenger)."""
+    seed, frozen = optimize_split(champion, components)
+    # rollouts see frozen text components (the description; the body too when a scripts pass
+    # freezes it) but not frozen bundled files, those are neither mutated nor measured, and
+    # pasting them in would only inflate rollout cost
+    rollout_frozen = {k: v for k, v in frozen.items() if not k.startswith("file:")}
+    from .skillopt_loop import run_skillopt
+    # the skill's acceptance criteria become a training signal so the loop removes forbidden
+    # content instead of appending around it (the promotion gate still enforces them on holdout)
+    acceptance = load_acceptance(skill, TASKS_DIR)
+    best, seed_score, best_score = dict(seed), None, 0.0
+    for key in sorted(best, key=lambda k: (k != "body", k)):
+        log(f"[skillopt] searching candidates for '{skill}' (component: {key}; frozen: "
+            f"{sorted(set(champion) - {key})}) on {len(train)} train tasks "
+            f"(SkillOpt reflective training loop)…")
+        others = {k: v for k, v in best.items() if k != key}
+        res, s0, s1 = run_skillopt({key: best[key]}, train,
+                                   frozen={**rollout_frozen, **others},
+                                   acceptance=acceptance, log=log)
+        best[key] = res.get(key, best[key])
+        seed_score = s0 if seed_score is None else seed_score
+        best_score = s1
+    return {**champion, **best}, (seed_score if seed_score is not None else 0.0), best_score
+
+
 def run_ab(skill: str, skip_search: bool = False, challenger_file: str | None = None,
-           log=print) -> dict:
+           components: list[str] | None = None, log=print) -> dict:
     usage_ledger.reset()
+    components = components if components is not None else OPTIMIZE_COMPONENTS
     train, holdout, split = load_tasks(skill)
     skill_dir = SKILLS_DIR / skill
     if not (skill_dir / "SKILL.md").exists():
         raise SystemExit(f"No skill named '{skill}' in skills/.")
-    # description + body always; bundled file components join only when OPTIMIZE_COMPONENTS names
-    # them (they then also render into rollouts). Everything else stays untouched on disk.
+    # description + body always; bundled file components join only when `components` names
+    # them (they then also render into rollouts and the A/B serving). Everything else stays
+    # untouched on disk.
     champion = optimizable_components(skill_dir)
-    file_components = [c for c in OPTIMIZE_COMPONENTS if c.startswith("file:")]
+    file_components = [c for c in components if c.startswith("file:")]
     if file_components:
         from mcp_server.registry import read_components
         everything = read_components(skill_dir)
@@ -405,18 +456,7 @@ def run_ab(skill: str, skip_search: bool = False, challenger_file: str | None = 
     elif skip_search:  # debug path: A/B the champion against itself
         challenger, seed_score, best_score = champion, 0.0, 0.0
     else:
-        seed, frozen = optimize_split(champion)
-        # rollouts see the frozen description (get_skill serves it) but not frozen files, those
-        # are neither mutated nor measured, and pasting them in would only inflate rollout cost
-        rollout_frozen = {k: v for k, v in frozen.items() if k == "description"}
-        log(f"[skillopt] searching candidates for '{skill}' (components: {sorted(seed)}; frozen: "
-            f"{sorted(frozen)}) on {len(train)} train tasks (SkillOpt reflective training loop)…")
-        from .skillopt_loop import run_skillopt
-        # the skill's acceptance criteria become a training signal so the loop removes forbidden
-        # content instead of appending around it (the promotion gate still enforces them on holdout)
-        best, seed_score, best_score = run_skillopt(seed, train, frozen=rollout_frozen,
-                                                    acceptance=load_acceptance(skill, TASKS_DIR), log=log)
-        challenger = {**champion, **best}
+        challenger, seed_score, best_score = _greedy_search(skill, champion, components, train, log)
         log(f"[opt] candidate search score: seed {seed_score:.3f} -> best {best_score:.3f}")
         changed = [k for k in champion if challenger.get(k, "").strip() != champion[k].strip()]
         if not changed:
@@ -439,7 +479,7 @@ def run_ab(skill: str, skip_search: bool = False, challenger_file: str | None = 
 
     ts = int(time.time())
     champion_skill = next(item for item in load_skills() if item.name == skill)
-    cache_path = EVAL_CACHE_DIR / f"{skill}-{_champion_cache_key(champion_skill.revision, holdout)}.json"
+    cache_path = EVAL_CACHE_DIR / f"{skill}-{_champion_cache_key(champion_skill.revision, holdout, list(champion))}.json"
     results = _eval_variants(dataset, ts, champion, challenger, holdout, cache_path, log)
     if langfuse is not None:
         langfuse.flush()
@@ -529,6 +569,31 @@ def run_ab(skill: str, skip_search: bool = False, challenger_file: str | None = 
 DEFAULT_ROUTING_BUDGET = 60
 
 
+def script_pass_components(skill: str) -> list[str]:
+    """The `file:scripts/*` components the scripts pass may rewrite, after checking the pass can
+    be measured at all. Refuses loudly (SystemExit with the reason as the message) when the skill
+    bundles no scripts, or when no holdout task carries an execution-grounded `check:` — the LLM
+    judge alone cannot tell a broken script from a working one, so a scripts pass without checks
+    would produce evidence worth nothing."""
+    from mcp_server.registry import read_components
+    skill_dir = SKILLS_DIR / skill
+    if not (skill_dir / "SKILL.md").exists():
+        raise SystemExit(f"No skill named '{skill}' in skills/.")
+    scripts = sorted(k for k in read_components(skill_dir) if k.startswith("file:scripts/"))
+    if not scripts:
+        raise SystemExit(f"'{skill}' bundles no scripts/ files, nothing for the scripts pass "
+                         f"to optimize.")
+    tasks_path = TASKS_DIR / f"{skill}.yaml"
+    data = (yaml.safe_load(tasks_path.read_text()) or {}) if tasks_path.exists() else {}
+    if not any(t.get("check") for t in data.get("holdout") or []):
+        raise SystemExit(
+            f"'{skill}' has no execution-grounded holdout checks. The scripts pass needs at "
+            f"least one holdout task with a check: {{fixture, assert}} entry so a broken script "
+            f"fails objectively instead of being waved through by the judge. Add one to "
+            f"optimize/tasks/{skill}.yaml first.")
+    return scripts
+
+
 def build_parser() -> argparse.ArgumentParser:
     """The candidate-generation CLI. Kept out of `__main__` so its rejections are testable: a flag
     for a pass that does not exist has to fail loudly, not be quietly accepted or ignored."""
@@ -539,6 +604,9 @@ def build_parser() -> argparse.ArgumentParser:
                         help="quality pass over the SKILL.md body (the default)")
     passes.add_argument("--description", action="store_true",
                         help="routing pass over the description (embedding-scored inner loop)")
+    passes.add_argument("--scripts", action="store_true",
+                        help="quality pass over bundled scripts/ files, greedy one file at a "
+                             "time; requires execution-grounded holdout checks")
     ap.add_argument("--budget", type=int, default=None,
                     help=f"--description only: max GEPA metric calls for the routing pass "
                          f"(default {DEFAULT_ROUTING_BUDGET})")
@@ -566,4 +634,5 @@ if __name__ == "__main__":
         from .routing import run_routing
         run_routing(args.skill, budget=args.budget)
     else:
-        run_ab(args.skill, skip_search=args.skip_search, challenger_file=args.challenger_file)
+        run_ab(args.skill, skip_search=args.skip_search, challenger_file=args.challenger_file,
+               components=script_pass_components(args.skill) if args.scripts else None)

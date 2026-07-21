@@ -18,7 +18,7 @@ Set in `.env` (never committed):
 | `BODY_TARGET_CHARS` | `6000` | length penalty starts past this body size |
 | `LENGTH_PENALTY` | `0.10` | max score subtracted for a very long body |
 | `LOOP_HEALTH_THRESHOLD` | `0.7` | the background loop proposes a change for skills whose mined mean score is below this |
-| `LOOP_PASSES` | `body` | passes the loop runs per unhealthy skill, in order (e.g. `body,description`) |
+| `LOOP_PASSES` | `body` | passes the loop runs per unhealthy skill, in order (e.g. `body,description,scripts`; `scripts` is skipped per skill without bundled scripts or exec checks) |
 | `SKILLOPT_EPOCHS` | `2` | body pass: passes over the train set |
 | `SKILLOPT_MINIBATCH` | `3` | body pass: train tasks reflected on per step |
 | `SKILLOPT_MAX_EDITS` | `3` | body pass: ceiling on edits applied per step (the learning-rate cap) |

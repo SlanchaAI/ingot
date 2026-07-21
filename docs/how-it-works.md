@@ -26,7 +26,8 @@
   (`judge.py`), the SkillOpt candidate search (`skillopt_loop.py` + `skillopt_bridge.py`) and its
   rollout/teacher plumbing (`rollout.py`),
   held-out A/B (`ab.py`), the portable evidence bundle (`evidence.py`), the routing pass
-  (`routing.py`), the background loop (`loop.py`), token ledger (`usage.py`). None of these can
+  (`routing.py`), the background loop (`loop.py`), the library-wide routing health check
+  (`routing_health.py`, embedding-only, cron/CI-friendly), token ledger (`usage.py`). None of these can
   activate anything: they write pending records. A/B agents get mutation tools stripped. The mining,
   categorized-failure, and failure-diagnosis ideas (plus the minimal-edit author angle) are borrowed
   from [SkillForge (Liu et al., arXiv:2604.08618)](https://arxiv.org/abs/2604.08618).
