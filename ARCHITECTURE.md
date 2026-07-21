@@ -10,24 +10,19 @@ exposes only loopback ports.
 
 1. A revision identifies the complete contents of a skill folder (`skill_revision`, a SHA-256 over
    every file, with the frontmatter and body normalized).
-2. A proposed change enters `runs/pending/<skill>.json` and is inert there. Agent creations
-   (`create_skill`) and candidate rewrites both use this one review slot per skill; a displaced
-   candidate from a different pass is archived beside it.
+2. A proposed change enters `runs/pending/<skill>.json` and is inert there. Candidate rewrites
+   use this one review slot per skill; a displaced candidate from a different pass is archived
+   beside it.
 3. A rewrite carries evidence, written to `runs/evidence/<skill>/<ts>/` as `evidence.json` and
    `EVIDENCE.md`. The body pass records held-out champion-vs-challenger scores, per-case deltas,
    the first behavioral divergence, token cost, the split's leakage status, and the gate verdict.
    The description pass records router metrics (top-1, recall@3, no-route precision,
    cross-harness parity) with the same revisions and gate verdict; it has no rollouts to diff.
-   An agent creation has no measured bundle: its diff is its evidence.
-4. The UI shows that evidence, the component diff, and one explicit approval action. What promotion
-   re-checks depends on the kind of change:
-   - A creation re-checks the candidate's identity against the requested name, the name against the
-     Agent Skills spec, availability (no active skill or directory of that name), the safety and
-     guard-model scans, and description collision against the active library.
-   - A rewrite re-checks the recorded gate verdict, that the champion revision still matches what is
-     on disk, and that the challenger revision still matches the recorded evidence. It does not
-     re-run safety, collision, or the held-out A/B.
-   Both then snapshot the revision they displace into `runs/revisions/` and swap directories
+4. The UI shows that evidence, the component diff, and one explicit approval action. Promotion
+   re-checks the recorded gate verdict, that the champion revision still matches what is
+   on disk, and that the challenger revision still matches the recorded evidence. It does not
+   re-run collision checks or the held-out A/B.
+   It then snapshots the revision it displaces into `runs/revisions/` and swaps directories
    atomically. The review card re-checks rewrite freshness when it renders, so a change whose
    champion has moved is refused before the approval click rather than after it.
 5. Rollback restores any snapshot the same way, and also snapshots what it displaces.
@@ -76,7 +71,7 @@ components (`OPTIMIZE_COMPONENTS=body,file:<path>`), diffed for review and never
   every dot-prefixed directory, so an abandoned stage cannot shadow an approved revision. This is
   the whole rule: a directory whose name is not a slug but does not start with a dot still
   publishes its `SKILL.md`, and takes its identity from the frontmatter `name`. The slug rule
-  constrains which skills the application can act on (promotion, rollback, creation, candidate
+  constrains which skills the application can act on (promotion, rollback, candidate
   generation, and the review surface all refuse a non-slug name), not which ones a library root
   can serve.
 - Hosted credentials are read from environment variables and are never stored in traces.

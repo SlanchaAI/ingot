@@ -111,7 +111,7 @@ def test_route_novel_flag_signals_weak_strong_escalation():
     assert related["skill_root"] == "/pdf"
     assert related["revision"] == "rev-pdf"
     assert all("skill_body" not in item for item in related["alternatives"])
-    # nothing even related -> the harness should escalate to its strong model + create_skill
+    # nothing even related -> the harness should escalate to its strong model
     novel = router.route("photosynthesis in plants", "codex", "/tmp",
                          min_score=0.99, related_score=0.98)
     assert novel["match"] is None and novel["novel"] is True

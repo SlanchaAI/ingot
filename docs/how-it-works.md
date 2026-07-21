@@ -10,15 +10,13 @@
     `related`; empty = truly novel
   - `get_skill(name)`: the full SKILL.md; the header line carries the content-hash revision
   - `list_skills()`: every skill's name, routing description, and load count (`uses`)
-  - `create_skill(name, description, body)`: queue a new agent-authored candidate (never activates
-    or overwrites)
   - `reload_skills()`: hot reload after approval or direct operator edits
   - `route_and_load(task, harness, cwd, available_tools, available_mcps)`: one-round-trip
     selection and loading for direct or related compatible routes (see
     [Bring your own agent](mcp-integration.md#bring-your-own-agent-mcp-only))
 - **`agent/run.py`**: [deepagents](https://github.com/langchain-ai/deepagents) LangGraph agent
   wired to those tools, traced to Langfuse. Serves routed tasks on the weak `AGENT_MODEL` and
-  escalates truly novel tasks to `STRONG_MODEL`, which can queue reusable candidates for review.
+  escalates truly novel tasks to `STRONG_MODEL`.
 - **`skills/<name>/SKILL.md`**: YAML `description` is the routing key; the body is what the agent
   loads. Its folder's content hash is its revision.
 - **`optimize/promote.py`**: the change-control core, and the only module that writes under
@@ -34,6 +32,5 @@
   from [SkillForge (Liu et al., arXiv:2604.08618)](https://arxiv.org/abs/2604.08618).
 - **`ui/`**: FastAPI change-control UI (one HTML page, no build step): evidence and the approve /
   reject decision first, then revision history and rollback, then the library and the optional
-  candidate runs. It is the only normal application path that activates a pending creation or
-  rewrite.
+  candidate runs. It is the only normal application path that activates a pending rewrite.
 

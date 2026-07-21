@@ -4,8 +4,7 @@ import os
 import pytest
 
 from mcp_server.registry import (
-    MAX_NAME, configured_roots, load_skills, name_problem, optimizable_components, parse_skill,
-    slugify, write_skill_md,
+    configured_roots, load_skills, optimizable_components, parse_skill, write_skill_md,
 )
 
 
@@ -151,28 +150,6 @@ def test_harness_variant_replaces_only_body(tmp_path):
     skill = load_skills(tmp_path)[0]
     assert skill.body_for("claude") == "body"
     assert skill.body_for("codex") == "codex body"
-
-
-# --- name_problem / slugify: spec boundaries --------------------------------------------------
-
-def test_name_length_boundary():
-    assert name_problem("a" * MAX_NAME) is None          # exactly 64 is allowed
-    assert name_problem("a" * (MAX_NAME + 1)) is not None # 65 is not
-
-
-def test_reserved_word_as_substring_is_rejected():
-    assert name_problem("my-claude-tool") is not None
-    assert name_problem("anthropicskills") is not None
-
-
-@pytest.mark.parametrize("raw,expected", [
-    ("Merge PDFs!", "merge-pdfs"),
-    ("  spaced  out  ", "spaced-out"),
-    ("UPPER_case", "upper-case"),
-    ("a//b__c", "a-b-c"),
-])
-def test_slugify_normalizes(raw, expected):
-    assert slugify(raw) == expected
 
 
 # --- hidden staging directories ---------------------------------------------------------------

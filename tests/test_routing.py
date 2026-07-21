@@ -104,7 +104,6 @@ def test_run_routing_auto_drafts_missing_cases(monkeypatch, tmp_path):
     def sentinel(*a, **k):
         raise RuntimeError("drafter invoked")
     monkeypatch.setattr(D, "draft_and_append_routing", sentinel)
-    import pytest
     with pytest.raises(RuntimeError, match="drafter invoked"):
         R.run_routing("sk")
 

@@ -1,19 +1,17 @@
-"""MCP server for discovering, loading, creating, and improving Agent Skills."""
+"""MCP server for discovering, loading, and improving Agent Skills."""
 from __future__ import annotations
 
 import os
 import threading
 
 from fastmcp import FastMCP
-from optimize.promote import load_pending, save_pending
 
-from . import guard_model, safety, usage_counts
-from .registry import SKILLS_DIR, configured_roots, load_skills, name_problem, slugify
+from . import usage_counts
+from .registry import configured_roots, load_skills
 from .router import Router
 
 MIN_SCORE = float(os.environ.get("MIN_SCORE", "0.65"))
 RELATED_SCORE = float(os.environ.get("RELATED_SCORE", "0.45"))
-COLLISION_SCORE = float(os.environ.get("COLLISION_SCORE", "0.93"))
 PORT = int(os.environ.get("PORT", "8000"))
 # Loopback by default: the tools are unauthenticated, so a bare `python -m mcp_server.server` must
 # not listen on the network. The compose mcp service sets HOST=0.0.0.0 (required for Docker port
@@ -94,42 +92,6 @@ def get_skill(name: str) -> str:
     usage_counts.record_use(skill.name)
     identity = f"{skill.name}@{skill.revision}" if skill.revision else skill.name
     return f"# Skill: {identity}\n{skill.description}\n\n{skill.body}"
-
-
-@mcp.tool()
-def create_skill(name: str, description: str, body: str) -> str:
-    """Author a skill candidate for human review without activating it."""
-    STATE.refresh_if_changed()
-    slug = slugify(name)
-    problem = name_problem(slug)
-    if problem:
-        return f"Invalid skill name '{name}': {problem}."
-    if slug in STATE.by_name or (SKILLS_DIR / slug).exists():
-        return f"Skill '{slug}' already exists; propose a change to it with a candidate run instead."
-    if load_pending(slug):
-        return f"Skill '{slug}' is already awaiting human review."
-    problems = safety.scan(description, body)
-    ml_flag = guard_model.check(f"{description}\n{body}")
-    if ml_flag:
-        problems.append(ml_flag)
-    if problems:
-        return f"Skill '{slug}' rejected: {'; '.join(problems)}."
-    shadowed, score = STATE.router.nearest(description)
-    if score >= COLLISION_SCORE:
-        return (f"Skill '{slug}' rejected: description too similar to existing skill "
-                f"'{shadowed}' (cosine {score:.2f}), which it would shadow for routing. Refine it, "
-                f"or propose a change to '{shadowed}' with a candidate run instead.")
-    save_pending(slug, {
-        "kind": "creation",
-        "skill": slug,
-        "champion_components": {"description": "", "body": ""},
-        "challenger_components": {"description": description, "body": body},
-        "changed_components": ["description", "body"],
-        "gate": {"promotable": True, "blocked": [], "warnings": []},
-        "source": "agent",
-    })
-    print(f"[ingot] queued skill candidate '{slug}' for human approval", flush=True)
-    return f"Created candidate '{slug}': awaiting human approval at http://localhost:8080."
 
 
 @mcp.tool()

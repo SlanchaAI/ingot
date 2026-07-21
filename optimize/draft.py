@@ -1,7 +1,7 @@
 """Auto-draft an eval task set for a skill that doesn't have one yet, so a freshly created skill is
 immediately optimizable. The teacher model (GEPA_MODEL) reads the skill's description + body and
 writes train/holdout tasks with judge rubrics, split by *operation* so the holdout tests
-generalization, not recall. Kept out of the MCP server (no LLM in the hot create_skill path); the
+generalization, not recall. Kept out of the MCP server (no LLM in its hot serving path); the
 optimizer calls it on demand when `optimize/tasks/<skill>.yaml` is missing."""
 import json
 import os

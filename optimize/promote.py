@@ -9,15 +9,11 @@ import time
 import uuid
 from pathlib import Path
 
-from mcp_server import guard_model, safety
-from mcp_server.registry import (SKILLS_DIR, SLUG_RE, load_skills, name_problem, skill_revision,
-                                 write_components, write_skill_md)
-from mcp_server.router import Router
+from mcp_server.registry import SLUG_RE, load_skills, skill_revision, write_components
 
 RUNS_DIR = Path(__file__).resolve().parent.parent / "runs"
 PENDING_DIR = RUNS_DIR / "pending"
 REVISIONS_DIR = RUNS_DIR / "revisions"
-COLLISION_SCORE = float(os.environ.get("COLLISION_SCORE", "0.93"))
 logger = logging.getLogger(__name__)
 
 
@@ -208,8 +204,6 @@ def stale_evidence_reason(skill: str, pending: dict) -> str | None:
     The review surface asks before it offers an Approve button, so a card whose champion moved on
     disk (an edited skill, a promotion elsewhere) is blocked at review time rather than at the end
     of an approval click. Gate verdicts are reported separately and are not repeated here."""
-    if pending.get("kind") == "creation":
-        return None
     evidence = pending.get("evidence")
     if not isinstance(evidence, dict) or not evidence:
         return "evidence is required for promotion"
@@ -310,63 +304,6 @@ def _require_promotable(pending: dict) -> None:
         raise ValueError(f"evidence gate blocked promotion: {reasons}")
 
 
-def _creation_components(pending: dict) -> tuple[str, str]:
-    components = pending.get("challenger_components", {})
-    description = components.get("description")
-    body = components.get("body")
-    if not isinstance(description, str):
-        raise ValueError("pending creation has invalid skill description")
-    if not isinstance(body, str):
-        raise ValueError("pending creation has invalid skill body")
-    return description, body
-
-
-def _validate_creation_name(skill: str, pending: dict) -> None:
-    if pending.get("skill") != skill:
-        raise ValueError("pending candidate identity does not match requested skill")
-    problem = name_problem(skill)
-    if problem:
-        raise ValueError(f"invalid skill name '{skill}': {problem}")
-
-
-def _validate_creation_available(skill: str, active: list) -> None:
-    if (SKILLS_DIR / skill).exists():
-        raise ValueError(f"skill '{skill}' already exists")
-    active_names = {item.name for item in active}
-    if skill in active_names:
-        raise ValueError(f"skill '{skill}' already exists")
-
-
-def _validate_creation_content(skill: str, description: str, body: str) -> None:
-    problems = safety.scan(description, body)
-    ml_flag = guard_model.check(f"{description}\n{body}")
-    if ml_flag:
-        problems.append(ml_flag)
-    if problems:
-        raise ValueError(f"skill '{skill}' rejected: {'; '.join(problems)}")
-
-
-def _validate_creation_collision(skill: str, description: str, active: list) -> None:
-    if not active:
-        return
-    shadowed, score = Router(active).nearest(description)
-    if score >= COLLISION_SCORE:
-        raise ValueError(
-            f"skill '{skill}' rejected: description too similar to existing skill "
-            f"'{shadowed}' (cosine {score:.2f})"
-        )
-
-
-def _validated_creation(skill: str, pending: dict) -> tuple[str, str]:
-    active = load_skills()
-    description, body = _creation_components(pending)
-    _validate_creation_name(skill, pending)
-    _validate_creation_available(skill, active)
-    _validate_creation_content(skill, description, body)
-    _validate_creation_collision(skill, description, active)
-    return description, body
-
-
 _COPY_SUFFIXES = (".stage", ".rollback")
 
 
@@ -398,31 +335,6 @@ def _sweep_staging(skill_dir: Path) -> None:
             shutil.rmtree(stale)
         except OSError:
             logger.warning("Could not remove the stale staging directory %s", stale, exc_info=True)
-
-
-def _activate_creation(skill: str, pending: dict) -> str:
-    description, body = _validated_creation(skill, pending)
-    destination = SKILLS_DIR / skill
-
-    SKILLS_DIR.mkdir(parents=True, exist_ok=True)
-    _sweep_staging(destination)
-    stage = destination.with_name(f".{skill}.{uuid.uuid4().hex}.stage")
-    stage.mkdir()
-    try:
-        write_skill_md(stage / "SKILL.md", {
-            "name": skill,
-            "description": description,
-            "source": pending.get("source", "agent"),
-        }, body)
-        if destination.exists():
-            raise ValueError(f"skill '{skill}' already exists")
-        stage.rename(destination)
-    except BaseException:
-        shutil.rmtree(stage, ignore_errors=True)
-        raise
-
-    pending_path(skill).unlink(missing_ok=True)
-    return f"Activated new skill '{skill}' after human approval."
 
 
 def _activate_rewrite(skill: str, pending: dict) -> str:
@@ -458,18 +370,14 @@ def _activate_rewrite(skill: str, pending: dict) -> str:
 
 
 def approve_pending(skill: str, actor: str = "local-operator") -> str:
-    """Activate one pending creation or tested rewrite after an explicit approval action."""
+    """Activate one tested rewrite after an explicit approval action."""
     skill = check_slug(skill)
     pending = load_pending(skill)
     if not pending:
         raise ValueError(f"no pending challenger for '{skill}'")
     _require_promotable(pending)
-    if pending.get("kind") == "creation":
-        result = _activate_creation(skill, pending)
-        revision = skill_revision(SKILLS_DIR / skill)
-    else:
-        result = _activate_rewrite(skill, pending)
-        revision = _current_skill(skill).revision
+    result = _activate_rewrite(skill, pending)
+    revision = _current_skill(skill).revision
     _audit_best_effort("approve", skill, revision, actor)
     return result
 

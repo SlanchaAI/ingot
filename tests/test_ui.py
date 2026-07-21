@@ -109,35 +109,6 @@ def test_skills_list_empty_library(client):
     assert r.json() == []
 
 
-def test_skills_list_includes_pending_creation(client):
-    P.save_pending("new-skill", {
-        "kind": "creation",
-        "skill": "new-skill",
-        "champion_components": {"description": "", "body": ""},
-        "challenger_components": {
-            "description": "Use this for new work.",
-            "body": "Do the work.",
-        },
-        "changed_components": ["description", "body"],
-        "gate": {"promotable": True, "blocked": [], "warnings": []},
-        "source": "agent",
-    })
-
-    assert client.get("/api/skills").json() == [{
-        "name": "new-skill",
-        "description": "Use this for new work.",
-        "has_tasks": False,
-        "pending": True,
-        "revision": None,
-        "status": None,
-        "creation": True,
-    }]
-    pending = client.get("/api/pending/new-skill").json()
-    assert pending["kind"] == "creation"
-    assert "+Use this for new work." in pending["diff"]
-    assert "+Do the work." in pending["diff"]
-
-
 def test_pending_renders_component_diff_and_warnings(client):
     P.save_pending("pdf", {
         "skill": "pdf", "dataset": "pdf-holdout",
@@ -194,7 +165,7 @@ def test_api_skills_rows_carry_a_load_count(client, monkeypatch):
         name, description, revision = "pdf", "merge PDFs", "rev1"
     monkeypatch.setattr(ui_app, "load_skills", lambda: [_Skill()])
     monkeypatch.setattr(usage_counts, "load_counts", lambda: {"pdf": 7})
-    active = [r for r in client.get("/api/skills").json() if not r.get("creation")]
+    active = client.get("/api/skills").json()
     assert active and active[0]["uses"] == 7
 
 
@@ -585,17 +556,6 @@ def test_pending_is_not_stale_for_a_fresh_change(client, tmp_path, monkeypatch):
                      "challenger": {"revision": skill_revision(skill, challenger)}, "gate": gate},
     })
     assert client.get("/api/pending/pdf").json()["stale"] is None
-
-
-def test_pending_creation_is_never_stale(client):
-    P.save_pending("new-skill", {
-        "kind": "creation", "skill": "new-skill",
-        "champion_components": {"description": "", "body": ""},
-        "challenger_components": {"description": "Use this for new work.", "body": "Do the work."},
-        "changed_components": ["description", "body"],
-        "gate": {"promotable": True, "blocked": [], "warnings": []},
-    })
-    assert client.get("/api/pending/new-skill").json()["stale"] is None
 
 
 # --- evidence bundle API ----------------------------------------------------------------------

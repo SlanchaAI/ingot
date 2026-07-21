@@ -15,28 +15,9 @@ import yaml
 SKILLS_DIR = Path(__file__).resolve().parent.parent / "skills"
 _FRONTMATTER = re.compile(r"^---\s*\n(.*?)\n---\s*\n(.*)$", re.DOTALL)
 
-# One slug rule for every layer (create_skill, promotion, UI), a name one layer accepts
+# One slug rule for every layer (promotion, UI), a name one layer accepts
 # must be accepted by all of them, or a skill becomes un-promotable.
 SLUG_RE = re.compile(r"^[a-z0-9][a-z0-9-]*$")
-# Anthropic Agent Skills frontmatter rules for `name`: ≤64 chars, no reserved words.
-MAX_NAME = 64
-_RESERVED = ("anthropic", "claude")
-
-
-def slugify(name: str) -> str:
-    s = re.sub(r"[^a-z0-9-]", "-", name.lower().strip())
-    return re.sub(r"-+", "-", s).strip("-")
-
-
-def name_problem(slug: str) -> str | None:
-    """Reason a skill name is invalid per the Agent Skills spec, or None if it's fine."""
-    if not SLUG_RE.fullmatch(slug):
-        return "name must be a slug: lowercase letters, digits, and hyphens"
-    if len(slug) > MAX_NAME:
-        return f"name exceeds {MAX_NAME} characters"
-    if any(r in slug for r in _RESERVED):
-        return f"name contains a reserved word ({', '.join(_RESERVED)})"
-    return None
 
 
 _ROUTER_DEFAULTS = {
@@ -221,7 +202,7 @@ def load_skills(skills_dir: Path | None = None, *, roots: Iterable[str | Path] |
     return skills
 
 
-# --- writing / full-skill components (used by create_skill, candidate generation, and promotion) ---
+# --- writing / full-skill components (used by candidate generation and promotion) ---
 
 _TEXT_SUFFIXES = {".md", ".txt", ".py", ".sh", ".js", ".ts", ".json", ".yaml", ".yml", ".toml", ".cfg"}
 
