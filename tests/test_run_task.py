@@ -127,13 +127,13 @@ def test_build_agent_strong_flag_selects_model_and_endpoint(monkeypatch):
 
 
 def test_strong_model_resolution(monkeypatch):
-    # STRONG_MODEL wins; falls back to GEPA_MODEL (the offline teacher), then the literal default
+    # STRONG_MODEL wins, followed by SKILLOPT_MODEL and the literal default.
     from agent.run import strong_model
     monkeypatch.delenv("STRONG_MODEL", raising=False)
-    monkeypatch.delenv("GEPA_MODEL", raising=False)
+    monkeypatch.delenv("SKILLOPT_MODEL", raising=False)
     assert strong_model() == "z-ai/glm-5.2"
-    monkeypatch.setenv("GEPA_MODEL", "teacher/model")
-    assert strong_model() == "teacher/model"
+    monkeypatch.setenv("SKILLOPT_MODEL", "author/model")
+    assert strong_model() == "author/model"
     monkeypatch.setenv("STRONG_MODEL", "big/model")
     assert strong_model() == "big/model"
 

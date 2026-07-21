@@ -55,8 +55,8 @@ def _openrouter_prices() -> dict[str, tuple[float, float]]:
 
 def _role_models() -> dict[str, str]:
     """Which model each ledger role runs on (first judge only, for ensemble setups)."""
-    from . import agent_model
-    teacher = os.environ.get("GEPA_MODEL", "z-ai/glm-5.2")
+    from . import agent_model, skillopt_model
+    teacher = skillopt_model()
     judge = (os.environ.get("JUDGE_MODELS") or
              os.environ.get("JUDGE_MODEL", "google/gemini-2.5-flash")).split(",")[0].strip()
     return {"rollout": agent_model(), "agent_ab": agent_model(),

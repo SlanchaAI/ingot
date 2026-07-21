@@ -15,16 +15,16 @@ from langchain_openai import ChatOpenAI
 
 from . import usage as usage_ledger
 
-# Reward-hacking guard: the judge must NOT be the same model as the teacher LM (GEPA_MODEL).
+# Reward-hacking guard: the judge must NOT be the same model as SKILLOPT_MODEL.
 # If the author and the grader share blind spots, the search learns to please the judge instead of
 # improving the skill. Default judge is a model distinct from both the reflection LM (GLM) and the
 # student (Qwen).
 # JUDGE_MODELS (comma-separated) runs an ensemble and averages, harder still to game.
 MODELS = [m.strip() for m in os.environ.get(
     "JUDGE_MODELS", os.environ.get("JUDGE_MODEL", "google/gemini-2.5-flash")).split(",") if m.strip()]
-from . import ZDR_PROVIDER, client_kwargs, teacher_base_url  # noqa: E402  (endpoint + ZDR policy)
+from . import ZDR_PROVIDER, client_kwargs, skillopt_model, teacher_base_url  # noqa: E402
 
-if os.environ.get("GEPA_MODEL", "z-ai/glm-5.2") in MODELS:
+if skillopt_model() in MODELS:
     print(f"[judge] WARNING: judge model {MODELS} includes the teacher model, which invites "
           f"reward-hacking (author == grader). Set JUDGE_MODEL to a different model.", flush=True)
 

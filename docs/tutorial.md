@@ -131,8 +131,10 @@ docker compose run --rm optimize-mine tailwind
 ```
 
 The diagnosis is version drift: answers built on `tailwind.config.js` and `@tailwind` directives,
-the v3 world the stub teaches. The weakest mined tasks are surfaced as eval candidates for
-`optimize/tasks/<skill>.yaml`; see [Writing eval task sets](configuration.md#writing-eval-task-sets).
+the v3 world the stub teaches. The weakest mined tasks are surfaced as candidates only; mining does
+not edit the task set. Review them, add accepted tasks and explicit rubrics to
+`optimize/tasks/<skill>.yaml`, then keep train and holdout separate. See
+[Writing eval task sets](configuration.md#writing-eval-task-sets).
 
 Reference-free judging of live traffic is noisy. Treat mined dimensions as a diagnosis to
 investigate, not a verdict; the evidence gate runs on rubrics.
@@ -353,4 +355,3 @@ Two ways the library grows:
   or compose it rather than author a near-duplicate.
 
 ---
-

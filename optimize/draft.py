@@ -1,5 +1,5 @@
 """Auto-draft an eval task set for a skill that doesn't have one yet, so a freshly created skill is
-immediately optimizable. The teacher model (GEPA_MODEL) reads the skill's description + body and
+immediately optimizable. The authoring model (SKILLOPT_MODEL) reads the skill's description + body and
 writes train/holdout tasks with judge rubrics, split by *operation* so the holdout tests
 generalization, not recall. Kept out of the MCP server (no LLM in its hot serving path); the
 optimizer calls it on demand when `optimize/tasks/<skill>.yaml` is missing."""
@@ -10,10 +10,10 @@ import re
 import yaml
 from langchain_openai import ChatOpenAI
 
-from . import client_kwargs, teacher_base_url
+from . import client_kwargs, skillopt_model, teacher_base_url
 from . import usage as usage_ledger
 
-MODEL = os.environ.get("GEPA_MODEL", "z-ai/glm-5.2")  # the teacher authors evals, like it authors skills
+MODEL = skillopt_model()
 
 _PROMPT = """You are writing an evaluation set for an AI "skill" (reusable task instructions).
 

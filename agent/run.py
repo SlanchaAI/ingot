@@ -4,7 +4,7 @@ task -> proposed skills -> loaded skills -> result.
 
 Env: API_KEY for the configured OpenAI-compatible endpoint (required unless MODEL_BASE_URL points
 at a local endpoint), AGENT_MODEL (legacy alias MODEL), MODEL_BASE_URL (optional local vLLM/Ollama
-OpenAI-compatible endpoint), STRONG_MODEL (serves novel no-skill tasks; defaults to GEPA_MODEL),
+OpenAI-compatible endpoint), STRONG_MODEL (serves novel no-skill tasks; defaults to SKILLOPT_MODEL),
 MCP_URL, LANGFUSE_PUBLIC_KEY / LANGFUSE_SECRET_KEY / LANGFUSE_BASE_URL
 (optional tracing).
 """
@@ -21,7 +21,7 @@ MCP_URL = os.environ.get("MCP_URL", "http://mcp:8000/mcp")
 # endpoints get the hardcoded zero-data-retention provider preference; MODEL_BASE_URL points this
 # serving role at a local vLLM/Ollama server instead (README: Privacy).
 from optimize import (ZDR_PROVIDER, agent_model, api_key, client_kwargs, model_api_key,  # noqa: E402,F401
-                      model_base_url, teacher_base_url)
+                      model_base_url, skillopt_model, teacher_base_url)
 
 MODEL = agent_model()
 
@@ -29,7 +29,7 @@ MODEL = agent_model()
 def strong_model() -> str:
     """Serve a request when no skill matches. Defaults to the offline teacher (the model that
     authors candidate rewrites)."""
-    return os.environ.get("STRONG_MODEL") or os.environ.get("GEPA_MODEL", "z-ai/glm-5.2")
+    return os.environ.get("STRONG_MODEL") or skillopt_model()
 
 INSTRUCTIONS = """You are a deep agent. Skill selection has already been performed by the
 compatible router. Follow the loaded skill below when one is present. Never call suggestion or

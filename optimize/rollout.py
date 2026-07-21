@@ -10,14 +10,14 @@ import os
 
 from langchain_openai import ChatOpenAI
 
-from . import agent_model
+from . import agent_model, skillopt_model
 
 MODEL = agent_model()
 # The teacher LM (the skill *author*): a stronger model than the serving agent, per the
 # teacher/student split, where rollouts and judging stay on AGENT_MODEL (the model the skill will
-# serve). GEPA_MODEL keeps its legacy name: it is still the reflection LM of the description pass's
-# GEPA loop (optimize/routing.py), and it is the documented .env key.
-GEPA_MODEL = os.environ.get("GEPA_MODEL", "z-ai/glm-5.2")
+# serve). This role is shared by SkillOpt reflection, eval drafting, and the optional GEPA-based
+# description pass, so its name describes the role rather than one optimization algorithm.
+SKILLOPT_MODEL = skillopt_model()
 
 # Length penalty: the body re-enters context on every agent step, and a completeness-hungry judge
 # tempts an author into bloating it. Penalize only *past* a generous target so normal skills aren't
@@ -122,11 +122,11 @@ def make_reflection_lm():
     def reflection_lm(prompt) -> str:
         messages = prompt if isinstance(prompt, list) else [{"role": "user", "content": prompt}]
         if is_openrouter(base):
-            response = litellm.completion(model=f"openrouter/{GEPA_MODEL}", messages=messages,
+            response = litellm.completion(model=f"openrouter/{SKILLOPT_MODEL}", messages=messages,
                                           extra_body=openrouter_extra_body())
         else:
             kwargs = client_kwargs(base)
-            response = litellm.completion(model=f"openai/{GEPA_MODEL}", messages=messages,
+            response = litellm.completion(model=f"openai/{SKILLOPT_MODEL}", messages=messages,
                                           api_base=kwargs["base_url"], api_key=kwargs["api_key"])
         return response.choices[0].message.content
 

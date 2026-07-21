@@ -39,11 +39,11 @@ API_KEY=sk-or-...
 BASE_URL=https://api.fireworks.ai/inference/v1
 API_KEY=fw_...
 AGENT_MODEL=accounts/fireworks/models/qwen3p7-plus
-GEPA_MODEL=accounts/fireworks/models/glm-5p2
+SKILLOPT_MODEL=accounts/fireworks/models/glm-5p2
 JUDGE_MODEL=accounts/fireworks/models/deepseek-v4-pro
 
 # fully local (no key needed at all): everything on Ollama / vLLM
-BASE_URL=http://172.17.0.1:11434/v1  AGENT_MODEL=qwen3:32b  GEPA_MODEL=qwen3:32b  JUDGE_MODEL=llama3.3:70b
+BASE_URL=http://172.17.0.1:11434/v1  AGENT_MODEL=qwen3:32b  SKILLOPT_MODEL=qwen3:32b  JUDGE_MODEL=llama3.3:70b
 ```
 
 No API key is required when nothing points at a hosted endpoint. From inside the compose

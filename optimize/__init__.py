@@ -28,6 +28,11 @@ def agent_model() -> str:
     return os.environ.get("AGENT_MODEL") or os.environ.get("MODEL") or "qwen/qwen3.6-27b"
 
 
+def skillopt_model() -> str:
+    """Model that authors evals and skill revisions for the optimization workflow."""
+    return os.environ.get("SKILLOPT_MODEL", "z-ai/glm-5.2")
+
+
 def model_base_url() -> str:
     """Endpoint for the serving-model role (agent runs, A/B eval agents, candidate rollouts).
     MODEL_BASE_URL lets this role run against a different provider (local vLLM/Ollama, or e.g.
@@ -157,8 +162,8 @@ def preflight_provider_pins() -> list[str]:
     if is_openrouter(model_base_url()):
         roles["AGENT_MODEL"] = agent_model()
     if is_openrouter(teacher_base_url()):
-        roles["GEPA_MODEL"] = os.environ.get("GEPA_MODEL", "z-ai/glm-5.2")
-        if os.environ.get("STRONG_MODEL"):  # default is GEPA_MODEL, already checked above
+        roles["SKILLOPT_MODEL"] = skillopt_model()
+        if os.environ.get("STRONG_MODEL"):  # default is SKILLOPT_MODEL, already checked above
             roles["STRONG_MODEL"] = os.environ["STRONG_MODEL"]
         judges = os.environ.get("JUDGE_MODELS", os.environ.get("JUDGE_MODEL", "google/gemini-2.5-flash"))
         for i, judge in enumerate(m.strip() for m in judges.split(",") if m.strip()):

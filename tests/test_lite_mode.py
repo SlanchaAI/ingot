@@ -45,7 +45,7 @@ def test_estimated_cost_uses_role_model_prices(monkeypatch):
     monkeypatch.delenv("BASE_URL", raising=False)
     monkeypatch.delenv("OPENROUTER_BASE_URL", raising=False)   # default endpoint: OpenRouter
     monkeypatch.setenv("AGENT_MODEL", "m/agent")
-    monkeypatch.setenv("GEPA_MODEL", "m/teacher")
+    monkeypatch.setenv("SKILLOPT_MODEL", "m/teacher")
     monkeypatch.setenv("JUDGE_MODEL", "m/judge")
     monkeypatch.setattr(usage_ledger, "_PRICES",
                         {"m/agent": (1e-6, 2e-6), "m/judge": (1e-7, 1e-7)})

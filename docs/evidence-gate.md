@@ -5,7 +5,7 @@ LLM judge invites the classic failure: the challenger learns to please the judge
 The gate is what a reviewer is relying on when they read those numbers, so it closes the obvious
 paths:
 
-1. **Judge ≠ author.** The teacher LM (`GEPA_MODEL`) writes the skill; the judge
+1. **Judge ≠ author.** The authoring LM (`SKILLOPT_MODEL`) writes the skill; the judge
    (`JUDGE_MODEL`) is a different model. Set `JUDGE_MODELS=a,b` for an ensemble judge.
 2. **Held-out gate, not a lucky mean.** Promotion requires a margin (`PROMOTE_MIN_MARGIN`, default
    +0.15), enough samples (`PROMOTE_MIN_SAMPLES`), and no catastrophic per-task regression.
@@ -42,4 +42,3 @@ paths:
 [ab] ⛔ challenger won the mean but the promotion gate BLOCKED it:
      margin +0.10 < required +0.15; catastrophic regression on 1 task(s) the champion passed
 ```
-
