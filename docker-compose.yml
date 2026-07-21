@@ -6,11 +6,12 @@
 # LANGFUSE_* at) is reachable. See docs/mcp-integration.md (Using your own evals platform).
 #
 # SECURITY: the credentials below (postgres/redis/minio/clickhouse passwords, SALT, ENCRYPTION_KEY,
-# NEXTAUTH_SECRET, the LANGFUSE_INIT_* keys and demo login) are LOCAL-DEMO LITERALS for the
+# NEXTAUTH_SECRET, the LANGFUSE_INIT_ project keys and demo login) are LOCAL-DEMO LITERALS for the
 # self-hosted stack, safe only because nothing here is published beyond 127.0.0.1 and the
-# datastores publish no host port at all. Every one is overridable via .env (`${VAR:-demo}`).
-# Before exposing Langfuse beyond your machine you MUST rotate them; see .env.example (Langfuse
-# security) and docs/security.md. Real provider keys (OPENROUTER_API_KEY) live only in .env.
+# datastores publish no host port at all. Every secret is overridable via .env (`${VAR:-demo}`); the
+# non-secret LANGFUSE_INIT_ org/project/user *names* stay literal. Before exposing Langfuse beyond
+# your machine you MUST rotate the secrets; see .env.example (Langfuse security) and docs/security.md.
+# Real provider keys (OPENROUTER_API_KEY) live only in .env.
 name: ingot   # fixed project name so image names don't depend on the checkout dir
 services:
   # Real OIDC provider for the SSO/RBAC integration test (CI only, not a runtime dependency). Boots
@@ -328,9 +329,9 @@ services:
     restart: always
     environment:
       REDIS_AUTH: ${REDIS_AUTH:-localredissecret}
-    command: >
-      --requirepass ${REDIS_AUTH:-localredissecret}
-      --maxmemory-policy noeviction
+    # list form (not a folded string): keeps REDIS_AUTH one argv item even if it contains spaces,
+    # so --requirepass gets exactly the value the healthcheck and Langfuse authenticate with.
+    command: ["--requirepass", "${REDIS_AUTH:-localredissecret}", "--maxmemory-policy", "noeviction"]
     volumes:
       - langfuse_redis_data:/data
     healthcheck:
