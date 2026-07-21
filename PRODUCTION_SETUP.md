@@ -140,16 +140,19 @@ available, then run:
 ```bash
 INGOT_MCP_URL=http://192.168.1.40:8000/mcp \
 LANGFUSE_BASE_URL=https://192.168.1.40:3443 \
+LANGFUSE_PUBLIC_KEY=pk-lf-replace-me \
+LANGFUSE_SECRET_KEY=sk-lf-replace-me \
 ./scripts/claude_setup.sh
 ```
 
-Restart Claude Code. When the Langfuse plugin prompts, enter the same Langfuse URL,
-`LANGFUSE_PUBLIC_KEY`, and `LANGFUSE_SECRET_KEY` stored on the Ingot host. Then diagnose the local
-installation:
+Restart Claude Code. The setup command passes the Langfuse URL, `LANGFUSE_PUBLIC_KEY`, and
+`LANGFUSE_SECRET_KEY` stored on the Ingot host to the plugin. Then diagnose the local installation:
 
 ```bash
 INGOT_MCP_URL=http://192.168.1.40:8000/mcp \
 LANGFUSE_BASE_URL=https://192.168.1.40:3443 \
+LANGFUSE_PUBLIC_KEY=pk-lf-replace-me \
+LANGFUSE_SECRET_KEY=sk-lf-replace-me \
 ./scripts/claude_setup.sh --doctor
 ```
 

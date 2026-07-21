@@ -59,8 +59,7 @@ def fetch_traces(limit: int = 0) -> list[dict]:
     seen = set()
     page = 1
     while True:
-        page_limit = min(TRACE_PAGE_SIZE, limit - len(out)) if limit else TRACE_PAGE_SIZE
-        query = urlencode({"limit": max(1, page_limit), "page": page})
+        query = urlencode({"limit": TRACE_PAGE_SIZE, "page": page})
         req = urllib.request.Request(f"{LF_URL.rstrip('/')}/api/public/traces?{query}",
                                      headers={"Authorization": f"Basic {auth}"})
         try:
@@ -92,7 +91,7 @@ def fetch_traces(limit: int = 0) -> list[dict]:
                     return out
         if not data or not new_keys or (total_pages and page >= total_pages):
             break
-        if not total_pages and len(data) < page_limit:
+        if not total_pages and len(data) < TRACE_PAGE_SIZE:
             break
         page += 1
     return out

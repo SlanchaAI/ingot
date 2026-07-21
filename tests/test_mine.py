@@ -135,6 +135,38 @@ def test_fetch_traces_zero_limit_paginates_all_uses(monkeypatch):
     assert [trace["task"] for trace in traces] == ["task one", "task two"]
 
 
+def test_fetch_traces_keeps_page_size_fixed_when_output_limit_stops_mid_page(monkeypatch):
+    requested = []
+
+    class Resp:
+        def __init__(self, page):
+            self.page = page
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *args):
+            pass
+
+        def read(self):
+            start = (self.page - 1) * mine.TRACE_PAGE_SIZE
+            data = [{"id": str(i), "input": f"task {i}", "output": f"answer {i}"}
+                    for i in range(start, start + mine.TRACE_PAGE_SIZE)]
+            return json.dumps({"data": data, "meta": {"totalPages": 3}}).encode()
+
+    def urlopen(request, timeout=60):
+        query = parse_qs(urlparse(request.full_url).query)
+        requested.append((int(query["page"][0]), int(query["limit"][0])))
+        return Resp(requested[-1][0])
+
+    monkeypatch.setattr(mine.urllib.request, "urlopen", urlopen)
+
+    traces = mine.fetch_traces(150)
+
+    assert requested == [(1, mine.TRACE_PAGE_SIZE), (2, mine.TRACE_PAGE_SIZE)]
+    assert len(traces) == 150
+
+
 def test_relevant_traces_keeps_tagged_or_embedding_ranked(monkeypatch):
     class FakeRouter:
         def __init__(self, skills):

@@ -30,7 +30,7 @@ def agent_model() -> str:
 
 def skillopt_model() -> str:
     """Model that authors evals and skill revisions for the optimization workflow."""
-    return os.environ.get("SKILLOPT_MODEL", "z-ai/glm-5.2")
+    return os.environ.get("SKILLOPT_MODEL") or "z-ai/glm-5.2"
 
 
 def model_base_url() -> str:

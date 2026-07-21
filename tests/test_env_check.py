@@ -178,6 +178,8 @@ def test_skillopt_model_resolution(monkeypatch):
     assert skillopt_model() == "z-ai/glm-5.2"
     monkeypatch.setenv("SKILLOPT_MODEL", "author/model")
     assert skillopt_model() == "author/model"
+    monkeypatch.setenv("SKILLOPT_MODEL", "")
+    assert skillopt_model() == "z-ai/glm-5.2"
 
 
 def test_skillopt_model_reaches_every_authoring_role():
@@ -197,6 +199,7 @@ assert _role_models()['reflection'] == 'author/model'
 
 def test_judge_warns_when_skillopt_model_is_the_grader():
     env = {**os.environ, "SKILLOPT_MODEL": "same/model", "JUDGE_MODEL": "same/model"}
+    env.pop("JUDGE_MODELS", None)
 
     result = subprocess.run([sys.executable, "-c", "import optimize.judge"], env=env,
                             cwd=ROOT, text=True, capture_output=True, check=True)

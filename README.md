@@ -67,10 +67,10 @@ bundled containers, set `LANGFUSE_*` and use `docker-compose.external-langfuse.y
 [Configuration](docs/configuration.md#using-your-own-langfuse-project). Backend, model, and gate
 settings live in [Configuration](docs/configuration.md).
 
-Then walk the full loop, a stale Tailwind skill mined, rewritten, gated, and promoted, in the
+Then walk through the full loop, from mining a stale Tailwind skill through promotion, in the
 [**Tutorial**](docs/tutorial.md).
 
-For a hardened open source Langfuse deployment with agents on other LAN machines, follow
+For a hardened open-source Langfuse deployment with agents on other LAN machines, follow
 [Production setup](PRODUCTION_SETUP.md).
 
 ### Connect Claude Code or Codex
