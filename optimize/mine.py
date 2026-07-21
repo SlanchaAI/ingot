@@ -53,11 +53,17 @@ def fetch_traces(limit: int) -> list[dict]:
 
 
 def _task_answer(inp, ans):
-    """(task, rubric, answer) from either trace shape: eval runs log a {task, rubric} input and a
-    plain-string answer; live agent runs traced by the LangChain callback log LangGraph state ,
-    {'messages': [...]} on both sides. Returns None for anything else (or an empty answer)."""
+    """(task, rubric, answer) from supported trace roots: explicit eval dictionaries, LangGraph
+    state, and the root shapes emitted by the Claude Code and Codex Langfuse connectors."""
     if isinstance(inp, dict) and inp.get("task") and isinstance(ans, str) and ans.strip():
         return inp["task"], inp.get("rubric", ""), ans
+    if isinstance(inp, str) and inp.strip() and isinstance(ans, str) and ans.strip():
+        return inp, "", ans
+    if (isinstance(inp, dict) and inp.get("role") == "user"
+            and isinstance(inp.get("content"), str) and inp["content"].strip()
+            and isinstance(ans, dict) and ans.get("role") == "assistant"
+            and isinstance(ans.get("content"), str) and ans["content"].strip()):
+        return inp["content"], "", ans["content"]
     try:
         task = inp["messages"][0]["content"]
         answer = ans["messages"][-1]["content"]

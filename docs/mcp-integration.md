@@ -35,6 +35,9 @@ shapes:
 2. **LangGraph state**: `input = {"messages": [...]}` and `output = {"messages": [...]}`; mine
    takes the first message as the task and the last as the answer. The bundled `agent/run.py` and
    any harness using the Langfuse LangChain `CallbackHandler` produce this automatically.
+3. **Coding-agent connector**: a plain-string input and output, as emitted by the Codex connector,
+   or `{ "role": "user", "content": "..." }` and the matching assistant object emitted by the
+   Claude Code connector. The setup scripts below install these connectors.
 
 **Attribution tags** (recommended): tag the trace with the served skill's name plus
 `revision=<name>@<revision>`, and `novel` when you escalated to your strong model. Untagged traces

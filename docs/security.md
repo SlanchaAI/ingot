@@ -130,18 +130,34 @@ Two things keep the defaults safe on a single machine:
   (all-zeros), `NEXTAUTH_SECRET`, datastore passwords, project API keys (`pk/sk-lf-local-demo`), and
   web login (`demo@local.dev` / `localdemo123`) are safe *only* because of the loopback binding above.
 
-Before exposing Langfuse beyond your machine, treat it like the UI: put it behind the `lan` TLS
-proxy (or your own) rather than republishing its port, **and rotate every demo secret first**. Each
-one overrides a `docker-compose.yml` default from `.env` with no file edit; the full list and the
-`openssl rand` recipes are in `.env.example` under "LANGFUSE SECURITY". At minimum rotate
-`LANGFUSE_ENCRYPTION_KEY`, `LANGFUSE_SALT`, `LANGFUSE_NEXTAUTH_SECRET`, `LANGFUSE_INIT_USER_PASSWORD`,
-and the datastore passwords; a shared or exposed deployment should also use a real Langfuse project's
-`LANGFUSE_PUBLIC_KEY` / `_SECRET_KEY`. An all-zeros `ENCRYPTION_KEY` means Langfuse's at-rest
-encryption of stored secrets is worthless if the volumes ever leak.
+Before exposing Langfuse beyond your machine, rotate every demo secret and use its separate,
+opt-in TLS endpoint. The normal `lan` proxy publishes only the change-control UI, so sharing the UI
+does not also publish traces. For a new deployment:
+
+1. Copy every value in `.env.example` under "LANGFUSE SECURITY" into `.env` and replace the demo
+   values before the first `docker compose up`. At minimum set `LANGFUSE_ENCRYPTION_KEY`,
+   `LANGFUSE_SALT`, `LANGFUSE_NEXTAUTH_SECRET`, `LANGFUSE_INIT_USER_PASSWORD`, every datastore
+   credential, and the Langfuse project keys.
+2. Set `LANGFUSE_PUBLIC_URL=https://<this-box's-name-or-IP>:3443` in `.env`. This must match the URL
+   used by browsers so Langfuse generates the correct authentication URLs.
+3. Run `docker compose --profile langfuse-lan up -d langfuse-proxy`, then browse to that URL. Caddy
+   uses its local CA, with the same trust considerations described under Network exposure.
+
+The `.env` defaults initialize a new deployment; they are not a general credential-rotation
+mechanism. `LANGFUSE_INIT_*` values create resources only when they do not already exist, and the
+Postgres image applies `POSTGRES_PASSWORD` only when it initializes an empty data directory. On a
+disposable demo, stop Compose, remove the four `ingot_langfuse_*_data` volumes and the
+`ingot_langfuse_clickhouse_logs` volume, set `.env`, and start again. This permanently deletes
+existing traces. On a deployment whose traces must survive, back up
+the datastores, rotate database and object-store credentials with their native administration tools,
+rotate the user and project credentials in Langfuse, update `.env`, and then restart the stack. Do
+not replace `LANGFUSE_ENCRYPTION_KEY` or `LANGFUSE_SALT` on an initialized deployment without the
+corresponding Langfuse migration procedure. Langfuse documents the create-only behavior in its
+[headless initialization guide](https://langfuse.com/self-hosting/administration/headless-initialization).
+An all-zeros `ENCRYPTION_KEY` makes encryption of stored secrets worthless if the volumes leak.
 
 Deliberately not done: we do not scan or denylist skill content (shell commands, `.env` mentions,
 `curl … | sh`), because legitimate skills routinely contain code and install steps; human review at
 the approval step is the content check. Contain the residual risk operationally: run the agent in a
 container without real secrets or sensitive host paths. Further reading:
 [OpenAI on prompt injection](https://openai.com/safety/prompt-injections/).
-

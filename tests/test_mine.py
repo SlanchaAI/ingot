@@ -27,11 +27,12 @@ def test_fetch_traces_keeps_only_usable_task_output_pairs(monkeypatch):
         {"input": {"task": "do Y"}, "output": None, "tags": []},          # null output -> drop
         {"input": {"notask": "z"}, "output": "ans", "tags": []},          # no task -> drop
         {"input": {"task": "do Z"}, "output": "   ", "tags": []},         # blank output -> drop
-        {"input": "a bare string", "output": "ans", "tags": []},          # non-dict input -> drop
+        {"input": "a bare string", "output": "ans", "tags": []},          # Codex connector -> keep
     ]
     monkeypatch.setattr(mine.urllib.request, "urlopen", lambda req, timeout=60: _Resp(data))
     out = mine.fetch_traces(50)
-    assert len(out) == 1 and out[0]["task"] == "do X" and out[0]["rubric"] == "r"
+    assert [(trace["task"], trace["rubric"]) for trace in out] == [
+        ("do X", "r"), ("a bare string", "")]
 
 
 def test_fetch_traces_parses_langgraph_agent_traces(monkeypatch):
@@ -50,6 +51,30 @@ def test_fetch_traces_parses_langgraph_agent_traces(monkeypatch):
     assert [t["task"] for t in out] == ["fill the form", "blocks"]
     assert out[0]["answer"] == "here is the code" and out[0]["rubric"] == ""
     assert out[1]["answer"] == "part1\npart2"
+
+
+@pytest.mark.parametrize(("trace_input", "trace_output", "task", "answer"), [
+    ("Codex task", "Codex answer", "Codex task", "Codex answer"),
+    ({"role": "user", "content": "Claude task"},
+     {"role": "assistant", "content": "Claude answer"}, "Claude task", "Claude answer"),
+])
+def test_fetch_traces_parses_coding_agent_connector_roots(
+        monkeypatch, trace_input, trace_output, task, answer):
+    class Resp:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *args):
+            pass
+
+        def read(self):
+            return json.dumps({"data": [{"input": trace_input, "output": trace_output,
+                                         "tags": []}]}).encode()
+    monkeypatch.setattr(mine.urllib.request, "urlopen", lambda req, timeout=60: Resp())
+
+    traces = mine.fetch_traces(10)
+
+    assert traces == [{"task": task, "rubric": "", "answer": answer, "tags": []}]
 
 
 def test_fetch_traces_fails_loudly_when_backend_unreachable(monkeypatch):

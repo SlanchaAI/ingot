@@ -211,6 +211,22 @@ services:
         condition: service_started
     profiles: ["lan"]
 
+  # Separate opt-in TLS endpoint for Langfuse on a trusted LAN. Set LANGFUSE_PUBLIC_URL to
+  # https://<this-box's-name-or-IP>:3443 and rotate every demo credential before starting it:
+  #   docker compose --profile langfuse-lan up -d langfuse-proxy
+  # Keeping this separate from `proxy` means sharing the change-control UI never publishes traces.
+  langfuse-proxy:
+    image: docker.io/caddy:2
+    ports:
+      - "3443:3443"
+    volumes:
+      - ./ops/caddy/Langfuse.Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+    depends_on:
+      langfuse-web:
+        condition: service_healthy
+    profiles: ["langfuse-lan"]
+
   # ---------------------------------------------------------------------------
   # Self-hosted Langfuse v3 (adapted from the official docker-compose.yml).
   # UI: http://localhost:3100, login demo@local.dev / localdemo123

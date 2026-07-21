@@ -52,8 +52,7 @@ produces proposals, never activations.
 git clone https://github.com/SlanchaAI/ingot.git && cd ingot
 cp .env.example .env               # add an OpenRouter key, or point BASE_URL at Ollama (no key)
 scripts/fetch_skills.sh all        # fetch ~70 real skills into ./skills (see docs/skill-sources.md)
-docker compose up                  # lite by default: skill router (:8000) + change-control UI (:8080)
-                                   #   + one demo agent run
+docker compose up                  # router (:8000), UI (:8080), Langfuse (:3100), and one agent run
 docker compose run --rm agent "How do I merge several PDFs into one and add page numbers?"
 ```
 
@@ -69,6 +68,40 @@ them). Backend, model, and gate settings live in [Configuration](docs/configurat
 
 Then walk the full loop, a stale Tailwind skill mined, rewritten, gated, and promoted, in the
 [**Tutorial**](docs/tutorial.md).
+
+### Connect Claude Code or Codex
+
+You can use Ingot with your existing coding agent instead of the bundled demo agent. Start the
+stack, then run the setup script for your agent:
+
+```bash
+docker compose up -d
+./scripts/claude_setup.sh
+# or
+./scripts/codex_setup.sh
+```
+
+Each script adds `http://localhost:8000/mcp` as the user-level `ingot` MCP server and installs the
+official Langfuse observability connector. Claude Code prompts for the Langfuse URL and project keys
+after restart. The Codex script writes a private `~/.codex/langfuse.json`; it defaults to the bundled
+Langfuse at `http://localhost:3100` with the local demo project keys.
+
+For Langfuse Cloud or another self-hosted project, provide its values when running the Codex setup:
+
+```bash
+LANGFUSE_BASE_URL=https://cloud.langfuse.com \
+LANGFUSE_PUBLIC_KEY=pk-lf-... \
+LANGFUSE_SECRET_KEY=sk-lf-... \
+./scripts/codex_setup.sh
+```
+
+Set `INGOT_MCP_URL` if the MCP server is not on localhost. The connectors record prompts, responses,
+reasoning summaries, and tool inputs and outputs, including Ingot MCP calls, so do not enable them
+for sessions whose contents must not be stored in Langfuse. Their trace-root shapes are accepted by
+`optimize-mine`; untagged turns are attributed to skills by task similarity. See
+[Bring your own agent](docs/mcp-integration.md) for the trace contract and routing behavior.
+Tell the agent to call `ingot.route_and_load` once at the start of each request and follow the
+returned `skill_body`; connecting the MCP server makes the tool available but does not force its use.
 
 ## How it works
 

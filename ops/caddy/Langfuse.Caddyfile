@@ -1,0 +1,8 @@
+# Opt-in TLS front door for Langfuse. Do not start this service until every demo credential is
+# rotated and LANGFUSE_PUBLIC_URL matches the browser URL, as documented in docs/security.md.
+:3443 {
+	tls internal {
+		on_demand
+	}
+	reverse_proxy langfuse-web:3000
+}
