@@ -21,7 +21,7 @@ def _environment(tmp_path: Path) -> tuple[dict, Path]:
     state = tmp_path / "state"
     state.mkdir()
     env = {**os.environ, "HOME": str(tmp_path / "home"), "TEST_STATE": str(state),
-           "PATH": f"{fake_bin}:{os.environ['PATH']}"}
+           "PATH": f"{fake_bin}:{os.environ['PATH']}", "INGOT_PYTHON": "python3"}
     _executable(fake_bin / "python3", f'''
 if [ "${{1:-}}" = "-m" ] && [ "${{2:-}}" = "pip" ]; then
   echo "python3 $*" >> "$TEST_STATE/calls"
@@ -163,3 +163,23 @@ if [ "$1 $2" = "plugin install" ]; then touch "$TEST_STATE/plugin"; exit; fi
     assert "claude mcp add --scope user --transport http ingot" in calls
     assert "claude plugin uninstall" in calls
     assert "claude plugin install" in calls
+
+
+def test_setup_docs_require_persistent_skill_loading_instruction():
+    integration = (ROOT / "docs" / "mcp-integration.md").read_text()
+    production = (ROOT / "PRODUCTION_SETUP.md").read_text()
+
+    assert "registration exposes the tool but does not force" in integration.lower()
+    assert "CLAUDE.md" in integration and "AGENTS.md" in integration
+    assert "call ingot.route_and_load exactly once" in integration
+    assert "CLAUDE.md" in production and "AGENTS.md" in production
+
+
+def test_live_smokes_require_completed_mcp_call_and_mining_parser():
+    codex = (ROOT / "scripts" / "codex_langfuse_smoke.sh").read_text()
+    claude = (ROOT / "scripts" / "claude_langfuse_smoke.sh").read_text()
+
+    assert "ingot/route_and_load (completed)" in codex
+    assert "mcp__ingot__route_and_load" in claude and "tool_result" in claude
+    assert "from optimize.mine import fetch_traces" in codex
+    assert "from optimize.mine import fetch_traces" in claude

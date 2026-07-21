@@ -247,8 +247,8 @@ docker compose run --rm --entrypoint python optimize -m optimize.promote rollbac
 ```
 
 Rollback snapshots the revision it displaces too, so the round trip is symmetric, and it writes its
-own audit record. The trail records the actor as the approver's authenticated identity — the HTTP
-Basic username or OIDC email — or `local-operator` in the zero-config open mode, where it can record
+own audit record. The trail records the actor as the approver's authenticated identity, the HTTP
+Basic username or OIDC email, or `local-operator` in the zero-config open mode, where it can record
 that a local operator approved, not who. Both
 records are appended after the swap has already happened, so an audit write that fails (a full or
 read-only disk) is logged and the change stands: a missing line means the trail is incomplete, not
