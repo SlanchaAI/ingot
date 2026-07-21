@@ -390,9 +390,8 @@
     </div>
     <div class="empty" id="review-empty">
       <div class="et">Nothing is awaiting review.</div>
-      <div class="ed">Quarantined changes land here: skills an agent authored via <code>create_skill</code>,
-        and candidates from the optional candidate generator. No other application path can activate
-        a skill.</div>
+      <div class="ed">Quarantined changes land here: candidates from the optional candidate
+        generator. No other application path can activate a skill.</div>
     </div>
     <!-- outside the card on purpose: approving or rejecting the last pending change hides the
          card, and the result of that decision has to stay on screen -->
@@ -478,7 +477,7 @@ function tickKpis() {
 const staggerIn = sel => document.querySelectorAll(sel).forEach((el, i) => {
   el.classList.add("list-in"); el.style.setProperty("--i", Math.min(i, 12));  // long lists land together past the fold
 });
-// skill descriptions come from third-party skill packs / the agent's create_skill, escape before innerHTML
+// skill descriptions come from third-party skill packs, escape before innerHTML
 const esc = t => { const d = document.createElement("div"); d.textContent = t; return d.innerHTML; };
 
 // Surface the API's own explanation (FastAPI puts it in `detail`) rather than a raw response body:
@@ -522,8 +521,7 @@ const alert = (cls, tag, txt) =>
 // String(): the audit trail is a plain JSONL file an operator can edit, so a non-string
 // revision must shorten to nonsense rather than throw and blank the history section
 const shortRev = r => String(r || "").slice(0, 12);
-const statusChip = s => s.creation ? `<span class="chip rust">new skill · awaiting review</span>`
-  : s.pending ? `<span class="chip rust">change awaiting review</span>`
+const statusChip = s => s.pending ? `<span class="chip rust">change awaiting review</span>`
   : s.status === "running" ? `<span class="chip warn">generating candidate</span>`
   : !s.has_tasks ? `<span class="chip mute">no evals</span>`
   : `<span class="chip pass">evals</span>`;
@@ -642,11 +640,11 @@ function renderSkills(skills) {
         <p class="sdesc">${esc(s.description)}</p>
       </div>
       <div class="sactions">
-        ${s.pending ? `<button class="btn primary" onclick="showPending('${esc(s.name)}')">${s.creation ? "Review new skill" : "Review change"}</button>` : ""}
-        ${s.creation ? "" : `<button class="btn" onclick="generateCandidate('${esc(s.name)}')"
+        ${s.pending ? `<button class="btn primary" onclick="showPending('${esc(s.name)}')">Review change</button>` : ""}
+        <button class="btn" onclick="generateCandidate('${esc(s.name)}')"
           ${s.status === "running" || !s.has_tasks ? "disabled" : ""}
           ${s.has_tasks ? "" : `title="no eval task set; docker compose run --rm optimize ${esc(s.name)} auto-drafts one"`}>
-          ${s.status === "running" ? "generating…" : "Generate candidate"}</button>`}
+          ${s.status === "running" ? "generating…" : "Generate candidate"}</button>
       </div>
     </div>`).join("");
 }
@@ -745,13 +743,10 @@ async function showPending(skill, {keepMessage = false} = {}) {
   currentPendingData = p;
   $("#pending-card").hidden = false;
   $("#review-empty").hidden = true;
-  const creation = p.kind === "creation";
-  $("#pending-heading").textContent =
-    (creation ? "New skill candidate: " : "Pending change: ") + skill;
-  $("#pending-copy").textContent = creation
-    ? "Review the proposed routing description and instructions. Approval activates this skill for the first time."
-    : "Held-out evidence for this change is below. Approval snapshots the current revision and swaps atomically, so promote only a clear, gate-passing win.";
-  $("#approve").textContent = creation ? "Approve & activate" : "Approve & promote";
+  $("#pending-heading").textContent = "Pending change: " + skill;
+  $("#pending-copy").textContent =
+    "Held-out evidence for this change is below. Approval snapshots the current revision and swaps atomically, so promote only a clear, gate-passing win.";
+  $("#approve").textContent = "Approve & promote";
   // stale evidence describes a champion that has since moved on disk: promotion would refuse it,
   // so the review card refuses it first rather than after the click
   $("#approve").disabled = Boolean((p.gate && !p.gate.promotable) || p.stale);
@@ -759,9 +754,7 @@ async function showPending(skill, {keepMessage = false} = {}) {
   // the API normalizes them, and a record with neither simply renders without the line
   const search = p.inner_loop;
   let detail;
-  if (creation) {
-    detail = `<div class="metaline"><b>Agent-authored new skill</b> · quarantined · human approval required</div>`;
-  } else if (p.ab) {  // quality pass: judge scores + token shift through the full agent
+  if (p.ab) {  // quality pass: judge scores + token shift through the full agent
     const c = p.ab.champion, ch = p.ab.challenger, chalWins = ch.mean > c.mean;
 
     const cand = (role, o, win) =>
@@ -818,9 +811,8 @@ async function showPending(skill, {keepMessage = false} = {}) {
   $("#pending-detail").innerHTML = detail + changed + gate + warn + stale;
   $("#diff").innerHTML = colorizeDiff(p.diff);
   if (!keepMessage) say("#pending-msg", "", false);
-  // an agent-authored creation has no measured bundle to show: the diff is the whole evidence
-  $("#evidence-label").hidden = $("#evidence").hidden = creation;
-  if (!creation) showEvidence(skill);
+  $("#evidence-label").hidden = $("#evidence").hidden = false;
+  showEvidence(skill);
 }
 
 // Approve opens a larger comparison panel (model breakdown, token usage, judge scores) with a

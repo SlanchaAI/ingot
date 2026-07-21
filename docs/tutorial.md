@@ -323,25 +323,16 @@ docker compose run --rm optimize-loop            # all skills with eval sets; ad
 
 ### 10. Grow the library
 
-Three ways the library grows:
+Two ways the library grows:
 
 - **Write one yourself**, exactly like step 3. Only two frontmatter fields matter: `name` (a slug)
   and `description` (the routing trigger; write it "pushy", starting with "Use this skill
-  when…", since under-triggering is the common failure).
-- **Let the agent propose one.** When `suggest_skills` returns an empty list, the request escalates
-  to `STRONG_MODEL` (defaults to `GEPA_MODEL`): it solves the task and queues what it learned via
-  `create_skill`. The candidate remains inactive until a human approves it. How often this fires is
-  governed by `RELATED_SCORE`.
+  when…", since under-triggering is the common failure). A truly novel request (empty
+  `suggest_skills`) is served by `STRONG_MODEL` in the meantime; how often that fires is governed
+  by `RELATED_SCORE`.
 - **Compose instead of sprawl.** If a skill is merely related (similarity below the routing
   threshold), `suggest_skills` returns it flagged `related: true` and the agent is told to extend
   or compose it rather than author a near-duplicate.
-
-```bash
-docker compose run --rm agent "Plan a strict low-FODMAP weekly dinner menu for two people"
-# PROPOSED SKILLS (MCP suggest_skills):            <- empty: no skill covers this
-# SERVING MODEL: accounts/fireworks/models/glm-5p2 (strong)
-# mcp log: [ingot] queued skill candidate 'low-fodmap-meal-planning' for human approval
-```
 
 ---
 

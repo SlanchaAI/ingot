@@ -225,7 +225,7 @@ def test_main_routes_with_connected_capabilities_and_reuses_tools(monkeypatch):
             return [{"type": "text", "text": json.dumps(
                 {"match": None, "alternatives": [], "novel": True})}]
 
-    connected = [RouteTool(), SimpleNamespace(name="create_skill"),
+    connected = [RouteTool(), SimpleNamespace(name="extra_tool"),
                  SimpleNamespace(name="reload_skills")]
     connect_calls = 0
 
@@ -249,7 +249,7 @@ def test_main_routes_with_connected_capabilities_and_reuses_tools(monkeypatch):
         "task": "write a skill",
         "harness": "claude",
         "cwd": "/app",
-        "available_tools": ["create_skill", "reload_skills"],
+        "available_tools": ["extra_tool", "reload_skills"],
         "available_mcps": ["skills"],
     }]
     assert served[0][2] == connected[1:]

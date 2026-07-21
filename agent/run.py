@@ -4,8 +4,8 @@ task -> proposed skills -> loaded skills -> result.
 
 Env: API_KEY for the configured OpenAI-compatible endpoint (required unless MODEL_BASE_URL points
 at a local endpoint), AGENT_MODEL (legacy alias MODEL), MODEL_BASE_URL (optional local vLLM/Ollama
-OpenAI-compatible endpoint), STRONG_MODEL (serves novel no-skill tasks and attempts optional skill
-authoring; defaults to GEPA_MODEL), MCP_URL, LANGFUSE_PUBLIC_KEY / LANGFUSE_SECRET_KEY / LANGFUSE_BASE_URL
+OpenAI-compatible endpoint), STRONG_MODEL (serves novel no-skill tasks; defaults to GEPA_MODEL),
+MCP_URL, LANGFUSE_PUBLIC_KEY / LANGFUSE_SECRET_KEY / LANGFUSE_BASE_URL
 (optional tracing).
 """
 import os
@@ -20,30 +20,26 @@ MCP_URL = os.environ.get("MCP_URL", "http://mcp:8000/mcp")
 # Endpoint + ZDR handling is shared with the optimizer (single source of truth): OpenRouter
 # endpoints get the hardcoded zero-data-retention provider preference; MODEL_BASE_URL points this
 # serving role at a local vLLM/Ollama server instead (README: Privacy).
-from optimize import (ZDR_PROVIDER, agent_model, api_key, client_kwargs, model_api_key,  # noqa: E402
+from optimize import (ZDR_PROVIDER, agent_model, api_key, client_kwargs, model_api_key,  # noqa: E402,F401
                       model_base_url, teacher_base_url)
 
 MODEL = agent_model()
 
 
 def strong_model() -> str:
-    """Serve a request when no skill matches; optional authoring is separately gated by the MCP
-    server. Defaults to the offline teacher (the model that authors skills)."""
+    """Serve a request when no skill matches. Defaults to the offline teacher (the model that
+    authors candidate rewrites)."""
     return os.environ.get("STRONG_MODEL") or os.environ.get("GEPA_MODEL", "z-ai/glm-5.2")
 
 INSTRUCTIONS = """You are a deep agent. Skill selection has already been performed by the
 compatible router. Follow the loaded skill below when one is present. Never call suggestion or
 loading tools to replace the router's decision.
 
-If the routing result says this is a novel task, solve it from your own knowledge, then before your
-final answer call `create_skill` exactly once to attempt to persist a reusable skill distilled from
-your solution (description = one paragraph starting "Use
-  this skill when..."; body = the general method/steps, not the specifics of this one request).
-  This queues an inactive candidate for human review and must not affect the answer.
+If the routing result says this is a novel task, solve it from your own knowledge.
 
 {routing_context}
 
-Prefer reusing an existing skill over creating a new one. Keep the final answer concise.
+Keep the final answer concise.
 Your final answer must contain the complete deliverable itself, e.g. full runnable code inline,
 never just a description of or reference to files you created in your workspace: the user cannot
 see your workspace."""

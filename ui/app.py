@@ -19,9 +19,9 @@ from fastapi.responses import FileResponse, RedirectResponse
 from mcp_server.registry import SLUG_RE, load_skills
 from optimize.ab import TASKS_DIR, run_ab
 from ui.auth import (auth_mode, current_actor, require_auth, require_role, using_default_password)
-from optimize.promote import (approve_pending, list_pending, list_revisions,
-                              list_snapshotted_skills, load_pending, pending_path, read_audit,
-                              rollback, stale_evidence_reason)
+from optimize.promote import (approve_pending, list_revisions, list_snapshotted_skills,
+                              load_pending, pending_path, read_audit, rollback,
+                              stale_evidence_reason)
 
 logger = logging.getLogger(__name__)
 REPO_ROOT = Path(__file__).resolve().parent.parent
@@ -91,51 +91,17 @@ def config():
 
 @app.get("/api/skills")
 def skills():
-    active = _active_skill_rows({p.stem for p in TASKS_DIR.glob("*.yaml")})
-    return active + _pending_creation_rows(active)
-
-
-def _active_skill_rows(tasksets: set[str]) -> list[dict]:
+    tasksets = {p.stem for p in TASKS_DIR.glob("*.yaml")}
     from mcp_server.usage_counts import load_counts
     counts = load_counts()
     return [
         {"name": s.name, "description": s.description, "has_tasks": s.name in tasksets,
          "pending": load_pending(s.name) is not None, "revision": s.revision,
          "uses": counts.get(s.name, 0),
-         "status": RUNS.get(s.name, {}).get("status"), "creation": False}
+         "status": RUNS.get(s.name, {}).get("status")}
         for s in load_skills()
         if SLUG_RE.fullmatch(s.name)  # a non-slug name (hostile frontmatter) can't be optimized anyway
     ]
-
-
-def _pending_creation_row(record: dict, active_names: set[str]) -> dict | None:
-    if record.get("kind") != "creation":
-        return None
-    name = record["skill"]
-    if name in active_names:
-        return None
-    description = record.get("challenger_components", {}).get("description")
-    if not isinstance(description, str):
-        return None
-    return {
-        "name": name,
-        "description": description,
-        "has_tasks": False,
-        "pending": True,
-        "revision": None,
-        "status": None,
-        "creation": True,
-    }
-
-
-def _pending_creation_rows(active: list[dict]) -> list[dict]:
-    active_names = {item["name"] for item in active}
-    creations = []
-    for record in list_pending():
-        creation = _pending_creation_row(record, active_names)
-        if creation:
-            creations.append(creation)
-    return creations
 
 
 @app.post("/api/optimize/{skill}",
@@ -268,7 +234,7 @@ def approve(skill: str, actor: str = Depends(current_actor)):
     with change_control(skill):
         try:
             return {"result": approve_pending(skill, actor=actor)}
-        except ValueError as e:  # stale evidence, a name collision, a failed safety re-check
+        except ValueError as e:  # stale evidence: the champion moved on disk since the run
             raise HTTPException(409, str(e))
 
 

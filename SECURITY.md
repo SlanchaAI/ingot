@@ -18,11 +18,9 @@ Ingot is a local development system, not a hardened multi-tenant service.
 - MCP and change-control UI endpoints have no built-in authentication. Docker publishes them on
   `127.0.0.1` by default. Add authenticated transport before exposing them to a network. Anyone who
   can reach the UI can approve a change or roll a skill back.
-- Agent-authored `create_skill` calls only queue inactive candidates. A normal application flow can
-  activate a new skill or rewrite only through an explicit approval action in the UI.
-- Content checks on agent-authored skills are defense in depth, not proof that a skill is safe.
-- Candidate generation only creates quarantined pending records. Reviewers own every activation
-  decision.
+- Candidate generation only creates quarantined pending records. A normal application flow can
+  activate a rewrite only through an explicit approval action in the UI; reviewers own every
+  activation decision.
 - Fetched third-party skills are dependencies. Review their code, instructions, and licenses.
 - Run agents without sensitive host mounts. Keep real keys only in the gitignored `.env` file.
 - The execution sandbox reduces risk; it does not make arbitrary instructions trustworthy.

@@ -56,11 +56,6 @@ guardrails plus a small, well-defended write surface.
 
 Write paths, and what guards each:
 
-- **`create_skill`** is agent-authored but pending only. It cannot route until a human approves it
-  in the UI. Authoring uses slug + frontmatter sanitization, never overwrites, Agent-Skills-spec
-  name/description limits, an instruction-override / prompt-injection phrase check
-  (`mcp_server/safety.py`), an embedding collision check that blocks route-shadowing, and an
-  optional ML classifier (below). Accepted skills are tagged `source: agent`.
 - **Generated rewrites** land in `runs/pending/` and cannot activate themselves. They also require
   evidence whose champion and challenger revisions still match the skill on disk before UI approval.
 - **Approval and rollback** are the only application paths that write under `skills/`. Both go
@@ -73,24 +68,6 @@ Write paths, and what guards each:
   escape hatch sits outside the application approval guarantee.
 - **Third-party skills** are unaudited but not attacker-controlled at runtime; review them as you
   would any dependency.
-
-### Optional: ML prompt-injection classifier
-
-Beyond the regex heuristic, `create_skill` can run the
-[vLLM Semantic Router](https://github.com/vllm-project/semantic-router) jailbreak detector
-([`llm-semantic-router/mmbert32k-jailbreak-detector-merged`](https://huggingface.co/llm-semantic-router/mmbert32k-jailbreak-detector-merged),
-an mmBERT CPU classifier, Apache-2.0) on ONNX Runtime. Opt-in; the model downloads (~1.2GB,
-one-time) from Hugging Face on first use:
-
-```bash
-export SKILL_GUARD_MODEL=llm-semantic-router/mmbert32k-jailbreak-detector-merged
-# optional: export SKILL_GUARD_THRESHOLD=0.7
-# optional: export SKILL_GUARD_ONNX_FILE=onnx/model.onnx
-```
-
-A classification above the threshold is rejected alongside the regex check (~20ms per call on
-CPU). If the model is missing it degrades silently to the regex heuristic. In Docker, set
-`SKILL_GUARD_MODEL` on the `mcp` service (mount a persistent `HF_HOME`).
 
 ### Network exposure
 
@@ -138,8 +115,9 @@ if you can. For a shared or company-wide deployment, [Sign in with Google](sso.m
 the signed-in email as the audit actor. For authenticating the MCP serving endpoints themselves, put
 an authenticating reverse proxy in front.
 
-Deliberately not done: we do not denylist shell commands, `.env` mentions, or `curl … | sh` in
-skill bodies, because legitimate skills routinely contain code and install steps. Contain the
-residual risk operationally: run the agent in a container without real secrets or sensitive host
-paths. Further reading: [OpenAI on prompt injection](https://openai.com/safety/prompt-injections/).
+Deliberately not done: we do not scan or denylist skill content (shell commands, `.env` mentions,
+`curl … | sh`), because legitimate skills routinely contain code and install steps; human review at
+the approval step is the content check. Contain the residual risk operationally: run the agent in a
+container without real secrets or sensitive host paths. Further reading:
+[OpenAI on prompt injection](https://openai.com/safety/prompt-injections/).
 

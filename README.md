@@ -19,8 +19,8 @@ What the system guarantees:
 
 - **A revision names an exact skill.** Every file in a skill folder is hashed, so the revision on a
   trace, in a piece of evidence, and on disk are comparable.
-- **Changes are quarantined.** Agent-authored skills (`create_skill`) and generated rewrites land in
-  `runs/pending/` and cannot route traffic until a human approves them.
+- **Changes are quarantined.** Generated rewrites land in `runs/pending/` and cannot route
+  traffic until a human approves them.
 - **Approval needs evidence.** A rewrite carries held-out champion-vs-challenger scores, per-case
   deltas, token cost, and a gate verdict; promotion re-checks the evidence still matches disk.
 - **Promotion is atomic and reversible.** The displaced revision is snapshotted and the directory
@@ -37,7 +37,7 @@ Built for individual users first, ready to share:
   request, everything binds localhost, and the shared UI has an optional password gate.
 - **Easy.** A skill is a folder with a `SKILL.md`. Drop one in and it is live on the next request.
 
-Changes come mostly from you and your agents. Ingot also ships an **optional** candidate generator
+Changes come mostly from you. Ingot also ships an **optional** candidate generator
 that mines real traces for failing skills, drafts rewrites, and measures them on held-out tasks; it
 produces proposals, never activations.
 
@@ -89,7 +89,7 @@ The component map is in [docs/how-it-works.md](docs/how-it-works.md); deeper des
 | [How it works](docs/how-it-works.md) | Component map (MCP server, agent, optimizer, UI) |
 | [Configuration](docs/configuration.md) | Env reference, candidate generation, cross-model compatibility, eval task sets, Langfuse |
 | [The evidence gate](docs/evidence-gate.md) | The anti reward-hacking checks a reviewer relies on |
-| [Privacy & security](docs/security.md) | Zero-data-retention, network exposure, threat model, prompt-injection guard |
+| [Privacy & security](docs/security.md) | Zero-data-retention, network exposure, threat model |
 | [Sign in with Google (SSO)](docs/sso.md) | Domain-restricted login and roles for a shared deployment |
 | [Bring your own agent](docs/mcp-integration.md) | Use the MCP server from your own harness; tracing |
 | [Skill sources](docs/skill-sources.md) | Where `scripts/fetch_skills.sh` gets skills, and their licenses |

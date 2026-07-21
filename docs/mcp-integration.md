@@ -10,8 +10,7 @@ agent); the bundled `agent/run.py` is a reference client, not a requirement. Poi
 - **`related_match`, `novel: false`**: the closest compatible skill is below the direct-match
   threshold. Its identity, revision, root, and sole body are loaded so the weak model can compose
   or extend it. `alternatives` remain body-free.
-- **`novel: true`**: nothing even related. Serve with your strong model, then call `create_skill`
-  to queue a reusable candidate. It remains inactive until UI approval.
+- **`novel: true`**: nothing even related. Serve with your strong model.
 
 To keep the trace-mining loop fed from your own harness, see
 [Tracing from your own harness](#tracing-from-your-own-harness-mcp-only).
