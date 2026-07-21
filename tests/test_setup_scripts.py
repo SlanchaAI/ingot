@@ -22,6 +22,8 @@ def _environment(tmp_path: Path) -> tuple[dict, Path]:
     state.mkdir()
     env = {**os.environ, "HOME": str(tmp_path / "home"), "TEST_STATE": str(state),
            "PATH": f"{fake_bin}:{os.environ['PATH']}", "INGOT_PYTHON": "python3"}
+    for name in ("LANGFUSE_BASE_URL", "LANGFUSE_PUBLIC_KEY", "LANGFUSE_SECRET_KEY"):
+        env.pop(name, None)
     _executable(fake_bin / "python3", f'''
 if [ "${{1:-}}" = "-m" ] && [ "${{2:-}}" = "pip" ]; then
   echo "python3 $*" >> "$TEST_STATE/calls"
@@ -88,6 +90,17 @@ def test_codex_setup_rejects_old_codex_before_writing_config(tmp_path):
     assert result.returncode != 0
     assert "Codex 0.128 or newer" in result.stderr
     assert not (Path(env["HOME"]) / ".codex" / "langfuse.json").exists()
+
+
+def test_remote_setup_requires_explicit_langfuse_credentials(tmp_path):
+    env, _ = _environment(tmp_path)
+    env["LANGFUSE_BASE_URL"] = "https://langfuse.example"
+
+    for script in ("claude_setup.sh", "codex_setup.sh"):
+        result = subprocess.run([str(ROOT / "scripts" / script)], cwd=ROOT, env=env,
+                                text=True, capture_output=True)
+        assert result.returncode != 0
+        assert "requires LANGFUSE_PUBLIC_KEY and LANGFUSE_SECRET_KEY" in result.stderr
 
 
 def test_claude_setup_is_idempotent(tmp_path):
@@ -183,3 +196,5 @@ def test_live_smokes_require_completed_mcp_call_and_mining_parser():
     assert "mcp__ingot__route_and_load" in claude and "tool_result" in claude
     assert "from optimize.mine import fetch_traces" in codex
     assert "from optimize.mine import fetch_traces" in claude
+    assert "--add-host host.docker.internal:host-gateway" in codex
+    assert "--add-host host.docker.internal:host-gateway" in claude

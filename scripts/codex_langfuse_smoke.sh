@@ -50,7 +50,7 @@ for _ in range(30):
 raise SystemExit(f"Codex trace containing {marker} was not found")
 '
 
-docker run --rm -v "$PWD:/app" -w /app \
+docker run --rm --add-host host.docker.internal:host-gateway -v "$PWD:/app" -w /app \
   -e LANGFUSE_BASE_URL="$LF_DOCKER_URL" \
   -e LANGFUSE_PUBLIC_KEY="$LF_PK" \
   -e LANGFUSE_SECRET_KEY="$LF_SK" \

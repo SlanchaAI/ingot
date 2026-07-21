@@ -11,6 +11,15 @@ esac
 
 MCP_URL=${INGOT_MCP_URL:-http://localhost:8000/mcp}
 LF_URL=${LANGFUSE_BASE_URL:-http://localhost:3100}
+case "$LF_URL" in
+  http://localhost:3100|http://127.0.0.1:3100) ;;
+  *)
+    if [ -z "${LANGFUSE_PUBLIC_KEY:-}" ] || [ -z "${LANGFUSE_SECRET_KEY:-}" ]; then
+      echo "error: remote LANGFUSE_BASE_URL requires LANGFUSE_PUBLIC_KEY and LANGFUSE_SECRET_KEY" >&2
+      exit 1
+    fi
+    ;;
+esac
 LF_PK=${LANGFUSE_PUBLIC_KEY:-pk-lf-local-demo}
 LF_SK=${LANGFUSE_SECRET_KEY:-sk-lf-local-demo}
 trap 'echo "error: Claude setup failed; run $0 --doctor for diagnostics or $0 --repair to reinstall managed state" >&2' 0

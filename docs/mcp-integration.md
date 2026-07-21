@@ -59,8 +59,10 @@ node --version  # must report v22 or newer
 ```
 
 The Codex script adds the user-level `ingot` MCP server, installs and enables the Langfuse tracing
-plugin, and writes its credentials to `~/.codex/langfuse.json` with mode `0600`. It defaults to the
-bundled local Langfuse. Point it at another project by setting `LANGFUSE_BASE_URL`,
+plugin through `codex plugin add`, and writes its credentials to `~/.codex/langfuse.json` with mode
+`0600`. Current Codex discovers hooks bundled by enabled plugins, so no separate `plugin_hooks`
+feature setting is required. It defaults to the bundled local Langfuse. Point it at another project
+by setting `LANGFUSE_BASE_URL`,
 `LANGFUSE_PUBLIC_KEY`, and `LANGFUSE_SECRET_KEY` for the setup command. Set `INGOT_MCP_URL` for
 either script when Ingot is not running on localhost.
 
@@ -87,7 +89,11 @@ reach. For example, if the Ingot host is `192.168.1.40`:
 
 ```bash
 # On the remote Claude Code machine
-INGOT_MCP_URL=http://192.168.1.40:8000/mcp ./scripts/claude_setup.sh
+INGOT_MCP_URL=http://192.168.1.40:8000/mcp \
+LANGFUSE_BASE_URL=https://192.168.1.40:3443 \
+LANGFUSE_PUBLIC_KEY=pk-lf-... \
+LANGFUSE_SECRET_KEY=sk-lf-... \
+./scripts/claude_setup.sh
 
 # On the remote Codex machine
 INGOT_MCP_URL=http://192.168.1.40:8000/mcp \
