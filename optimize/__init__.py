@@ -70,14 +70,6 @@ def langfuse_available() -> bool:
         return False
 
 
-def traces_file():
-    """Local JSONL trace store: the zero-infrastructure fallback written by the agent and read
-    by optimize-mine when the Langfuse stack isn't running (one {task, answer, tags} per line)."""
-    from pathlib import Path
-    return Path(os.environ.get("TRACES_FILE") or
-                Path(__file__).resolve().parent.parent / "runs" / "traces.jsonl")
-
-
 def openrouter_extra_body() -> dict:
     """Provider preferences for OpenRouter calls: the hardcoded ZDR policy, plus an optional
     priority list (OPENROUTER_PROVIDERS=fireworks[,groq] -> provider.order): listed providers

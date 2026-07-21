@@ -1,6 +1,8 @@
 """Unit tests for success/failure mining (optimize.mine), Langfuse HTTP and the judge are mocked."""
 import json
 
+import pytest
+
 from optimize import mine
 from optimize.judge import DIMENSIONS
 
@@ -48,6 +50,17 @@ def test_fetch_traces_parses_langgraph_agent_traces(monkeypatch):
     assert [t["task"] for t in out] == ["fill the form", "blocks"]
     assert out[0]["answer"] == "here is the code" and out[0]["rubric"] == ""
     assert out[1]["answer"] == "part1\npart2"
+
+
+def test_fetch_traces_fails_loudly_when_backend_unreachable(monkeypatch):
+    """No local fallback: an unreachable evals backend must raise, not return an empty list that
+    would read as 'nothing failing'."""
+    def boom(req, timeout=60):
+        raise OSError("connection refused")
+    monkeypatch.setattr(mine.urllib.request, "urlopen", boom)
+    with pytest.raises(SystemExit) as exc:
+        mine.fetch_traces(50)
+    assert "unreachable" in str(exc.value).lower()
 
 
 def test_relevant_traces_keeps_tagged_or_embedding_ranked(monkeypatch):

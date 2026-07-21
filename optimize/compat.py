@@ -7,8 +7,8 @@ tasks through the one serving contract twice, once with the skill body, once wit
 (skill mean − baseline mean). Positive lift = the body helps that model; ~0 = the model already
 knows this and the body is dead weight there.
 
-Langfuse-free: it reuses the direct rollout + judge (the same path the inner loop uses), so it runs
-in lite mode with the tracing stack down. Only the *serving* model varies, the judge stays fixed so
+Langfuse-free: it reuses the direct rollout + judge (the same path the inner loop uses), so it needs
+no trace backend or experiment logging. Only the *serving* model varies, the judge stays fixed so
 scores are comparable across models.
 
 Usage:  python -m optimize.compat <skill>

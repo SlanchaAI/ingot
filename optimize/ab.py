@@ -294,7 +294,7 @@ def _run_variant(dataset, variant: str, agent, tasks: list[dict]):
 
 def _run_variant_local(agent, tasks: list[dict]):
     """Langfuse-free twin of _run_variant: identical rollouts and judging, no experiment
-    logging. Used when the tracing stack isn't running (lite mode); a failed item scores 0,
+    logging. Used when Langfuse experiment logging isn't available; a failed item scores 0,
     matching _run_variant's per-item default."""
     async def rollout_all():
         return await asyncio.gather(
@@ -387,7 +387,7 @@ def _eval_variants(dataset, ts: int, champion: dict, challenger: dict, holdout: 
 
 def _holdout_dataset(skill: str, holdout: list[dict], log):
     """(langfuse client, dataset) for the holdout when the stack is reachable, else
-    (None, None): the gate then runs locally with no experiment logging (lite mode)."""
+    (None, None): the gate then runs locally with no experiment logging."""
     if not langfuse_available():
         log("[ab] Langfuse unreachable, running the holdout gate locally (no experiment logging)")
         return None, None

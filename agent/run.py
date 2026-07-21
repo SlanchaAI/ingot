@@ -253,7 +253,6 @@ async def _serve(task: str, routed: dict, tools) -> None:
     identity = _route_identity(routed)
     if identity:
         loaded = [identity]
-    _log_local_trace(task, final, tags)
 
     print(f"\nLOADED SKILLS (MCP route_and_load): {loaded or '(none)'}")
     print(f"TOKENS: {usage['input_tokens']} in / {usage['output_tokens']} out")
@@ -284,15 +283,6 @@ async def main(task: str):
         print("        MODEL_BASE_URL at a local vLLM/Ollama endpoint, no key needed).")
         return
     await _serve(task, routed, serving_tools)
-
-
-def _log_local_trace(task: str, answer: str, tags: list[str]) -> None:
-    """Append to the optional local JSONL store without letting trace failures break serving."""
-    from agent.traces import write
-    try:
-        write(task, answer, tags)
-    except (OSError, ValueError) as e:
-        print(f"[agent] local trace store unavailable ({e}), run not recorded locally")
 
 
 if __name__ == "__main__":

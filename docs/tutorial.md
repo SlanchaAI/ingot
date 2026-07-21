@@ -14,8 +14,9 @@ scripts/fetch_skills.sh all        # fetch ~70 real skills into ./skills (see Sk
 docker compose up --build
 ```
 
-This brings up the MCP server (`localhost:8000`) and the change-control UI (`localhost:8080`), then
-runs the agent once on a demo task. The UI lists every skill the router serves, each with its
+This brings up the MCP server (`localhost:8000`), the change-control UI (`localhost:8080`), and a
+self-hosted Langfuse for traces and experiments (`localhost:3100`), then runs the agent once on a
+demo task. (First boot pulls the Langfuse stack, so give it a minute.) The UI lists every skill the router serves, each with its
 content-hash revision and a load count (how often it has actually been served), and surfaces
 anything awaiting review:
 
@@ -52,8 +53,8 @@ A routed task runs on the cheap `AGENT_MODEL` because the skill carries the meth
 novel tasks escalate to `STRONG_MODEL` (step 10). Steps 2 to 4 were recorded on Fireworks model
 IDs and steps 5 to 8 on the OpenRouter `AGENT_MODEL` default at recording time, `qwen/qwen3-32b`
 (the current default is `qwen/qwen3.6-27b`); the `SERVING MODEL` line always shows whatever
-`AGENT_MODEL` you configure. The run's full trace just landed in
-`runs/traces.jsonl`; that local store is what the miner reads in step 4.
+`AGENT_MODEL` you configure. The run's full trace just landed in Langfuse
+(`localhost:3100`); that's what the miner reads in step 4.
 
 ### 3. Write a first-draft skill and watch it under-deliver
 

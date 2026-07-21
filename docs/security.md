@@ -18,10 +18,11 @@ Three properties, all defaults, none optional:
   retains prompts. Provider-direct endpoints work too: Fireworks AI, for example, is
   [zero-data-retention by default](https://docs.fireworks.ai/guides/security_compliance/data_handling)
   for open models on serverless, under its own retention policy.
-- **Self-hosted tracing.** Traces default to a local JSONL store on your machine; the full Langfuse
-  stack (Postgres, ClickHouse, MinIO) runs self-hosted inside the compose stack under
-  `--profile langfuse`. Either way the trace store stays on your machine (hosted inference is the
-  separate exception noted below).
+- **Self-hosted tracing.** The default evals backend is a self-hosted Langfuse (Postgres,
+  ClickHouse, MinIO) that runs inside the compose stack, so traces stay on your machine (hosted
+  inference is the separate exception noted below). Its ports are bound to `127.0.0.1` and its
+  datastores publish no host port; before exposing it beyond your machine, rotate the demo
+  credentials — see [Securing the Langfuse deployment](#securing-the-langfuse-deployment).
 - **Localhost only.** No service is reachable off the machine (see
   [Network exposure](#network-exposure)).
 
@@ -116,6 +117,27 @@ if you can. For a shared or company-wide deployment, [Sign in with Google](sso.m
 (`AUTH_MODE=oidc`) adds domain-restricted login and the viewer/proposer/approver/admin roles, with
 the signed-in email as the audit actor. For authenticating the MCP serving endpoints themselves, put
 an authenticating reverse proxy in front.
+
+### Securing the Langfuse deployment
+
+The self-hosted Langfuse evals backend comes up with `docker compose up`, so its exposure matters.
+Two things keep the defaults safe on a single machine:
+
+- **Nothing is published beyond loopback.** Only `langfuse-web` maps a host port, on
+  `127.0.0.1:3100`; Postgres, ClickHouse, MinIO, and Redis publish no host port at all and are
+  reachable only on the internal compose network.
+- **Every credential is a demo literal you can override.** The bundled `SALT`, `ENCRYPTION_KEY`
+  (all-zeros), `NEXTAUTH_SECRET`, datastore passwords, project API keys (`pk/sk-lf-local-demo`), and
+  web login (`demo@local.dev` / `localdemo123`) are safe *only* because of the loopback binding above.
+
+Before exposing Langfuse beyond your machine, treat it like the UI: put it behind the `lan` TLS
+proxy (or your own) rather than republishing its port, **and rotate every demo secret first**. Each
+one overrides a `docker-compose.yml` default from `.env` with no file edit — the full list and the
+`openssl rand` recipes are in `.env.example` under "LANGFUSE SECURITY". At minimum rotate
+`LANGFUSE_ENCRYPTION_KEY`, `LANGFUSE_SALT`, `LANGFUSE_NEXTAUTH_SECRET`, `LANGFUSE_INIT_USER_PASSWORD`,
+and the datastore passwords; a shared or exposed deployment should also use a real Langfuse project's
+`LANGFUSE_PUBLIC_KEY` / `_SECRET_KEY`. An all-zeros `ENCRYPTION_KEY` means Langfuse's at-rest
+encryption of stored secrets is worthless if the volumes ever leak.
 
 Deliberately not done: we do not scan or denylist skill content (shell commands, `.env` mentions,
 `curl … | sh`), because legitimate skills routinely contain code and install steps; human review at

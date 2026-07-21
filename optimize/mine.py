@@ -17,7 +17,6 @@ import json
 import os
 import urllib.request
 from collections import Counter, defaultdict
-from pathlib import Path
 from typing import Callable, NamedTuple
 
 from .judge import DIMENSIONS, failed_dimensions, judge
@@ -28,9 +27,10 @@ LF_SK = os.environ.get("LANGFUSE_SECRET_KEY", "sk-lf-local-demo")
 
 
 def fetch_traces(limit: int) -> list[dict]:
-    """Recent traces with a recognizable task input and a non-empty answer output. Falls back to
-    the local JSONL trace store when Langfuse is unreachable, so mining works without the
-    tracing stack (hobbyist lite mode)."""
+    """Recent traces with a recognizable task input and a non-empty answer output, read from the
+    configured evals backend's Langfuse-compatible trace API. Fails loudly when the backend is
+    unreachable: mining has no other source of real traffic, so a silent empty result would read
+    as 'nothing failing' when it means 'no traces'."""
     auth = base64.b64encode(f"{LF_PK}:{LF_SK}".encode()).decode()
     req = urllib.request.Request(f"{LF_URL}/api/public/traces?limit={limit}",
                                  headers={"Authorization": f"Basic {auth}"})
@@ -38,7 +38,11 @@ def fetch_traces(limit: int) -> list[dict]:
         with urllib.request.urlopen(req, timeout=60) as r:
             data = json.loads(r.read())["data"]
     except OSError as e:
-        return _local_traces(limit, e)
+        raise SystemExit(
+            f"evals backend unreachable at {LF_URL} ({e}). Mining reads traces from Langfuse (the "
+            f"default) or a Langfuse-compatible endpoint; bring up the stack (`docker compose up`) "
+            f"or point LANGFUSE_BASE_URL / _PUBLIC_KEY / _SECRET_KEY at your own provider. See "
+            f"docs/mcp-integration.md (Using your own evals platform).")
     out = []
     for t in data:
         parsed = _task_answer(t.get("input"), t.get("output"))
@@ -46,61 +50,6 @@ def fetch_traces(limit: int) -> list[dict]:
             task, rubric, answer = parsed
             out.append({"task": task, "rubric": rubric, "answer": answer, "tags": t.get("tags", [])})
     return out
-
-
-def _local_traces(limit: int, err: OSError) -> list[dict]:
-    """The last `limit` records of the local JSONL trace store (written by agent/run.py), in
-    the same shape fetch_traces returns from Langfuse."""
-    from agent.traces import configured_trace_files
-    from optimize import traces_file
-    path = traces_file()
-    paths = _local_trace_paths(path, configured_trace_files)
-    if not paths:
-        raise SystemExit(f"Langfuse unreachable ({err}) and no local trace store at {path}, "
-                         "run the agent first to generate traffic.")
-    records = [record for trace_path in paths for record in _decode_local_trace(trace_path)]
-    selected = _select_local_traces(records, limit)
-    print(f"[mine] Langfuse unreachable, using local trace store {path} "
-          f"({len(selected)} of {len(records)} usable traces)")
-    return [_local_trace_output(record) for record in selected]
-
-
-def _local_trace_paths(path: Path, configured_trace_files: Callable) -> list[Path]:
-    """Existing trace files in chronological order, from oldest backup to active store."""
-    return [candidate for candidate in configured_trace_files(path, oldest_first=True)
-            if candidate.exists()]
-
-
-def _decode_local_trace(path: Path) -> list[dict]:
-    """Decode the supported records in one local JSONL trace file."""
-    records = []
-    for line in path.read_text().splitlines():
-        try:
-            record = json.loads(line)
-        except json.JSONDecodeError:
-            continue
-        # Records without schema_version are the original schema and remain supported.
-        if _supported_local_record(record):
-            records.append(record)
-    return records
-
-
-def _select_local_traces(records: list[dict], limit: int) -> list[dict]:
-    """Select up to `limit` of the newest usable records, retaining chronological order."""
-    return records[-limit:] if limit > 0 else []
-
-
-def _local_trace_output(record: dict) -> dict:
-    """Map a local record to the public trace shape returned by fetch_traces."""
-    return {"task": record["task"], "rubric": record.get("rubric", ""),
-            "answer": record["answer"], "tags": record.get("tags", [])}
-
-
-def _supported_local_record(record) -> bool:
-    """Whether a decoded local record is safe and useful as optimization evidence."""
-    return (isinstance(record, dict) and record.get("schema_version", 1) == 1
-            and isinstance(record.get("task"), str) and bool(record["task"].strip())
-            and isinstance(record.get("answer"), str) and bool(record["answer"].strip()))
 
 
 def _task_answer(inp, ans):

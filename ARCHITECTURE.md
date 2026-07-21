@@ -39,7 +39,8 @@ exposes only loopback ports.
 3. One response is authoritative for the direct `match` or explicit `related_match`, loaded body,
    revision, root, body-free alternatives, and `novel` escalation signal. A related match is loaded
    for compose-or-extend use. The agent uses the weak model unless `novel` is true.
-4. The run can be recorded in local JSONL and, when configured, Langfuse. Hosted model calls use
+4. The run is recorded to Langfuse (the default evals backend, or a Langfuse-compatible endpoint
+   `LANGFUSE_*` points at); mining reads it back and has no local fallback. Hosted model calls use
    the configured OpenAI-compatible endpoint. OpenRouter calls always request ZDR providers.
 
 ## Candidate generation (optional)
@@ -92,8 +93,7 @@ rollback snapshots, plus a `.snapshots.json` index per skill that records when e
 last snapshotted; it sits beside the snapshot directories, never inside one, so a rollback restores
 the skill and nothing else. `runs/evidence/` contains evidence bundles, and pending records name
 them relative to the repository root. `runs/approval-audit.jsonl` contains the approval trail.
-`runs/traces.jsonl` contains local traces. Langfuse uses its own Compose Postgres, ClickHouse, and
-object stores.
+Traces live in Langfuse, which uses its own Compose Postgres, ClickHouse, and object stores.
 
 Local JSON and JSONL stores assume one logical writer per skill or file. Atomic replacement protects
 pending records and skill promotion, but concurrent candidate, approval, or rollback processes are
@@ -134,8 +134,9 @@ revision the approval trail last recorded.
 
 ## Deployment modes
 
-Lite mode runs MCP and the UI, with one-shot agent and candidate-generation containers on demand.
-The optional `langfuse` profile adds local observability services. Fully local inference points model
+`docker compose up` runs MCP, the UI, and the self-hosted Langfuse evals backend, with one-shot
+agent and candidate-generation containers on demand. Point `LANGFUSE_*` at an external Langfuse
+(Cloud or self-hosted) to skip the bundled observability services. Fully local inference points model
 URLs to vLLM or Ollama. Hosted inference sends prompts and outputs to the selected provider. Endpoint
 auth is independent of these modes: the UI has its own password/OIDC gate (`AUTH_MODE`), but MCP has
 none, so publishing MCP off-loopback requires an authenticating proxy and authorization appropriate to
@@ -144,8 +145,9 @@ the available tools.
 ## Failure and recovery
 
 MCP refresh compares file signatures and rebuilds only after change; unchanged description vectors
-are reused. A failed refresh keeps the previous state until a later request retries. Trace and
-Langfuse failures do not fail serving. Malformed local trace lines are skipped by mining.
+are reused. A failed refresh keeps the previous state until a later request retries. Langfuse
+callback failures do not fail serving, but mining fails loudly when the evals backend is unreachable
+rather than returning an empty result that would read as "nothing failing".
 
 Promotion stages changes and restores the prior directory if the swap fails. Every rewrite stores
 the displaced revision. Restore it from the UI's History section, or with:

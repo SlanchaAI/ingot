@@ -30,8 +30,9 @@ What the system guarantees:
 
 Built for individual users first, ready to share:
 
-- **Lite.** `docker compose up` starts just the router and the change-control UI; the tracing stack
-  is an optional upgrade (`--profile langfuse`), not a requirement.
+- **Batteries included.** `docker compose up` starts the router, the change-control UI, and a
+  self-hosted Langfuse for traces and experiments; point `LANGFUSE_*` at your own Langfuse (Cloud or
+  self-hosted) if you'd rather not run the bundled one.
 - **Local.** Point it at Ollama or vLLM and it runs with no API key; nothing leaves your machine.
 - **Secure.** Hosted calls default to OpenRouter with zero-data-retention routing enforced on every
   request, everything binds localhost, and the shared UI has an optional password gate.
@@ -60,9 +61,11 @@ The change-control UI at `localhost:8080` asks for a login; the compose default 
 `ingot`**. Change `AUTH_PASSWORD` in `.env` before sharing it on your LAN (or set it empty to run
 open), see [Privacy & security](docs/security.md#network-exposure).
 
-Everything runs in lite mode against a local JSONL trace store, so no external stack is required;
-`docker compose --profile langfuse up` adds the self-hosted Langfuse (traces + experiment UI) if you
-want it. Trace-store, model, and gate settings live in [Configuration](docs/configuration.md).
+`docker compose up` brings up a self-hosted Langfuse (traces + experiment UI) alongside the router
+and UI; trace mining reads from it and has no local fallback, so it fails loudly if no
+Langfuse-compatible backend is reachable. Point `LANGFUSE_*` at your own Langfuse (Cloud or
+self-hosted) to skip the bundled one. Backend, model, and gate settings live in
+[Configuration](docs/configuration.md).
 
 Then walk the full loop, a stale Tailwind skill mined, rewritten, gated, and promoted, in the
 [**Tutorial**](docs/tutorial.md).

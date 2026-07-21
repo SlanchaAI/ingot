@@ -34,9 +34,6 @@ Set in `.env` (never committed):
 | `EXEC_SANDBOX` | `docker` | `docker` = locked-down container, `1` = bare subprocess (legacy), `off` = static checks only |
 | `SANDBOX_IMAGE` | `ingot-optimize` | image sandbox containers run |
 | `SANDBOX_RUNTIME` | (none) | optional container runtime, e.g. `runsc` for gVisor |
-| `TRACES_FILE` | `runs/traces.jsonl` | local JSONL trace store: written by every agent run, read by `optimize-mine` when Langfuse is unreachable, so mining works without the tracing stack |
-| `LOCAL_TRACE_MAX_BYTES` / `LOCAL_TRACE_BACKUPS` | `10485760` (10 MiB) / `3` | size-based rotation of the local trace store: roll `TRACES_FILE` past the byte cap, keeping this many `.1`…`.N` backups (`0` bytes disables size rotation) |
-| `LOCAL_TRACE_MAX_AGE_DAYS` | `30` | age-based pruning: drop rotated trace backups older than this many days (`0` disables age pruning) |
 | `SKILL_USAGE_FILE` | `runs/skill_usage.json` | per-skill load counter: the MCP server increments it on every `get_skill` / `route_and_load` match, and the UI shows each skill's `uses` |
 | `AUTH_MODE` | `password` (compose) | UI auth mode: `password` (HTTP Basic), `oidc` (Sign in with Google + roles, see [SSO](sso.md)), or `open` (no auth). When unset it is inferred as `password` if `AUTH_*` creds or an auth file exist, else `open`; set `AUTH_MODE=open` to force the UI open |
 | `AUTH_USER` / `AUTH_PASSWORD` | `admin` / `ingot` (compose) | UI login for `password` mode. docker-compose sets these so the shared UI is gated by default, **change `AUTH_PASSWORD`** before exposing it |
@@ -141,10 +138,11 @@ task an entire pool aces is dead weight.
 
 ### Using your own Langfuse project
 
-`docker compose --profile langfuse up` runs a self-hosted Langfuse (UI at
-**http://localhost:3100**, login `demo@local.dev` / `localdemo123`). To point ingot at an
-existing Langfuse project instead, skip the profile, set all three in `.env`, and restart
-(`docker compose up -d`):
+Langfuse is the default evals backend and comes up with `docker compose up` (UI at
+**http://localhost:3100**, login `demo@local.dev` / `localdemo123`). Mining has no local fallback,
+so it fails loudly unless a Langfuse-compatible endpoint is reachable. To point ingot at an
+existing Langfuse project (Cloud or self-hosted elsewhere) instead of the bundled one, set all
+three in `.env` and restart (`docker compose up -d`):
 
 ```bash
 LANGFUSE_PUBLIC_KEY=pk-lf-...                  # your project's keys: Project Settings -> API Keys
@@ -155,8 +153,13 @@ LANGFUSE_PUBLIC_URL=https://cloud.langfuse.com # optional: where your browser re
 
 One gotcha: `LANGFUSE_BASE_URL` must be reachable from inside the containers (not
 `http://localhost:<port>`, which inside a container is the container itself; use
-`http://host.docker.internal:<port>` or your host's LAN IP). The bundled stack only starts under
-`--profile langfuse`, so pointing at your own project adds no extra containers.
+`http://host.docker.internal:<port>` or your host's LAN IP). Pointing at your own project makes the
+bundled Langfuse containers redundant; skip them with `docker compose up mcp ui agent` (or your own
+service list) if you don't want them running.
+
+Securing the bundled Langfuse and connecting a non-Langfuse evals platform (Arize, …) are covered
+in [Using your own evals platform](mcp-integration.md#using-your-own-evals-platform) and
+[Security](security.md).
 
 
 ### Optional shared skill roots

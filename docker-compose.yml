@@ -1,11 +1,16 @@
 # Ingot demo: a change-control UI over a versioned skill library, an MCP server that serves the
 # approved revision of each skill, a LangGraph deep agent that loads skills from it, optional
-# background candidate generation, and a self-hosted Langfuse (v3) stack for traces / experiments
-# (optional: --profile langfuse; plain `docker compose up` is lite mode).
+# background candidate generation, and a self-hosted Langfuse (v3) stack for traces / experiments.
+# Langfuse is the default evals backend and comes up with `docker compose up`; trace mining has no
+# local fallback, so it fails loudly unless Langfuse (or a Langfuse-compatible endpoint you point
+# LANGFUSE_* at) is reachable. See docs/mcp-integration.md (Using your own evals platform).
 #
-# NOTE on "secrets" below: every credential in this file (postgres/redis/minio/clickhouse
-# passwords, the LANGFUSE_INIT_* API keys) is a LOCAL-DEMO LITERAL for the self-hosted stack on
-# your machine, not a real secret. Real keys (OPENROUTER_API_KEY) live only in .env (gitignored).
+# SECURITY — the credentials below (postgres/redis/minio/clickhouse passwords, SALT, ENCRYPTION_KEY,
+# NEXTAUTH_SECRET, the LANGFUSE_INIT_* keys and demo login) are LOCAL-DEMO LITERALS for the
+# self-hosted stack, safe only because nothing here is published beyond 127.0.0.1 and the
+# datastores publish no host port at all. Every one is overridable via .env (`${VAR:-demo}`).
+# Before exposing Langfuse beyond your machine you MUST rotate them — see .env.example (Langfuse
+# security) and docs/security.md. Real provider keys (OPENROUTER_API_KEY) live only in .env.
 name: ingot   # fixed project name so image names don't depend on the checkout dir
 services:
   # Real OIDC provider for the SSO/RBAC integration test (CI only, not a runtime dependency). Boots
@@ -51,12 +56,12 @@ services:
       LANGFUSE_PUBLIC_KEY: ${LANGFUSE_PUBLIC_KEY:-pk-lf-local-demo}
       LANGFUSE_SECRET_KEY: ${LANGFUSE_SECRET_KEY:-sk-lf-local-demo}
     volumes:
-      - ./runs:/app/runs   # local JSONL trace store must outlive the one-shot container
+      - ./runs:/app/runs   # usage counts + evidence bundles the UI reads must reach the host
     depends_on:
       mcp:
         condition: service_started
-      # no langfuse-web dependency: tracing degrades gracefully (local trace store + mine
-      # fallback), so the agent runs without the Langfuse stack
+      langfuse-web:
+        condition: service_healthy   # tracing has no local fallback; wait for the evals backend
 
   # Optional candidate generation + held-out A/B: `docker compose run --rm optimize pdf`.
   # Writes a quarantined pending record; it can never activate a skill.
@@ -79,7 +84,8 @@ services:
     depends_on:
       mcp:
         condition: service_started
-      # no langfuse-web dependency: the holdout gate runs locally when the stack is down
+      # no langfuse-web dependency: the holdout gate generates its own eval runs (it reads no
+      # traces); Langfuse experiment logging is used opportunistically when the stack is up
     profiles: ["optimize"]   # only runs on demand, not with `docker compose up`
 
   # Success/failure mining over real Langfuse traces: `docker compose run --rm optimize-mine pdf`
@@ -95,10 +101,12 @@ services:
       LANGFUSE_SECRET_KEY: ${LANGFUSE_SECRET_KEY:-sk-lf-local-demo}
     volumes:
       - ./skills:/app/skills
-      - ./runs:/app/runs                       # local trace store (Langfuse-unreachable fallback)
+      - ./runs:/app/runs                       # usage counts + mined-candidate output
       - ./optimize/tasks:/app/optimize/tasks   # train sets feed the mined-candidate leakage guard
       - /var/run/docker.sock:/var/run/docker.sock  # EXEC_SANDBOX=docker launches locked-down sandbox containers (README: execution-grounded judging)
-    # no langfuse-web dependency: mining falls back to the local trace store without the stack
+    depends_on:
+      langfuse-web:
+        condition: service_healthy   # mining reads traces from the evals backend; no local fallback
     profiles: ["optimize"]
 
   # Cross-model skill compatibility: run a skill's held-out tasks through several serving models
@@ -138,7 +146,8 @@ services:
     depends_on:
       mcp:
         condition: service_started
-      # no langfuse-web dependency: mining and the gate fall back to the local paths
+      langfuse-web:
+        condition: service_healthy   # the loop mines real traces; no local fallback
     profiles: ["optimize"]
 
   # Change-control UI (review evidence, promote, roll back): http://localhost:8080
@@ -206,7 +215,6 @@ services:
   # UI: http://localhost:3100, login demo@local.dev / localdemo123
   # ---------------------------------------------------------------------------
   langfuse-worker:
-    profiles: ["langfuse"]   # full observability stack: docker compose --profile langfuse up
     image: docker.io/langfuse/langfuse-worker:3.221.1   # pinned for reproducible demos (was :3, a moving major tag)
     restart: always
     depends_on: &langfuse-depends-on
@@ -219,35 +227,36 @@ services:
       clickhouse:
         condition: service_healthy
     environment: &langfuse-env
-      DATABASE_URL: postgresql://postgres:postgres@postgres:5432/postgres
-      SALT: local-demo-salt
-      ENCRYPTION_KEY: "0000000000000000000000000000000000000000000000000000000000000000" # local demo
+      # Every secret here is a ${VAR:-demo} so `.env` can override it without editing this file.
+      # The same var drives the datastore and Langfuse's connection to it (rotate once, both follow).
+      DATABASE_URL: postgresql://postgres:${POSTGRES_PASSWORD:-postgres}@postgres:5432/postgres
+      SALT: ${LANGFUSE_SALT:-local-demo-salt}
+      ENCRYPTION_KEY: ${LANGFUSE_ENCRYPTION_KEY:-0000000000000000000000000000000000000000000000000000000000000000}
       TELEMETRY_ENABLED: "false"
       CLICKHOUSE_MIGRATION_URL: clickhouse://clickhouse:9000
       CLICKHOUSE_URL: http://clickhouse:8123
       CLICKHOUSE_USER: clickhouse
-      CLICKHOUSE_PASSWORD: clickhouse
+      CLICKHOUSE_PASSWORD: ${CLICKHOUSE_PASSWORD:-clickhouse}
       CLICKHOUSE_CLUSTER_ENABLED: "false"
       LANGFUSE_S3_EVENT_UPLOAD_BUCKET: langfuse
       LANGFUSE_S3_EVENT_UPLOAD_REGION: auto
-      LANGFUSE_S3_EVENT_UPLOAD_ACCESS_KEY_ID: minio
-      LANGFUSE_S3_EVENT_UPLOAD_SECRET_ACCESS_KEY: miniosecret
+      LANGFUSE_S3_EVENT_UPLOAD_ACCESS_KEY_ID: ${MINIO_ROOT_USER:-minio}
+      LANGFUSE_S3_EVENT_UPLOAD_SECRET_ACCESS_KEY: ${MINIO_ROOT_PASSWORD:-miniosecret}
       LANGFUSE_S3_EVENT_UPLOAD_ENDPOINT: http://minio:9000
       LANGFUSE_S3_EVENT_UPLOAD_FORCE_PATH_STYLE: "true"
       LANGFUSE_S3_EVENT_UPLOAD_PREFIX: events/
       LANGFUSE_S3_MEDIA_UPLOAD_BUCKET: langfuse
       LANGFUSE_S3_MEDIA_UPLOAD_REGION: auto
-      LANGFUSE_S3_MEDIA_UPLOAD_ACCESS_KEY_ID: minio
-      LANGFUSE_S3_MEDIA_UPLOAD_SECRET_ACCESS_KEY: miniosecret
+      LANGFUSE_S3_MEDIA_UPLOAD_ACCESS_KEY_ID: ${MINIO_ROOT_USER:-minio}
+      LANGFUSE_S3_MEDIA_UPLOAD_SECRET_ACCESS_KEY: ${MINIO_ROOT_PASSWORD:-miniosecret}
       LANGFUSE_S3_MEDIA_UPLOAD_ENDPOINT: http://minio:9000
       LANGFUSE_S3_MEDIA_UPLOAD_FORCE_PATH_STYLE: "true"
       LANGFUSE_S3_MEDIA_UPLOAD_PREFIX: media/
       REDIS_HOST: redis
       REDIS_PORT: "6379"
-      REDIS_AUTH: localredissecret
+      REDIS_AUTH: ${REDIS_AUTH:-localredissecret}
 
   langfuse-web:
-    profiles: ["langfuse"]   # full observability stack: docker compose --profile langfuse up
     image: docker.io/langfuse/langfuse:3.221.1   # pinned for reproducible demos (was :3, a moving major tag)
     restart: always
     depends_on: *langfuse-depends-on
@@ -255,19 +264,21 @@ services:
       - "127.0.0.1:3100:3000"          # host :3100 (host :3000 is often taken)
     environment:
       <<: *langfuse-env
-      NEXTAUTH_URL: http://localhost:3100
-      NEXTAUTH_SECRET: local-demo-nextauth-secret
-      # Headless init: creates org/project/user + API keys on first boot (no UI clicks).
-      # These are local-demo literals, not secrets.
+      NEXTAUTH_URL: ${LANGFUSE_PUBLIC_URL:-http://localhost:3100}
+      NEXTAUTH_SECRET: ${LANGFUSE_NEXTAUTH_SECRET:-local-demo-nextauth-secret}
+      # Headless init: creates org/project/user + API keys on first boot (no UI clicks). These are
+      # local-demo literals — override every one via .env before exposing Langfuse (see .env.example).
+      # The project keys reuse LANGFUSE_PUBLIC_KEY / _SECRET_KEY so the agent and mining authenticate
+      # with whatever you set there, and the web login below is a real credential on host :3100.
       LANGFUSE_INIT_ORG_ID: local
       LANGFUSE_INIT_ORG_NAME: Local
       LANGFUSE_INIT_PROJECT_ID: ingot
       LANGFUSE_INIT_PROJECT_NAME: ingot
-      LANGFUSE_INIT_PROJECT_PUBLIC_KEY: pk-lf-local-demo
-      LANGFUSE_INIT_PROJECT_SECRET_KEY: sk-lf-local-demo
-      LANGFUSE_INIT_USER_EMAIL: demo@local.dev
+      LANGFUSE_INIT_PROJECT_PUBLIC_KEY: ${LANGFUSE_PUBLIC_KEY:-pk-lf-local-demo}
+      LANGFUSE_INIT_PROJECT_SECRET_KEY: ${LANGFUSE_SECRET_KEY:-sk-lf-local-demo}
+      LANGFUSE_INIT_USER_EMAIL: ${LANGFUSE_INIT_USER_EMAIL:-demo@local.dev}
       LANGFUSE_INIT_USER_NAME: Demo
-      LANGFUSE_INIT_USER_PASSWORD: localdemo123
+      LANGFUSE_INIT_USER_PASSWORD: ${LANGFUSE_INIT_USER_PASSWORD:-localdemo123}
     healthcheck:
       # the server binds the external interface, not loopback, probe the container's own IP
       test: ["CMD-SHELL", "wget -qO- http://$$(hostname -i):3000/api/public/health || exit 1"]
@@ -277,14 +288,13 @@ services:
       start_period: 30s
 
   clickhouse:
-    profiles: ["langfuse"]   # full observability stack: docker compose --profile langfuse up
     image: docker.io/clickhouse/clickhouse-server:25.3
     restart: always
     user: "101:101"
     environment:
       CLICKHOUSE_DB: default
       CLICKHOUSE_USER: clickhouse
-      CLICKHOUSE_PASSWORD: clickhouse
+      CLICKHOUSE_PASSWORD: ${CLICKHOUSE_PASSWORD:-clickhouse}
     volumes:
       - langfuse_clickhouse_data:/var/lib/clickhouse
       - langfuse_clickhouse_logs:/var/log/clickhouse-server
@@ -296,15 +306,14 @@ services:
       start_period: 1s
 
   minio:
-    profiles: ["langfuse"]   # full observability stack: docker compose --profile langfuse up
     image: cgr.dev/chainguard/minio:latest@sha256:8230f06574280781ea6ad45e27962db60175b18e4a43dd54c19012feb5438174   # chainguard only ships :latest (rolling), so pin by digest
     restart: always
     entrypoint: sh
     # create the 'langfuse' bucket before starting the service
     command: -c 'mkdir -p /data/langfuse && minio server --address ":9000" --console-address ":9001" /data'
     environment:
-      MINIO_ROOT_USER: minio
-      MINIO_ROOT_PASSWORD: miniosecret
+      MINIO_ROOT_USER: ${MINIO_ROOT_USER:-minio}
+      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD:-miniosecret}
     volumes:
       - langfuse_minio_data:/data
     healthcheck:
@@ -315,11 +324,10 @@ services:
       start_period: 1s
 
   redis:
-    profiles: ["langfuse"]   # full observability stack: docker compose --profile langfuse up
     image: docker.io/redis:7
     restart: always
     command: >
-      --requirepass localredissecret
+      --requirepass ${REDIS_AUTH:-localredissecret}
       --maxmemory-policy noeviction
     volumes:
       - langfuse_redis_data:/data
@@ -330,7 +338,6 @@ services:
       retries: 10
 
   postgres:
-    profiles: ["langfuse"]   # full observability stack: docker compose --profile langfuse up
     image: docker.io/postgres:17
     restart: always
     healthcheck:
@@ -340,7 +347,7 @@ services:
       retries: 10
     environment:
       POSTGRES_USER: postgres
-      POSTGRES_PASSWORD: postgres
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-postgres}
       POSTGRES_DB: postgres
       TZ: UTC
       PGTZ: UTC
