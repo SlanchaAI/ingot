@@ -6,7 +6,7 @@
 
 **Evidence-gated change control for agent instructions.**
 
-[![CI](https://github.com/SlanchaAI/ingot/actions/workflows/ci.yml/badge.svg)](https://github.com/SlanchaAI/ingot/actions/workflows/ci.yml) [![License: MIT](https://img.shields.io/github/license/SlanchaAI/ingot)](LICENSE) [![Python 3.12](https://img.shields.io/badge/Python-3.12-3776AB?logo=python&logoColor=white)](Dockerfile) [![Docker](https://img.shields.io/badge/Docker-Compose-2496ED?logo=docker&logoColor=white)](docker-compose.yml)
+[![CI](https://github.com/SlanchaAI/ingot/actions/workflows/ci.yml/badge.svg)](https://github.com/SlanchaAI/ingot/actions/workflows/ci.yml) [![License: Apache 2.0](https://img.shields.io/github/license/SlanchaAI/ingot)](LICENSE) [![Python 3.12](https://img.shields.io/badge/Python-3.12-3776AB?logo=python&logoColor=white)](Dockerfile) [![Docker](https://img.shields.io/badge/Docker-Compose-2496ED?logo=docker&logoColor=white)](docker-compose.yml)
 
 An agent's [skills](https://github.com/anthropics/skills) are instructions it follows. **Ingot** is a
 local-first library and MCP server for individual developers who serve versioned skills, evaluate
@@ -20,7 +20,7 @@ proposal. SkillOpt can propose a change but cannot activate one.
 [Quickstart](#quickstart) · [Tutorial](docs/tutorial.md) · [How it works](docs/how-it-works.md) ·
 [Configuration](docs/configuration.md) · [Architecture](ARCHITECTURE.md) ·
 [Production setup](PRODUCTION_SETUP.md) · [Contributing](CONTRIBUTING.md) ·
-[Security](SECURITY.md) · [MIT license](LICENSE)
+[Security](SECURITY.md) · [Apache 2.0 license](LICENSE)
 
 ## What Ingot controls
 
@@ -240,7 +240,7 @@ The component map is in [docs/how-it-works.md](docs/how-it-works.md); deeper des
 
 ## License
 
-MIT, see [LICENSE](LICENSE).
+Apache-2.0, see [LICENSE](LICENSE).
 
 ## Project status and support
 
