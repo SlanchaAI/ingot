@@ -4,18 +4,19 @@
 
 [![CI](https://github.com/SlanchaAI/ingot/actions/workflows/ci.yml/badge.svg)](https://github.com/SlanchaAI/ingot/actions/workflows/ci.yml) [![License: MIT](https://img.shields.io/github/license/SlanchaAI/ingot)](LICENSE) [![Python 3.12](https://img.shields.io/badge/Python-3.12-3776AB?logo=python&logoColor=white)](Dockerfile) [![Docker](https://img.shields.io/badge/Docker-Compose-2496ED?logo=docker&logoColor=white)](docker-compose.yml)
 
-**Ingot is a local-first control plane for AI agent skills.** It routes each task to versioned
-instructions and keeps every proposed rewrite quarantined until a person reviews the evidence and
-approves promotion. It is built for individual developers running MCP-compatible agents who want
-skill reuse without giving an optimizer permission to change live instructions.
-
 <p align="center">
-  <img src="docs/ui-home.webp" alt="Ingot change-control UI showing a quarantined Tailwind skill change, champion and challenger evidence, rollback points, and a human review decision" width="800">
+  <img src="docs/ingot.jpg" alt="Ingot, the mascot, handing skills out to AI agents" width="640">
 </p>
 
-Unlike a skill registry or prompt optimizer alone, Ingot connects serving, evaluation, and change
-control. Every served revision has a content hash. Candidate changes carry held-out evidence.
-Approval snapshots the previous revision, promotes atomically, and records the decision.
+An agent's [skills](https://github.com/anthropics/skills) are instructions it will follow. **Ingot**
+is a local-first library that treats them as what they are: versioned state that needs a review
+process. Every skill folder is content-addressed, every proposed change is quarantined until a human
+reads the evidence and approves it, and promotion is atomic, snapshots what it replaced, and is
+recorded. An **MCP server** then serves the approved revision of the right skill for each task,
+which is what lets a cheap or local model reuse methods that would otherwise need a frontier model.
+**SkillOpt integration** closes the loop: Ingot can learn from real agent traces, train skill
+instructions with SkillOpt's reflective optimizer, compare the result on held-out tasks, and put a
+measured proposal in front of a human reviewer.
 
 What the system guarantees:
 
@@ -30,26 +31,19 @@ What the system guarantees:
 - **Decisions are audited.** Approvals, rejections, and rollbacks append metadata-only records (action, skill,
   revision, actor, timestamp, and an optional rejection reason), never skill text or credentials.
 
-Designed for one trusted operator by default:
+Built for individual users first, ready to share:
 
 - **Batteries included.** `docker compose up` starts the router, the change-control UI, and a
   self-hosted Langfuse for traces and experiments. An included Compose override connects Cloud or
   another self-hosted Langfuse without starting the bundled stack.
-- **Local or hosted inference.** Point it at Ollama or vLLM and no model traffic leaves your
-  machine. Hosted calls use OpenRouter with zero-data-retention routing enforced on every
-  request.
-- **Localhost boundary.** The default stack binds to localhost. The change-control UI has a
-  password gate by default, but the MCP endpoint has no built-in authentication. Harden the
-  deployment before sharing it beyond one trusted machine.
+- **Local.** Point it at Ollama or vLLM and it runs with no API key; nothing leaves your machine.
+- **Secure.** Hosted calls use OpenRouter with zero-data-retention routing enforced on every
+  request, everything binds localhost, and Compose password-gates the shared UI by default.
 - **Easy.** A skill is a folder with a `SKILL.md`. Drop one in and it is live on the next request.
 
 SkillOpt is a central part of Ingot's value: it turns weak real-world runs into bounded instruction
 edits, validates them against held-out tasks, and produces evidence-backed proposals. Running an
 optimization is always an operator choice, and SkillOpt can propose but never activate a change.
-
-<p align="center">
-  <img src="docs/ingot.jpg" alt="Ingot, the mascot, handing skills out to AI agents" width="480">
-</p>
 
 [Quickstart](#quickstart) · [Tutorial](docs/tutorial.md) · [How it works](docs/how-it-works.md) ·
 [Configuration](docs/configuration.md) · [Architecture](ARCHITECTURE.md) ·
@@ -58,70 +52,17 @@ optimization is always an operator choice, and SkillOpt can propose but never ac
 
 ## Quickstart
 
-### Prerequisites
-
-- Git and Docker with Docker Compose.
-- Free localhost ports `8000`, `8080`, and `3100`.
-- Free Docker storage for the multi-container Langfuse stack. Check current usage with
-  `docker system df` before the first pull.
-- An OpenRouter API key, or an OpenAI-compatible local endpoint such as Ollama or vLLM, for the
-  demo agent response. Without one, the services still start and the agent prints configuration
-  guidance.
-
-Clone the repository, choose the inference settings in `.env`, fetch the Anthropic skill source,
-and start the stack in the background:
-
 ```bash
 git clone https://github.com/SlanchaAI/ingot.git && cd ingot
-cp .env.example .env               # add an OpenRouter key, or point BASE_URL at Ollama or vLLM
-docker compose version
-docker system df
-scripts/fetch_skills.sh anthropics # third-party skills; review their instructions and licenses
-docker compose up -d --build       # router (:8000), UI (:8080), and Langfuse (:3100)
-docker compose ps
+cp .env.example .env               # add an OpenRouter key, or point BASE_URL at Ollama (no key)
+scripts/fetch_skills.sh all        # fetch ~70 real skills into ./skills (see docs/skill-sources.md)
+docker compose up                  # router (:8000), UI (:8080), Langfuse (:3100), and one agent run
 docker compose run --rm agent "How do I merge several PDFs into one and add page numbers?"
 ```
 
-The run should include these markers. The model, revision, token counts, and answer will vary:
-
-```text
-COMPATIBLE ROUTE (MCP route_and_load):
-    ... pdf: Use this skill whenever the user wants to do anything with PDF files...
-
-LOADED SKILLS (MCP route_and_load): ['pdf@...']
-
-RESULT:
-... working PDF code following the loaded skill ...
-```
-
-The `pdf@...` line is the first-value signal: Ingot selected and loaded an exact approved skill
-revision before the model answered. Open `http://localhost:8080` to see the served skills and their
-revisions. The default login is **`admin` / `ingot`**.
-
-The fetched skills are third-party dependencies, not audited or redistributed by Ingot. The
-single-source command keeps the first run smaller; use `scripts/fetch_skills.sh all` only after
-reviewing the sources and licenses in [Skill sources](docs/skill-sources.md).
-
-If startup fails:
-
-- `address already in use` means one of the required localhost ports is occupied. Stop that service
-  or change the matching port mapping before retrying.
-- Docker storage errors require freeing or expanding Docker's allocated storage. Inspect usage with
-  `docker system df`.
-- Use `docker compose logs --tail=100` for service errors and `docker compose down` to stop the
-  stack.
-
-Change `AUTH_PASSWORD` in `.env` before sharing the UI on your LAN. To run without a login, set
-`AUTH_MODE=open` explicitly. See [Privacy & security](docs/security.md#network-exposure) for the
-network boundary and TLS options.
-
-### Deployment boundary
-
-Ingot's default Compose stack is for local development, not hardened multi-tenant operation. The
-MCP endpoint has no built-in authentication, and optimizer services that launch execution
-sandboxes mount the Docker socket. Keep the default services on localhost, treat fetched skills as
-code, and do not give agent containers sensitive host mounts. For a shared deployment, follow the
-[Production setup](PRODUCTION_SETUP.md) and the full [Security policy](SECURITY.md).
+The change-control UI at `localhost:8080` asks for a login; the compose default is **`admin` /
+`ingot`**. Change `AUTH_PASSWORD` in `.env` before sharing it on your LAN. To run without a login,
+set `AUTH_MODE=open` explicitly. See [Privacy & security](docs/security.md#network-exposure).
 
 `docker compose up` brings up a self-hosted Langfuse (traces + experiment UI) alongside the router
 and UI; trace mining reads from it and has no local fallback, so it fails loudly if no
@@ -231,12 +172,3 @@ The component map is in [docs/how-it-works.md](docs/how-it-works.md); deeper des
 ## License
 
 MIT, see [LICENSE](LICENSE).
-
-## Support and project status
-
-- Report reproducible bugs and feature requests in
-  [GitHub Issues](https://github.com/SlanchaAI/ingot/issues).
-- Ask usage questions or join the community on [Discord](https://discord.gg/TtYVvwHJRQ).
-- Report vulnerabilities privately through the process in [SECURITY.md](SECURITY.md).
-- Ingot has no tagged release yet. The latest `master` revision is the supported line and receives
-  security fixes.
