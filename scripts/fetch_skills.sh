@@ -5,12 +5,13 @@
 #
 # Usage:
 #   scripts/fetch_skills.sh all                       # every source below
-#   scripts/fetch_skills.sh anthropics trailofbits    # just these
+#   scripts/fetch_skills.sh anthropics lambdatest     # just these
 #
 # Sources (curated from https://github.com/VoltAgent/awesome-agent-skills):
 #   anthropics   anthropics/skills        document skills (pdf, docx, …)      per-skill license (frontmatter)
-#   nvidia       nvidia/skills            GPU / infra / data / imaging        Apache-2.0
 #   lambdatest   LambdaTest/agent-skills  testing frameworks                  MIT
+# Disabled sources (uncomment in SOURCES and lookup() to re-enable):
+#   nvidia       nvidia/skills            GPU / infra / data / imaging        Apache-2.0
 #   trailofbits  trailofbits/skills       security analysis                   CC-BY-SA-4.0
 set -euo pipefail
 
@@ -36,13 +37,13 @@ fetch() {  # repo  cap  license
 
 # source lookup as a case statement (not `declare -A`): macOS ships bash 3.2, which has no
 # associative arrays
-SOURCES="anthropics nvidia lambdatest trailofbits"
+SOURCES="anthropics lambdatest"
 lookup() {  # source -> "repo cap license" ("" if unknown)
   case "$1" in
     anthropics)  echo "anthropics/skills 0 per-skill(frontmatter)" ;;
-    nvidia)      echo "nvidia/skills 30 Apache-2.0" ;;
     lambdatest)  echo "LambdaTest/agent-skills 12 MIT" ;;
-    trailofbits) echo "trailofbits/skills 12 CC-BY-SA-4.0" ;;
+    # nvidia)      echo "nvidia/skills 30 Apache-2.0" ;;
+    # trailofbits) echo "trailofbits/skills 12 CC-BY-SA-4.0" ;;
   esac
 }
 

@@ -63,7 +63,8 @@ def is_openrouter(url: str) -> bool:
 
 def langfuse_available() -> bool:
     """True when the configured Langfuse answers its health endpoint (3s probe). The A/B gate
-    and the miner use this to choose between experiment-logged runs and the local lite path."""
+    uses this to decide whether to log the holdout run as a Langfuse experiment or run it
+    locally without experiment logging. (The miner has no local fallback: it fails loud.)"""
     import urllib.request
     base = os.environ.get("LANGFUSE_BASE_URL", "http://langfuse-web:3000").rstrip("/")
     try:
