@@ -1,5 +1,6 @@
 """Embedding backends: model selection, and the Qwen ONNX pooling/prefix contract with a stubbed
 session (no model download, no onnxruntime inference)."""
+import sys
 from types import SimpleNamespace
 
 import numpy as np
@@ -12,6 +13,58 @@ def test_backend_selection_by_model_name():
     assert E.is_qwen_onnx("someone/Qwen3-Embedding-4B-ONNX")
     assert not E.is_qwen_onnx("BAAI/bge-small-en-v1.5")
     assert not E.is_qwen_onnx("Qwen/Qwen3-Embedding-0.6B")  # torch checkpoint, not the ONNX export
+
+
+def test_baked_models_use_the_image_cache_but_runtime_overrides_can_download(monkeypatch):
+    monkeypatch.setenv("BAKED_EMBED_MODEL", "onnx-community/Qwen3-Embedding-0.6B-ONNX")
+    monkeypatch.setenv("BAKED_EMBED_ONNX_FILE", "onnx/model_q4.onnx")
+    monkeypatch.setenv("BAKED_FALLBACK_EMBED_MODEL", "BAAI/bge-small-en-v1.5")
+
+    assert E._baked_qwen("onnx-community/Qwen3-Embedding-0.6B-ONNX", "onnx/model_q4.onnx")
+    assert not E._baked_qwen("someone/Qwen3-Embedding-4B-ONNX", "onnx/model_q4.onnx")
+    assert E._baked_fastembed("BAAI/bge-small-en-v1.5")
+    assert not E._baked_fastembed("sentence-transformers/all-MiniLM-L6-v2")
+
+
+def test_baked_qwen_loader_forces_cache_only(monkeypatch):
+    downloads = []
+
+    def fetch(model, filename, **kwargs):
+        downloads.append((model, filename, kwargs))
+        return filename
+
+    class Session:
+        def __init__(self, path, providers):
+            self.path = path
+
+        def get_inputs(self):
+            return []
+
+        def get_outputs(self):
+            return [SimpleNamespace(name="last_hidden_state")]
+
+    fake_tokenizer = SimpleNamespace(from_file=lambda path: path)
+    monkeypatch.setitem(sys.modules, "onnxruntime", SimpleNamespace(InferenceSession=Session))
+    monkeypatch.setitem(sys.modules, "huggingface_hub", SimpleNamespace(hf_hub_download=fetch))
+    monkeypatch.setitem(sys.modules, "tokenizers", SimpleNamespace(Tokenizer=fake_tokenizer))
+    monkeypatch.setenv("BAKED_EMBED_MODEL", "repo/qwen3-embedding-onnx")
+    monkeypatch.setenv("BAKED_EMBED_ONNX_FILE", "onnx/model_q4.onnx")
+
+    E.QwenOnnxEmbedding("repo/qwen3-embedding-onnx", "onnx/model_q4.onnx")
+
+    assert [call[2]["local_files_only"] for call in downloads] == [True, True]
+
+
+def test_fastembed_loader_uses_baked_cache_only(monkeypatch):
+    calls = []
+    monkeypatch.setitem(
+        sys.modules, "fastembed",
+        SimpleNamespace(TextEmbedding=lambda **kwargs: calls.append(kwargs) or object()))
+    monkeypatch.setenv("BAKED_FALLBACK_EMBED_MODEL", "BAAI/bge-small-en-v1.5")
+
+    E.FastembedEmbedding("BAAI/bge-small-en-v1.5")
+
+    assert calls == [{"model_name": "BAAI/bge-small-en-v1.5", "local_files_only": True}]
 
 
 class _Enc(SimpleNamespace):

@@ -18,7 +18,7 @@ def _isolated_local_skills_root(tmp_path_factory, monkeypatch):
 
 class FakeIdp:
     """Forge RS256 ID tokens against an in-memory JWKS, the layer-2 harness for OIDC validation
-    tests (docs/superpowers/specs/2026-07-19-sso-rbac-design.md). No IdP, no network: one keypair,
+    tests. No IdP, no network: one keypair,
     mint tokens with any claims/overrides (expiry, aud, iss, kid, or a different signing key), and
     expose the matching JWKS to feed `ui.oidc.verify_id_token`."""
 

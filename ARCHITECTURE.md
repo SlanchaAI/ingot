@@ -18,7 +18,8 @@ exposes only loopback ports.
    the first behavioral divergence, token cost, the split's leakage status, and the gate verdict.
    The description pass records router metrics (top-1, recall@3, no-route precision,
    cross-harness parity) with the same revisions and gate verdict; it has no rollouts to diff.
-4. The UI shows that evidence, the component diff, and one explicit approval action. Promotion
+4. The UI shows that evidence, a body-change risk summary, unified and side-by-side component
+   diffs, and explicit approve or reasoned-reject actions. Promotion
    re-checks the recorded gate verdict, that the champion revision still matches what is
    on disk, and that the challenger revision still matches the recorded evidence. It does not
    re-run collision checks or the held-out A/B.
@@ -26,9 +27,10 @@ exposes only loopback ports.
    atomically. The review card re-checks rewrite freshness when it renders, so a change whose
    champion has moved is refused before the approval click rather than after it.
 5. Rollback restores any snapshot the same way, and also snapshots what it displaces.
-6. Approval and rollback append metadata-only records to `runs/approval-audit.jsonl`. The actor is
+6. Approval, rejection, and rollback append metadata-only records to
+   `runs/approval-audit.jsonl`. A rejection may include an operator-supplied reason. The actor is
    the approver's authenticated identity (HTTP Basic username or OIDC email), or `local-operator` in
-   the zero-config open mode (see [SECURITY.md](SECURITY.md)).
+   explicit open mode (see [SECURITY.md](SECURITY.md)).
 
 ## Serving path
 
@@ -43,24 +45,38 @@ exposes only loopback ports.
    `LANGFUSE_*` points at); mining reads it back and has no local fallback. Hosted model calls use
    the configured OpenAI-compatible endpoint. OpenRouter calls always request ZDR providers.
 
-## Candidate generation (optional)
+## SkillOpt optimization
 
-Optimization proposes changes; it never makes them. It is off the review path and is expected to run
-in the background (`optimize.loop`) or on demand from the UI.
+SkillOpt optimization is a core product capability. It proposes changes but never activates them.
+Runs start in the background (`optimize.loop`) or on demand from the UI, and every result enters the
+same human review path.
 
-Mining selects difficult, semantically diverse failures from real traces. The body pass runs one
-candidate search, `optimize/skillopt_loop.py` (SkillOpt's reflective training loop, driven
-per-component by `_greedy_search` in `optimize/ab.py`): bounded patch edits reflected from the seed's
-judged failures and prior rejected edits, accepted only against a held-out strictly-improving gate.
-The description pass (`optimize/routing.py`) scores
-candidate descriptions with the real embedding router and uses GEPA only for its reflection step.
+Mining reads every usable Langfuse trace by default, with `--limit N` available only as an explicit
+operational cap. It attributes traffic by skill tag or embedding top-five relevance, clusters exact
+and semantic task variants locally, and judges one representative per cluster. Verdicts are cached
+by task, rubric, answer, judge configuration, and prompt. Cluster frequency weights health and
+failure counts, so every use contributes without one LLM call per use. A cold run judges at most
+`MINE_MAX_JUDGE_CALLS` new representatives, highest-frequency clusters first. The background loop
+defers health decisions while any cluster remains unjudged, then continues from the cache on its
+next run.
+
+Mined eval candidates are the lowest-scoring representatives selected by a deterministic
+`difficulty * novelty` greedy pass after train-set near-duplicates are removed. Frequency is
+reported as `occurrences`, but it does not multiply candidate rank. Mining never edits an eval set:
+an operator verifies each task and rubric, adds accepted failures to `train`, and authors new
+`holdout` cases separately so the promotion gate remains uncontaminated.
+
+The body pass runs one candidate search, `optimize/skillopt_loop.py` (SkillOpt's reflective training
+loop, driven per-component by `_greedy_search` in `optimize/ab.py`): bounded patch edits reflected
+from the seed's judged failures and prior rejected edits, accepted only against a held-out
+strictly-improving gate.
+The description pass (`optimize/routing.py`) uses SkillOpt bounded edits and scores candidate
+descriptions with the real embedding router.
 Both passes end at a quarantined pending record and an evidence bundle under `runs/evidence/`.
 
-There is one candidate search, by design. A second, sequential GEPA body loop was removed: it
-optimized the same objective at roughly twenty times the cost, was reachable only through an opt-in
-flag, and had no test coverage of its own. `OPTIMIZE_STRATEGY` is no longer read, and the removed
-pass flags (`--strategy`, `--gepa`, `--skip-gepa`, `--candidates`) fail the argument parse rather than
-being silently ignored. The scripts pass (`--scripts`) optimizes bundled
+There is one SkillOpt candidate search per component, by design. `OPTIMIZE_STRATEGY` and
+`OPTIMIZE_CANDIDATES` are no longer read, and their removed CLI flags fail argument parsing rather
+than being silently ignored. The scripts pass (`--scripts`) optimizes bundled
 `scripts/` files, but only when the skill's holdout carries execution-grounded `check:` assertions,
 since the judge alone cannot tell a broken script from a working one; when it runs, both the
 candidate rollouts and the A/B serve the assembled skill (body plus files), so a rewritten file is
@@ -83,7 +99,6 @@ text components (`OPTIMIZE_COMPONENTS=body,file:<path>`), diffed for review and 
   constrains which skills the application can act on (promotion, rollback, candidate
   generation, and the review surface all refuse a non-slug name), not which ones a library root
   can serve.
-- Hosted credentials are read from environment variables and are never stored in traces.
 
 ## Stores and ownership
 
@@ -104,8 +119,7 @@ Appends to the approval trail open the file with `O_APPEND` and loop until the w
 written, so a short write cannot leave a half record; readers skip unparseable and non-UTF-8 lines
 either way.
 
-Pending records store candidate-search scores under `inner_loop`. Records written before the GEPA
-body loop was removed used `gepa`; the review API reads either, so an existing queue still renders.
+Pending records store SkillOpt candidate-search scores under `inner_loop`.
 
 ### Recovering a promotion killed between its two renames
 
@@ -131,8 +145,8 @@ revision the approval trail last recorded.
 
 `docker compose up` runs MCP, the UI, and the self-hosted Langfuse evals backend, with one-shot
 agent and candidate-generation containers on demand. Point `LANGFUSE_*` at an external Langfuse
-(Cloud or self-hosted) to send traces there instead; the bundled observability services still start
-unless you stop them. Fully local inference points model
+(Cloud or self-hosted) and include `docker-compose.external-langfuse.yml` to keep the bundled
+observability services stopped. Fully local inference points model
 URLs to vLLM or Ollama. Hosted inference sends prompts and outputs to the selected provider. Endpoint
 auth is independent of these modes: the UI has its own password/OIDC gate (`AUTH_MODE`), but MCP has
 none, so publishing MCP off-loopback requires an authenticating proxy and authorization appropriate to
@@ -165,8 +179,9 @@ candidate-generation and review services for execution-grounded judging. Do not 
 for untrusted users. Prefer a dedicated Docker context or isolated host, and omit the socket when
 using static checks.
 
-MCP has no built-in authentication; the UI carries a password gate (or optional OIDC), unauthenticated
-only in the zero-config open mode, where anyone who can reach it can approve a change or roll one back.
+MCP has no built-in authentication. Compose password-gates the UI by default, and OIDC is available
+for shared deployments. In explicit open mode, anyone who can reach the UI can approve a change or
+roll one back.
 Skills can contain hostile instructions or executable assets. Hosted providers receive model traffic.
-Local traces can contain task and answer text. These boundaries and concrete deployment safeguards
+Langfuse traces can contain task and answer text. These boundaries and concrete deployment safeguards
 are expanded in [SECURITY.md](SECURITY.md).

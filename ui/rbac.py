@@ -1,4 +1,4 @@
-"""Role-based authorization for the change-control UI (see docs/superpowers/specs/2026-07-19-sso-rbac-design.md).
+"""Role-based authorization for the change-control UI (see docs/sso.md).
 
 Pure, provider-agnostic authorization logic: map an authenticated identity's OIDC claims to one app
 role, and gate actions by role. The *authentication* source (LAN password today, OIDC later) supplies

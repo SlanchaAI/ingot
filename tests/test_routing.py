@@ -46,13 +46,32 @@ def test_adapter_scores_expected_top3_miss_and_no_route():
     assert "triggers too broadly" in feedback[4]
 
 
-def test_adapter_reflective_dataset_carries_routing_diagnosis():
+def test_skillopt_description_search_keeps_only_a_strict_router_improvement(monkeypatch):
     cases = [{"task": "merge pdfs", "expected": "pdf"}]
-    batch = _evaluate({"merge pdfs": ("docx", [])}, cases)
-    adapter = R.RoutingAdapter("pdf", router_factory=lambda d: None)
-    records = adapter.make_reflective_dataset({"description": "d"}, batch, ["description"])
-    assert "routing trigger" in records["description"][0]["Diagnosis"]
-    assert records["description"][0]["Inputs"] == "merge pdfs"
+    scripts = {
+        "old trigger": {"merge pdfs": ("docx", [])},
+        "new trigger": {"merge pdfs": ("pdf", [])},
+    }
+    adapter = R.RoutingAdapter(
+        "pdf", router_factory=lambda description: _ScriptedRouter(scripts[description]))
+    monkeypatch.setattr(R.sk, "reflect_edits",
+                        lambda *args: ([{"op": "replace", "target": "old", "content": "new"}], []))
+    monkeypatch.setattr(R.sk, "decide_edit_budget", lambda *args: 1)
+    monkeypatch.setattr(R.sk, "rank_edits", lambda skill, edits, budget, lm: edits[:budget])
+    result = R.optimize_description("pdf", "old trigger", cases, budget=2,
+                                    reflection_lm=lambda messages: "", adapter=adapter)
+    assert result == ("new trigger", 0.0, 1.0)
+
+
+def test_skillopt_description_search_requires_budget_for_the_full_suite():
+    class NeverCalled:
+        def evaluate(self, *args, **kwargs):
+            raise AssertionError("the router must not run with an undersized budget")
+
+    cases = [{"task": "one", "expected": "pdf"}, {"task": "two", "expected": "pdf"}]
+    with pytest.raises(ValueError, match="smaller than the 2-case suite"):
+        R.optimize_description("pdf", "trigger", cases, budget=1,
+                               reflection_lm=lambda messages: "", adapter=NeverCalled())
 
 
 def _metrics(champ, chall, parity=None):
@@ -92,7 +111,7 @@ def test_gate_blocks_collision_and_parity(monkeypatch):
 
 
 def test_run_routing_auto_drafts_missing_cases(monkeypatch, tmp_path):
-    """No routing: block -> the drafter is invoked (sentinel) before any GEPA work."""
+    """No routing block means the drafter runs before SkillOpt description training."""
     skill = tmp_path / "skills" / "sk"
     skill.mkdir(parents=True)
     (skill / "SKILL.md").write_text("---\nname: sk\ndescription: d.\n---\nbody\n")
@@ -129,13 +148,8 @@ def test_run_routing_writes_an_evidence_bundle_and_records_relative_paths(monkey
     monkeypatch.setattr(R, "EVIDENCE_DIR", evidence_root)
     monkeypatch.setattr(P, "PENDING_DIR", tmp_path / "pending")
 
-    class _Result:
-        best_candidate = {"description": "new trigger."}
-        val_aggregate_scores = [0.5, 0.9]
-        best_idx = 1
-
-    monkeypatch.setattr(R.gepa, "optimize", lambda **kwargs: _Result())
-    monkeypatch.setattr(R, "make_reflection_lm", lambda: None)
+    monkeypatch.setattr(R, "optimize_description",
+                        lambda skill, seed, cases, budget: ("new trigger.", 0.5, 0.9))
     monkeypatch.setattr(R, "_description_shadows", lambda skill, desc: ("", 0.0))
     from optimize import ab as A
     monkeypatch.setattr(A, "_routing_metrics", lambda skill, champ, chall: {

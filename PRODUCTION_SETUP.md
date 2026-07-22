@@ -50,6 +50,13 @@ REDIS_AUTH=replace-with-a-random-password
 
 AUTH_USER=admin
 AUTH_PASSWORD=replace-with-a-strong-password
+
+BASE_URL=https://openrouter.ai/api/v1
+API_KEY=sk-or-replace-me
+AGENT_MODEL=qwen/qwen3-32b
+SKILLOPT_MODEL=z-ai/glm-5.2
+JUDGE_MODEL=google/gemini-2.5-flash
+OPENROUTER_PROVIDERS=groq
 ```
 
 Generate suitable random values with OpenSSL:
@@ -59,7 +66,10 @@ openssl rand -hex 32  # LANGFUSE_ENCRYPTION_KEY and LANGFUSE_NEXTAUTH_SECRET
 openssl rand -hex 16  # salts, API key suffixes, and service passwords
 ```
 
-Also configure the model provider variables described in [Configuration](docs/configuration.md).
+OpenRouter is the supported hosted model path. Provider priorities are preferences, not an
+allowlist: if Groq does not serve a configured role, Ingot falls back to another ZDR-qualified
+OpenRouter endpoint. Fully local vLLM or Ollama is also supported as described in
+[Configuration](docs/configuration.md).
 For a shared team deployment, consider OIDC for the change-control UI as described in
 [SSO](docs/sso.md).
 

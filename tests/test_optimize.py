@@ -300,7 +300,7 @@ def test_rollouts_serve_the_exact_serving_contract(monkeypatch):
 
 def test_agent_rollout_mode_routes_through_the_scaffold(monkeypatch):
     from optimize import rollout as R
-    monkeypatch.setattr(R, "GEPA_ROLLOUTS", "agent")
+    monkeypatch.setattr(R, "SKILLOPT_ROLLOUTS", "agent")
     monkeypatch.setattr(R, "judge",
                         lambda t, r, a, reference="", check=None, deliverable=None:
                         {"score": 0.5, "feedback": "f", "dimensions": {}})
@@ -318,17 +318,11 @@ def test_agent_rollout_mode_routes_through_the_scaffold(monkeypatch):
     assert seen["system_has_contract"]
 
 
-def test_removed_gepa_body_loop_leaves_one_candidate_search():
-    """The sequential GEPA body loop is gone: best-of-N is the only candidate search, and an
-    inherited OPTIMIZE_STRATEGY must say so rather than silently mean nothing."""
-    from optimize import rollout as R
-    assert not hasattr(R, "run_gepa")
-    with pytest.raises(ImportError):
-        import optimize.gepa_loop  # noqa: F401
+def test_skillopt_is_the_only_body_candidate_search():
     assert "strategy" not in inspect.signature(ab_mod.run_ab).parameters
 
 
-@pytest.mark.parametrize("flag", ["--gepa", "--skip-gepa", "--strategy", "--candidates"])
+@pytest.mark.parametrize("flag", ["--strategy", "--candidates"])
 def test_cli_rejects_flags_for_passes_that_do_not_exist(flag):
     """A flag naming a removed or never-shipped pass must fail the parse, not be quietly ignored.
     Asserting on the parser rather than the source text is what proves the refusal."""

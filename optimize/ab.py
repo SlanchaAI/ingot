@@ -608,7 +608,7 @@ def build_parser() -> argparse.ArgumentParser:
                         help="quality pass over bundled scripts/ files, greedy one file at a "
                              "time; requires execution-grounded holdout checks")
     ap.add_argument("--budget", type=int, default=None,
-                    help=f"--description only: max GEPA metric calls for the routing pass "
+                    help=f"--description only: max router case evaluations for the routing pass "
                          f"(default {DEFAULT_ROUTING_BUDGET})")
     ap.add_argument("--skip-search", action="store_true", help="debug: A/B champion vs itself")
     ap.add_argument("--challenger-file", help="reuse a checkpointed candidate, skip to the A/B")

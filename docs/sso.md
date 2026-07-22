@@ -4,9 +4,8 @@ For a shared or company-wide deployment, Ingot can put the change-control UI beh
 Google**, restrict access to your **Google Workspace domain**, and assign **roles** so that who may
 propose, approve, and roll back is enforced (and recorded in the audit trail as the person's email).
 
-This is an opt-in deployment profile. The zero-config local default and the LAN password mode
-([Configuration](configuration.md), [Security](security.md)) are unchanged; you turn this on with
-`AUTH_MODE=oidc`.
+This is an opt-in deployment profile. Compose uses the LAN password mode by default, while a bare
+process with no configured credentials infers open mode. You turn SSO on with `AUTH_MODE=oidc`.
 
 ## What you get
 
@@ -18,7 +17,7 @@ This is an opt-in deployment profile. The zero-config local default and the LAN 
   | role | may |
   |------|-----|
   | `viewer` | read the board, pending evidence, history |
-  | `proposer` | trigger candidate generation (`/api/optimize/{skill}`) |
+  | `proposer` | trigger SkillOpt optimization (`/api/optimize/{skill}`) |
   | `approver` | promote, reject, roll back |
   | `admin` | the above, plus configuration |
 
@@ -178,5 +177,4 @@ Google login cannot be scripted; the browser flow it drives is the same one Goog
   login; they need service credentials. Put the MCP endpoint behind your network boundary or a proxy.
 - **SCIM provisioning** and **per-skill / per-namespace ACLs.** Roles are global here.
 
-See [docs/superpowers/specs/2026-07-19-sso-rbac-design.md](superpowers/specs/2026-07-19-sso-rbac-design.md)
-for the design and rationale.
+The design rationale is reflected in the OIDC, RBAC, and Keycloak integration tests.

@@ -14,6 +14,9 @@ process. Every skill folder is content-addressed, every proposed change is quara
 reads the evidence and approves it, and promotion is atomic, snapshots what it replaced, and is
 recorded. An **MCP server** then serves the approved revision of the right skill for each task,
 which is what lets a cheap or local model reuse methods that would otherwise need a frontier model.
+**SkillOpt integration** closes the loop: Ingot can learn from real agent traces, train skill
+instructions with SkillOpt's reflective optimizer, compare the result on held-out tasks, and put a
+measured proposal in front of a human reviewer.
 
 What the system guarantees:
 
@@ -25,8 +28,8 @@ What the system guarantees:
   deltas, token cost, and a gate verdict; promotion re-checks the evidence still matches disk.
 - **Promotion is atomic and reversible.** The displaced revision is snapshotted and the directory
   swapped by rename; restore any snapshot from the UI or CLI.
-- **Decisions are audited.** Approvals and rollbacks append metadata-only records (action, skill,
-  revision, actor, timestamp), never skill text or credentials.
+- **Decisions are audited.** Approvals, rejections, and rollbacks append metadata-only records (action, skill,
+  revision, actor, timestamp, and an optional rejection reason), never skill text or credentials.
 
 Built for individual users first, ready to share:
 
@@ -34,16 +37,17 @@ Built for individual users first, ready to share:
   self-hosted Langfuse for traces and experiments. An included Compose override connects Cloud or
   another self-hosted Langfuse without starting the bundled stack.
 - **Local.** Point it at Ollama or vLLM and it runs with no API key; nothing leaves your machine.
-- **Secure.** Hosted calls default to OpenRouter with zero-data-retention routing enforced on every
-  request, everything binds localhost, and the shared UI has an optional password gate.
+- **Secure.** Hosted calls use OpenRouter with zero-data-retention routing enforced on every
+  request, everything binds localhost, and Compose password-gates the shared UI by default.
 - **Easy.** A skill is a folder with a `SKILL.md`. Drop one in and it is live on the next request.
 
-Changes come mostly from you. Ingot also ships an **optional** candidate generator
-that mines real traces for failing skills, drafts rewrites, and measures them on held-out tasks; it
-produces proposals, never activations.
+SkillOpt is a central part of Ingot's value: it turns weak real-world runs into bounded instruction
+edits, validates them against held-out tasks, and produces evidence-backed proposals. Running an
+optimization is always an operator choice, and SkillOpt can propose but never activate a change.
 
 [Quickstart](#quickstart) · [Tutorial](docs/tutorial.md) · [How it works](docs/how-it-works.md) ·
 [Configuration](docs/configuration.md) · [Architecture](ARCHITECTURE.md) ·
+[Production setup](PRODUCTION_SETUP.md) ·
 [Contributing](CONTRIBUTING.md) · [Security](SECURITY.md) · [MIT license](LICENSE)
 
 ## Quickstart
@@ -57,8 +61,8 @@ docker compose run --rm agent "How do I merge several PDFs into one and add page
 ```
 
 The change-control UI at `localhost:8080` asks for a login; the compose default is **`admin` /
-`ingot`**. Change `AUTH_PASSWORD` in `.env` before sharing it on your LAN (or set it empty to run
-open), see [Privacy & security](docs/security.md#network-exposure).
+`ingot`**. Change `AUTH_PASSWORD` in `.env` before sharing it on your LAN. To run without a login,
+set `AUTH_MODE=open` explicitly. See [Privacy & security](docs/security.md#network-exposure).
 
 `docker compose up` brings up a self-hosted Langfuse (traces + experiment UI) alongside the router
 and UI; trace mining reads from it and has no local fallback, so it fails loudly if no
@@ -144,8 +148,9 @@ Ingot does three things around your skill library:
   routing on CPU, no GPU) so a weak or local model can reuse a strong method.
 - **Govern.** Every change is quarantined, carries held-out evidence, and needs a human approval;
   promotion is atomic, snapshotted, reversible, and audited.
-- **Improve.** An optional loop mines real traces for failing skills, rewrites them with the SkillOpt
-  reflective optimizer, and A/Bs the result on held-out tasks, leaving a reviewable proposal.
+- **Improve.** SkillOpt integration mines real traces for failing skills, trains bounded instruction
+  edits with its reflective optimizer, and A/Bs the result on held-out tasks, leaving a reviewable
+  proposal that only a human can activate.
 
 The component map is in [docs/how-it-works.md](docs/how-it-works.md); deeper design in
 [ARCHITECTURE.md](ARCHITECTURE.md).
@@ -154,14 +159,15 @@ The component map is in [docs/how-it-works.md](docs/how-it-works.md); deeper des
 
 | Doc | Contents |
 |-----|----------|
-| [Tutorial](docs/tutorial.md) | The full loop end to end: route, mine, generate, review, promote, roll back |
+| [Tutorial](docs/tutorial.md) | The full loop end to end: route, mine, optimize, review, promote, roll back |
 | [How it works](docs/how-it-works.md) | Component map (MCP server, agent, optimizer, UI) |
-| [Configuration](docs/configuration.md) | Env reference, candidate generation, cross-model compatibility, eval task sets, Langfuse |
+| [Configuration](docs/configuration.md) | Env reference, SkillOpt optimization, cross-model compatibility, eval task sets, Langfuse |
 | [The evidence gate](docs/evidence-gate.md) | The anti reward-hacking checks a reviewer relies on |
 | [Privacy & security](docs/security.md) | Zero-data-retention, network exposure, threat model |
 | [Sign in with Google (SSO)](docs/sso.md) | Domain-restricted login and roles for a shared deployment |
 | [Bring your own agent](docs/mcp-integration.md) | Use the MCP server from your own harness; tracing |
 | [Skill sources](docs/skill-sources.md) | Where `scripts/fetch_skills.sh` gets skills, and their licenses |
+| [Production setup](PRODUCTION_SETUP.md) | Harden Langfuse and enroll remote Claude Code or Codex agents |
 
 ## License
 

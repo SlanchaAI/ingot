@@ -1,7 +1,7 @@
 """Sign-in-with-Google browser flow (OIDC Authorization Code + PKCE) for the change-control UI.
 
 Google is an ordinary OIDC provider, so this is a generic auth-code+PKCE flow pointed at Google's
-issuer (see docs/sso.md and docs/superpowers/specs/2026-07-19-sso-rbac-design.md). `ui/oidc.py` stays
+issuer (see docs/sso.md). `ui/oidc.py` stays
 network-free and owns ID-token validation; this module owns the parts that talk to the provider:
 discovery, JWKS fetch/caching, the login redirect, and the callback that redeems the code and
 establishes the session. Validation still goes through `ui.oidc.verify_id_token` and the session

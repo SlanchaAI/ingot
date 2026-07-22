@@ -9,7 +9,8 @@ import time
 import uuid
 from pathlib import Path
 
-from mcp_server.registry import SLUG_RE, load_skills, skill_revision, write_components
+from mcp_server.registry import (SLUG_RE, load_skills, read_components, skill_revision,
+                                 write_components)
 
 RUNS_DIR = Path(__file__).resolve().parent.parent / "runs"
 PENDING_DIR = RUNS_DIR / "pending"
@@ -162,6 +163,11 @@ def list_revisions(skill: str) -> list[dict]:
     return [{"revision": r["revision"], "created": r["created"]} for r in records]
 
 
+def load_snapshot_components(skill: str, revision: str) -> dict[str, str]:
+    """Read one validated rollback snapshot for the read-only version explorer."""
+    return read_components(_rollback_source(skill, revision))
+
+
 def list_snapshotted_skills() -> list[str]:
     """Skills with at least one snapshot. Reading the snapshot store directly keeps the history
     view off the skill-library hash scan that the skills listing already pays for."""
@@ -269,11 +275,9 @@ def _write_all(fd: int, data: bytes) -> None:
         written += os.write(fd, data[written:])
 
 
-def _audit(action: str, skill: str, revision: str, actor: str = "local-operator") -> None:
-    """Append a minimal approval trail without recording skill bodies or credentials.
-
-    `actor` is `local-operator` for every UI action: the local UI has no identity or
-    authentication, so the trail records that a local operator approved, not who."""
+def _audit(action: str, skill: str, revision: str, actor: str = "local-operator",
+           reason: str = "") -> None:
+    """Append transition metadata without recording skill bodies or credentials."""
     audit_file = audit_path()
     audit_file.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
     os.chmod(audit_file.parent, 0o700)
@@ -281,15 +285,18 @@ def _audit(action: str, skill: str, revision: str, actor: str = "local-operator"
     try:
         record = {"schema_version": 1, "ts": int(time.time()), "action": action,
                   "skill": skill, "revision": revision, "actor": actor}
+        if reason:
+            record["reason"] = reason
         _write_all(fd, (json.dumps(record, separators=(",", ":")) + "\n").encode())
     finally:
         os.close(fd)
 
 
-def _audit_best_effort(action: str, skill: str, revision: str, actor: str) -> None:
+def _audit_best_effort(action: str, skill: str, revision: str, actor: str,
+                       reason: str = "") -> None:
     """Record a committed transition without changing its successful outcome."""
     try:
-        _audit(action, skill, revision, actor)
+        _audit(action, skill, revision, actor, reason)
     except Exception:
         logger.warning(
             "Committed %s for skill %r at revision %s, but the audit write failed",

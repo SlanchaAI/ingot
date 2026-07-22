@@ -22,17 +22,23 @@
 - **`optimize/promote.py`**: the change-control core, and the only module that writes under
   `skills/`: the pending queue, the evidence check, revision snapshots, the atomic promotion and
   rollback swaps, and the approval-audit append.
-- **`optimize/`** (the rest, all optional): trace mining (`mine.py`), multi-dimensional LLM judge
+- **`optimize/`**: the SkillOpt integration and evaluation pipeline: trace mining (`mine.py`),
+  multi-dimensional LLM judge
   (`judge.py`), the SkillOpt candidate search (`skillopt_loop.py` + `skillopt_bridge.py`) and its
   rollout/teacher plumbing (`rollout.py`),
   held-out A/B (`ab.py`), the portable evidence bundle (`evidence.py`), the routing pass
   (`routing.py`), the background loop (`loop.py`), the library-wide routing health check
   (`routing_health.py`, embedding-only, cron/CI-friendly, read-only), token ledger (`usage.py`).
   None of these can activate anything: most write pending records; `routing_health.py` writes
-  nothing at all. A/B agents get mutation tools stripped. The mining,
+  nothing at all. A/B agents get mutation tools stripped. Mining paginates through all Langfuse
+  uses by default, clusters task paraphrases locally, caches representative judge verdicts, and
+  preserves cluster frequency in weighted health metrics. Its judge-call budget can span multiple
+  runs without making a partial health decision. Up to six weak, diverse, train-novel tasks are
+  returned for manual review only; accepted failures go into `train`, while `holdout` remains a
+  separately authored promotion split. The mining,
   categorized-failure, and failure-diagnosis ideas (plus the minimal-edit author angle) are borrowed
   from [SkillForge (Liu et al., arXiv:2604.08618)](https://arxiv.org/abs/2604.08618).
-- **`ui/`**: FastAPI change-control UI (one HTML page, no build step): evidence and the approve /
-  reject decision first, then revision history and rollback, then the library and the optional
-  candidate runs. It is the only normal application path that activates a pending rewrite.
-
+- **`ui/`**: FastAPI change-control UI (one HTML page, no build step): evidence, risk summary,
+  unified and side-by-side diffs, approve or reasoned-reject decisions, revision exploration,
+  history, rollback, and searchable skill inventory. It is the only normal application path that
+  activates a pending rewrite.

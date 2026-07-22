@@ -194,10 +194,32 @@
     color: var(--ink-2); }
   .cmp-tbl .win { color: var(--pass); font-weight: 700; }
   .cmp-tbl .lose { color: var(--fail); font-weight: 700; }
-  .cmp-pertask { font-family: var(--mono); font-size: .72rem; color: var(--ink-2); text-align: left !important; }
   .cmp-actions { display: flex; align-items: center; gap: .7rem; margin-top: 1.1rem; flex-wrap: wrap; }
 
+  /* Read-only skill and revision explorer */
+  .skill-modal { width: min(900px, 96vw); }
+  .version-toolbar { display: grid; grid-template-columns: minmax(14rem, 1fr) minmax(12rem, 1fr);
+    gap: .8rem; margin-bottom: 1rem; }
+  .version-field { display: flex; flex-direction: column; gap: .35rem; }
+  .version-field label { font: 600 .66rem/1 var(--mono); letter-spacing: .06em;
+    text-transform: uppercase; color: var(--ink-2); }
+  .version-field select { width: 100%; font: .75rem/1.4 var(--mono); padding: .48rem .55rem;
+    border-radius: 8px; border: 1px solid var(--line-2); background: var(--paper); color: var(--ink); }
+  .version-meta { display: flex; flex-wrap: wrap; gap: .45rem; margin: 0 0 .7rem; }
+  .version-desc { color: var(--ink-2); font-size: .84rem; margin: 0 0 .8rem; text-wrap: pretty; }
+  .version-pre { font-family: var(--mono); font-size: .74rem; line-height: 1.55; margin: 0;
+    background: var(--paper); border: 1px solid var(--line); border-radius: 12px; padding: .85rem 1rem;
+    overflow: auto; min-height: 16rem; max-height: 56vh; white-space: pre; color: var(--ink); }
+  @media (max-width: 620px) { .version-toolbar { grid-template-columns: 1fr; } }
+
   /* ---- skills list ---- */
+  .skill-controls { display: flex; align-items: end; gap: .75rem; flex-wrap: wrap; margin-top: 1rem; }
+  .skill-controls .version-field { min-width: min(18rem, 100%); flex: 1 1 18rem; }
+  .skill-controls .filter-field { flex: 0 1 13rem; min-width: 10rem; }
+  .skill-controls input, .skill-controls select, .reject-reason { width: 100%; font: .78rem/1.4 var(--mono);
+    padding: .52rem .62rem; border-radius: 8px; border: 1px solid var(--line-2);
+    background: var(--paper-2); color: var(--ink); }
+  .filter-count { font: .68rem/1.4 var(--mono); color: var(--ink-3); align-self: center; }
   .skilllist { margin-top: 1.1rem; border-top: 1px solid var(--line); }
   .srow { display: flex; flex-wrap: wrap; align-items: baseline; gap: .5rem 1rem;
     padding: .9rem .45rem; border-bottom: 1px solid var(--line); transition: background .15s ease-out; }
@@ -205,6 +227,8 @@
   .srow:hover { background: var(--paper-2); }
   .srow.pend:hover { background: var(--rust-bg); }
   .srow .main { flex: 1 1 26rem; min-width: 0; }
+  .skill-open { all: unset; display: block; width: 100%; cursor: pointer; border-radius: 8px; }
+  .skill-open:hover .sname { color: var(--rust); }
   .srow .nameline { display: flex; align-items: baseline; gap: .6rem; flex-wrap: wrap; }
   .srow .sname { font-family: var(--mono); font-size: .86rem; font-weight: 600; color: var(--ink); }
   .srow .sdesc { font-size: .82rem; color: var(--ink-2); margin: .28rem 0 0; text-wrap: pretty;
@@ -276,6 +300,15 @@
   .review-actions { display: flex; align-items: center; gap: .7rem; margin-top: 1.2rem; flex-wrap: wrap; }
   .review-actions .msg { font-family: var(--mono); font-size: .74rem; color: var(--pass); }
   .review-actions .msg.err { color: var(--fail); font-weight: 600; }
+  .risk-summary { display: grid; grid-template-columns: repeat(auto-fit, minmax(135px, 1fr));
+    gap: .55rem; margin-top: 1rem; padding: .8rem; border: 1px solid var(--line);
+    border-radius: 12px; background: var(--paper); }
+  .risk-summary.high { border-color: var(--warn); background: var(--warn-bg); }
+  .risk-stat { display: flex; flex-direction: column; gap: .08rem; }
+  .risk-stat b { font: 600 1rem/1.2 var(--mono); color: var(--ink); }
+  .risk-stat span { font: .64rem/1.3 var(--mono); letter-spacing: .05em; text-transform: uppercase;
+    color: var(--ink-3); }
+  .risk-warning { grid-column: 1 / -1; font: 600 .74rem/1.5 var(--mono); color: var(--warn); }
   .difflabel { font-family: var(--mono); font-size: .66rem; letter-spacing: .09em; text-transform: uppercase;
     color: var(--rust); margin: 1.4rem 0 .4rem; }
   pre.diff { font-family: var(--mono); font-size: .72rem; line-height: 1.55; margin: 0;
@@ -283,6 +316,26 @@
     overflow: auto; max-height: 28rem; white-space: pre; color: var(--ink-2); }
   pre.diff .add { color: var(--pass); } pre.diff .del { color: var(--fail); }
   pre.diff .hunk { color: var(--rust); } pre.diff .meta { color: var(--ink-3); }
+  .side-diff { margin-top: .75rem; border: 1px solid var(--line); border-radius: 12px;
+    background: var(--paper-2); overflow: hidden; }
+  .side-diff summary { cursor: pointer; padding: .65rem .8rem; font: 600 .7rem/1.3 var(--mono);
+    color: var(--rust); letter-spacing: .05em; text-transform: uppercase; }
+  .side-component { border-top: 1px solid var(--line); }
+  .side-component h4 { margin: 0; padding: .5rem .75rem; font: 600 .7rem/1.3 var(--mono);
+    color: var(--ink-2); background: var(--paper-3); }
+  .side-columns { display: grid; grid-template-columns: 1fr 1fr; }
+  .side-column + .side-column { border-left: 1px solid var(--line); }
+  .side-column .side-label { display: block; padding: .35rem .65rem; font: 600 .64rem/1.3 var(--mono);
+    color: var(--ink-3); text-transform: uppercase; border-bottom: 1px solid var(--line); }
+  .side-column pre { margin: 0; padding: .7rem; max-height: 24rem; overflow: auto;
+    font: .7rem/1.5 var(--mono); white-space: pre; color: var(--ink-2); }
+  .reject-help { color: var(--ink-2); font-size: .82rem; margin: 0 0 .8rem; }
+  .reject-reason { min-height: 6rem; resize: vertical; }
+  @media (max-width: 720px) { .side-columns { grid-template-columns: 1fr; }
+    .side-column + .side-column { border-left: 0; border-top: 1px solid var(--line); } }
+
+  .sr-only { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px;
+    overflow: hidden; clip: rect(0, 0, 0, 0); white-space: nowrap; border: 0; }
 
   .footer { display: flex; align-items: baseline; justify-content: space-between; gap: 1rem; margin-top: 3rem;
     padding-top: .6rem; border-top: 1px solid var(--ink); font-family: var(--mono); font-size: .68rem;
@@ -315,7 +368,9 @@
     .beam { display: block; }
   }
 
-  button:focus-visible, .btn:focus-visible, input:focus-visible, a:focus-visible {
+  button:focus-visible, .btn:focus-visible, input:focus-visible, select:focus-visible,
+  textarea:focus-visible, summary:focus-visible,
+  .skill-open:focus-visible, a:focus-visible {
     outline: 2px solid var(--rust); outline-offset: 2px; border-radius: 2px; }
   @media (prefers-reduced-motion: reduce) {
     html { scroll-behavior: auto; } * { transition: none !important; animation: none !important; }
@@ -345,21 +400,22 @@
     <a class="lnk ext" id="lf" href="#" target="_blank" rel="noopener">Langfuse</a>
     <span class="pill idle" id="status-pill">…</span>
     <span class="who" id="who" hidden><span id="who-email"></span>
-      <a class="lnk" href="/auth/logout">Log out</a></span>
+      <a class="lnk" id="logout-link" href="/auth/logout" hidden>Log out</a></span>
   </div>
 </nav>
 <script>
-  // OIDC (Sign in with Google) mode only: show who is signed in + a logout link. /auth/me is 404 in
-  // password/open mode and 401 when signed out, both simply leave the indicator hidden.
+  // Password and OIDC modes surface the current reviewer. Open mode has no signed-in identity.
   fetch("/auth/me").then(r => r.ok ? r.json() : null).then(u => {
     if (!u || !u.authenticated) return;
     document.getElementById("who-email").textContent =
       (u.email || u.name || "signed in") + (u.role ? " (" + u.role + ")" : "");
+    document.getElementById("logout-link").hidden = !u.email;
     document.getElementById("who").hidden = false;
   }).catch(() => {});
 </script>
 
 <div class="page">
+  <div class="sr-only" id="board-announcer" aria-live="polite" aria-atomic="true"></div>
   <header class="board-head reveal">
     <div class="eyebrow"><span><span class="n">/</span> CHANGE CONTROL</span>
       <span class="side" id="head-side">ingot</span></div>
@@ -380,8 +436,13 @@
     <div class="review-card" id="pending-card" hidden>
       <div class="beam" aria-hidden="true"></div>
       <div id="pending-detail"></div>
+      <div class="risk-summary" id="risk-summary" aria-label="Change risk summary"></div>
       <div class="difflabel">SKILL.md diff · champion → challenger</div>
       <pre class="diff" id="diff"></pre>
+      <details class="side-diff" id="side-diff">
+        <summary>Compare before and after side by side</summary>
+        <div id="side-diff-body"></div>
+      </details>
       <div class="difflabel" id="evidence-label">Evidence bundle · recorded at generation time</div>
       <pre class="diff" id="evidence"></pre>
       <div class="review-actions">
@@ -391,8 +452,8 @@
     </div>
     <div class="empty" id="review-empty">
       <div class="et">Nothing is awaiting review.</div>
-      <div class="ed">Quarantined changes land here: candidates from the optional candidate
-        generator. No other application path can activate a skill.</div>
+      <div class="ed">SkillOpt proposals land here with measured evidence. No optimizer or other
+        application path can activate a skill without human approval.</div>
     </div>
     <!-- outside the card on purpose: approving or rejecting the last pending change hides the
          card, and the result of that decision has to stay on screen -->
@@ -413,13 +474,47 @@
     </div>
   </div>
 
+  <div class="cmp-overlay" id="skill-overlay" hidden>
+    <div class="cmp-modal skill-modal" role="dialog" aria-modal="true" aria-labelledby="skill-title">
+      <div class="cmp-head"><span id="skill-title">Skill, <b id="skill-detail-name"></b></span>
+        <button class="cmp-x" id="skill-close" aria-label="Close">×</button></div>
+      <div class="version-toolbar">
+        <div class="version-field"><label for="skill-version">Version</label>
+          <select id="skill-version"></select></div>
+        <div class="version-field"><label for="skill-file">File</label>
+          <select id="skill-file"></select></div>
+      </div>
+      <div class="version-meta" id="skill-version-meta"></div>
+      <p class="version-desc" id="skill-version-desc"></p>
+      <pre class="version-pre" id="skill-version-content"></pre>
+      <div class="review-actions"><span class="msg" id="skill-version-msg"></span></div>
+    </div>
+  </div>
+
+  <div class="cmp-overlay" id="reject-overlay" hidden>
+    <div class="cmp-modal" role="dialog" aria-modal="true" aria-labelledby="reject-title">
+      <div class="cmp-head"><span id="reject-title">Reject change, <b id="reject-skill"></b></span>
+        <button class="cmp-x" id="reject-close" aria-label="Close">×</button></div>
+      <p class="reject-help">This permanently removes the quarantined challenger. Add an optional
+        reason to the audit trail so future reviewers know why it was rejected.</p>
+      <div class="version-field"><label for="reject-reason">Optional reason</label>
+        <textarea class="reject-reason" id="reject-reason" maxlength="500"
+          placeholder="For example: removes required safety checks"></textarea></div>
+      <div class="cmp-actions">
+        <button class="btn" id="reject-cancel">Cancel</button>
+        <button class="btn danger" id="reject-confirm">Confirm rejection</button>
+      </div>
+      <span class="msg" id="reject-msg"></span>
+    </div>
+  </div>
+
   <section class="band reveal" id="history-section">
     <div class="band-head"><span><span class="n">/</span> HISTORY</span>
       <span class="side">snapshots and audit trail</span></div>
     <h2 class="head">Revisions and audit trail</h2>
     <p class="sub">Every promotion snapshots the revision it displaced, so a change is reversible.
       Restoring one is atomic and is itself recorded. The trail holds metadata only (action, skill,
-      revision, actor, timestamp), never skill text.</p>
+      revision, actor, timestamp, and an optional rejection reason), never skill text.</p>
     <div id="history"></div>
     <div class="review-actions"><span class="msg" id="history-msg"></span></div>
   </section>
@@ -428,19 +523,31 @@
     <div class="band-head"><span><span class="n">/</span> SKILLS</span>
       <span class="side" id="skills-side"></span></div>
     <h2 class="head">Skills under control</h2>
-    <p class="sub">Every skill the router serves, with the revision it is serving. Candidate generation
-      is optional and activates nothing: it authors rewrites in parallel, races them on the train tasks,
-      A/Bs the winner on held-out tasks, and leaves the result quarantined for review. Skills without an
-      eval task set can't be measured yet: a CLI run auto-drafts one.</p>
+    <p class="sub">Every skill the router serves, with the revision it is serving. SkillOpt trains
+      bounded instruction edits, measures them on train and held-out tasks, and leaves each result
+      quarantined for review. Skills without an eval task set can't be measured yet: a CLI run
+      auto-drafts one.</p>
+    <div class="skill-controls">
+      <div class="version-field"><label for="skill-search">Search skills</label>
+        <input id="skill-search" type="search" placeholder="Name or description"></div>
+      <div class="version-field filter-field"><label for="skill-filter">Filter</label>
+        <select id="skill-filter">
+          <option value="all">All skills</option>
+          <option value="pending">Awaiting review</option>
+          <option value="evals">Has evals</option>
+          <option value="no-evals">Needs evals</option>
+        </select></div>
+      <span class="filter-count" id="skill-filter-count"></span>
+    </div>
     <div class="skilllist" id="skills-list"></div>
     <div class="review-actions"><span class="msg" id="skills-msg"></span></div>
   </section>
 
   <section class="band" id="run-section" hidden>
     <div class="band-head"><span><span class="n">/</span> ACTIVITY</span>
-      <span class="side">candidate generation log</span></div>
-    <h2 class="head">Candidate generation log</h2>
-    <p class="sub">Live output from the background candidate run (search, race, held-out A/B). One runs at a time.</p>
+      <span class="side">SkillOpt run log</span></div>
+    <h2 class="head">SkillOpt optimization log</h2>
+    <p class="sub">Live output from SkillOpt training and the held-out A/B. One run at a time.</p>
     <pre class="log" id="log"></pre>
   </section>
 
@@ -454,6 +561,7 @@
 const $ = s => document.querySelector(s);
 let langfuseUrl = "#", currentPending = null, currentPendingData = null;
 let booted = false;  // entrance animations run on first paint only; 3s refreshes stay still
+let boardSignature = null, skillInventory = [];
 const REDUCED = matchMedia("(prefers-reduced-motion: reduce)").matches;
 
 // count-up on KPI values (structure: Magic UI number-ticker, vanilla rAF instead of a spring)
@@ -523,7 +631,7 @@ const alert = (cls, tag, txt) =>
 // revision must shorten to nonsense rather than throw and blank the history section
 const shortRev = r => String(r || "").slice(0, 12);
 const statusChip = s => s.pending ? `<span class="chip rust">change awaiting review</span>`
-  : s.status === "running" ? `<span class="chip warn">generating candidate</span>`
+  : s.status === "running" ? `<span class="chip warn">SkillOpt running</span>`
   : !s.has_tasks ? `<span class="chip mute">no evals</span>`
   : `<span class="chip pass">evals</span>`;
 
@@ -558,18 +666,30 @@ function renderBoard(skills, withTasks, history) {
   const alerts = [];
   if (pending) alerts.push(alert("act", "REVIEW",
     `${pending} change${pending > 1 ? "s" : ""} quarantined and awaiting your decision.`));
-  if (running) alerts.push(alert("info", "GENERATING",
-    "a background candidate run is in progress; watch the log."));
+  if (running) alerts.push(alert("info", "OPTIMIZING",
+    "a SkillOpt run is in progress; watch the log."));
   if (!pending && !running) alerts.push(alert("ok", "CLEAR",
     "nothing quarantined; every skill is serving its approved revision."));
   if (!withTasks.length) alerts.push(alert("info", "NO EVALS",
-    `${skills.length} skill${skills.length === 1 ? "" : "s"} tracked, none with an eval task set, which candidate generation needs.`));
+    `${skills.length} skill${skills.length === 1 ? "" : "s"} tracked, none with an eval task set, which SkillOpt optimization needs.`));
   $("#attention").innerHTML = alerts.join("");
 
   const pill = $("#status-pill");
   if (pending) { pill.className = "pill act"; pill.textContent = `${pending} to review`; }
   else if (running) { pill.className = "pill run"; pill.textContent = "generating"; }
   else { pill.className = "pill idle"; pill.textContent = "idle"; }
+
+  const snapshots = history
+    ? Object.values(history.revisions).reduce((n, revisions) => n + revisions.length, 0) : null;
+  const decisions = history ? history.audit.total : null;
+  const signature = JSON.stringify({pending, running, skills: skills.length, snapshots, decisions});
+  if (signature !== boardSignature) {
+    const parts = [`${skills.length} skills tracked`, `${pending} awaiting review`,
+      `${running} SkillOpt runs active`];
+    if (snapshots != null) parts.push(`${snapshots} rollback points`, `${decisions} recorded decisions`);
+    $("#board-announcer").textContent = `Board updated: ${parts.join(", ")}.`;
+    boardSignature = signature;
+  }
 }
 
 // The board re-polls every 3s. Rebuilding the history rows on every poll reset each revision
@@ -600,7 +720,7 @@ function renderHistory(h) {
   const trail = h.audit.records.map(r =>
     `<div><span class="aact${r.action === "reject" ? " reject" : ""}">${esc(r.action || "?")}</span> ${esc(r.skill || "?")}
      @ ${esc(shortRev(r.revision))} · ${esc(stamp(r.ts))}
-     · ${esc(r.actor || "unknown")}</div>`).join("");
+     · ${esc(r.actor || "unknown")}${r.reason ? ` · reason: ${esc(r.reason)}` : ""}</div>`).join("");
   $("#history").innerHTML =
     (rows ? `<div class="hlist">${rows}</div>`
           : `<div class="empty"><div class="et">No snapshots yet.</div>
@@ -628,33 +748,115 @@ let skillsSignature = null;
 function renderSkills(skills) {
   const signature = JSON.stringify(skills);
   if (signature === skillsSignature) return;
-  if (!skills.length) {
+  skillInventory = skills;
+  skillsSignature = signature;
+  renderSkillRows();
+}
+
+function renderSkillRows() {
+  if (!skillInventory.length) {
     $("#skills-list").innerHTML =
       `<div class="empty"><div class="et">No skills registered.</div>
        <div class="ed">Fetch or create skills under <code>skills/&lt;name&gt;/SKILL.md</code>
        and they will appear here.</div></div>`;
-    skillsSignature = signature;
+    $("#skill-filter-count").textContent = "0 skills";
     return;
   }
-  const ordered = [...skills].sort((a, b) => (b.pending - a.pending) || (b.has_tasks - a.has_tasks));
+  const query = $("#skill-search").value.trim().toLowerCase();
+  const filter = $("#skill-filter").value;
+  const visible = skillInventory.filter(s => {
+    const matchesText = !query || `${s.name} ${s.description}`.toLowerCase().includes(query);
+    const matchesFilter = filter === "all" || (filter === "pending" && s.pending) ||
+      (filter === "evals" && s.has_tasks) || (filter === "no-evals" && !s.has_tasks);
+    return matchesText && matchesFilter;
+  });
+  $("#skill-filter-count").textContent = `${visible.length} of ${skillInventory.length}`;
+  if (!visible.length) {
+    $("#skills-list").innerHTML =
+      `<div class="empty"><div class="et">No skills match.</div>
+       <div class="ed">Change the search text or filter to see more skills.</div></div>`;
+    return;
+  }
+  const ordered = [...visible].sort((a, b) => (b.pending - a.pending) || (b.has_tasks - a.has_tasks));
   $("#skills-list").innerHTML = ordered.map(s => `
     <div class="srow${s.pending ? " pend" : ""}${s.has_tasks ? "" : " noev"}">
-      <div class="main">
+      <button class="main skill-open" onclick="openSkillVersions('${esc(s.name)}')"
+        aria-label="View ${esc(s.name)} versions and contents">
         <div class="nameline"><span class="sname">${esc(s.name)}</span>${statusChip(s)}
           ${s.revision ? `<span class="chip mute">rev ${esc(shortRev(s.revision))}</span>` : ""}
           ${s.uses ? `<span class="chip mute" title="times this skill's instructions were served">${s.uses} use${s.uses === 1 ? "" : "s"}</span>` : ""}</div>
         <p class="sdesc">${esc(s.description)}</p>
-      </div>
+      </button>
       <div class="sactions">
         ${s.pending ? `<button class="btn primary" onclick="showPending('${esc(s.name)}')">Review change</button>` : ""}
         <button class="btn" onclick="generateCandidate('${esc(s.name)}')"
           ${s.status === "running" || !s.has_tasks ? "disabled" : ""}
           ${s.has_tasks ? "" : `title="no eval task set; docker compose run --rm optimize ${esc(s.name)} auto-drafts one"`}>
-          ${s.status === "running" ? "generating…" : "Generate candidate"}</button>
+          ${s.status === "running" ? "optimizing…" : "Optimize with SkillOpt"}</button>
       </div>
     </div>`).join("");
-  skillsSignature = signature;
 }
+
+$("#skill-search").oninput = renderSkillRows;
+$("#skill-filter").onchange = renderSkillRows;
+
+let skillVersionFiles = [];
+const versionLabel = v => v.kind === "active" ? `Active · ${shortRev(v.revision)}`
+  : v.kind === "pending" ? `Pending challenger · ${shortRev(v.revision) || "unversioned"}`
+  : `Snapshot · ${shortRev(v.revision)} · ${stamp(v.created)}`;
+
+async function openSkillVersions(skill) {
+  $("#skill-detail-name").textContent = skill;
+  $("#skill-version").innerHTML = "";
+  $("#skill-file").innerHTML = "";
+  $("#skill-version-content").textContent = "";
+  $("#skill-version-desc").textContent = "";
+  $("#skill-version-meta").innerHTML = "";
+  say("#skill-version-msg", "Loading versions…", false);
+  $("#skill-overlay").hidden = false;
+  try {
+    const summary = await j(`/api/skills/${encodeURIComponent(skill)}/versions`);
+    $("#skill-version").innerHTML = summary.versions.map(v =>
+      `<option value="${esc(v.key)}">${esc(versionLabel(v))}</option>`).join("");
+    await loadSkillVersion();
+  } catch (e) {
+    say("#skill-version-msg", `⛔ ${e.message}`, true);
+  }
+}
+
+async function loadSkillVersion() {
+  const skill = $("#skill-detail-name").textContent;
+  const version = $("#skill-version").value;
+  if (!skill || !version) return;
+  say("#skill-version-msg", "Loading version…", false);
+  try {
+    const detail = await j(`/api/skills/${encodeURIComponent(skill)}/versions/${encodeURIComponent(version)}`);
+    const skillMd = `---\nname: ${detail.skill}\ndescription: ${JSON.stringify(detail.description)}\n---\n\n${detail.body}`;
+    skillVersionFiles = [{path: "SKILL.md", content: skillMd}, ...(detail.files || [])];
+    $("#skill-file").innerHTML = skillVersionFiles.map((file, i) =>
+      `<option value="${i}">${esc(file.path)}</option>`).join("");
+    $("#skill-version-meta").innerHTML =
+      `<span class="chip ${detail.kind === "active" ? "pass" : (detail.kind === "pending" ? "rust" : "mute")}">${esc(detail.kind)}</span>` +
+      `<span class="chip mute">rev ${esc(shortRev(detail.revision) || "unrecorded")}</span>` +
+      (detail.created ? `<span class="chip mute">${esc(stamp(detail.created))}</span>` : "");
+    $("#skill-version-desc").textContent = detail.description;
+    renderSkillVersionFile();
+    say("#skill-version-msg", "", false);
+  } catch (e) {
+    say("#skill-version-msg", `⛔ ${e.message}`, true);
+  }
+}
+
+function renderSkillVersionFile() {
+  const file = skillVersionFiles[Number($("#skill-file").value) || 0];
+  $("#skill-version-content").textContent = file ? file.content : "";
+}
+
+function closeSkillVersions() { $("#skill-overlay").hidden = true; }
+$("#skill-close").onclick = closeSkillVersions;
+$("#skill-overlay").onclick = e => { if (e.target === $("#skill-overlay")) closeSkillVersions(); };
+$("#skill-version").onchange = loadSkillVersion;
+$("#skill-file").onchange = renderSkillVersionFile;
 
 // One failing endpoint must not blank the board: each section renders from what it got, and says
 // so when its own data is missing, instead of the whole poll rejecting and leaving stale or empty
@@ -703,10 +905,10 @@ function syncReviewCard(skills) {
   }
 }
 
-// the optional background experiment: it only ever writes a quarantined candidate
+// SkillOpt only ever writes a quarantined candidate.
 async function generateCandidate(skill) {
   await act("#skills-msg", async () =>
-    `started a candidate run for '${(await j(`/api/optimize/${skill}`, {method: "POST"})).started}'`);
+    `started SkillOpt for '${(await j(`/api/optimize/${skill}`, {method: "POST"})).started}'`);
 }
 
 function colorizeDiff(diff) {
@@ -723,6 +925,7 @@ function colorizeDiff(diff) {
 
 function showNoPending() {
   currentPending = null;
+  currentPendingData = null;
   $("#pending-card").hidden = true;
   $("#review-empty").hidden = false;
   $("#pending-heading").textContent = "No pending changes";
@@ -741,6 +944,31 @@ async function showEvidence(skill) {
   } catch (err) {
     pre.textContent = `(no readable evidence bundle: ${err.message})`;
   }
+}
+
+function renderRisk(risk) {
+  const r = risk || {added_lines: 0, removed_lines: 0, changed_pct: 0, size_delta_pct: 0};
+  const signed = n => `${Number(n) >= 0 ? "+" : ""}${Number(n).toFixed(1)}%`;
+  const warning = r.high_risk
+    ? `<div class="risk-warning">⚠ High-risk rewrite: inspect the full body before deciding.</div>` : "";
+  const el = $("#risk-summary");
+  el.classList.toggle("high", Boolean(r.high_risk));
+  el.innerHTML =
+    `<div class="risk-stat"><b>+${r.added_lines}</b><span>lines added</span></div>` +
+    `<div class="risk-stat"><b>−${r.removed_lines}</b><span>lines removed</span></div>` +
+    `<div class="risk-stat"><b>${Number(r.changed_pct).toFixed(1)}%</b><span>body changed</span></div>` +
+    `<div class="risk-stat"><b>${signed(r.size_delta_pct)}</b><span>body size</span></div>` + warning;
+}
+
+function renderSideDiff(comparison) {
+  const rows = (comparison || []).map(part =>
+    `<section class="side-component"><h4>${esc(part.component)}</h4><div class="side-columns">` +
+      `<div class="side-column"><span class="side-label">Before</span><pre>${esc(part.before)}</pre></div>` +
+      `<div class="side-column"><span class="side-label">After</span><pre>${esc(part.after)}</pre></div>` +
+    `</div></section>`).join("");
+  $("#side-diff-body").innerHTML = rows ||
+    `<div class="empty"><div class="ed">No component comparison is available.</div></div>`;
+  $("#side-diff").open = false;
 }
 
 // `keepMessage` is set when the poll switched cards by itself: a reviewer who just approved a
@@ -764,8 +992,7 @@ async function showPending(skill, {keepMessage = false} = {}) {
   // stale evidence describes a champion that has since moved on disk: promotion would refuse it,
   // so the review card refuses it first rather than after the click
   $("#approve").disabled = Boolean((p.gate && !p.gate.promotable) || p.stale);
-  // records written before the GEPA body loop was removed carry these scores under `gepa`;
-  // the API normalizes them, and a record with neither simply renders without the line
+  // A record without candidate-search scores simply renders without the line.
   const search = p.inner_loop;
   let detail;
   if (p.ab) {  // quality pass: judge scores + token shift through the full agent
@@ -788,11 +1015,12 @@ async function showPending(skill, {keepMessage = false} = {}) {
       const dOut = ch.tokens.mean_output - c.tokens.mean_output;
       const dIn = ch.tokens.mean_input - c.tokens.mean_input;
       const regress = dOut > 0.1 * c.tokens.mean_output;  // output tokens are the cost that matters
-      tok = `<div class="tokline">output tokens/task <b${regress ? ' class="reg"' : ""}>` +
+      tok = `<div class="tokline">input tokens/task <b>` +
+        `${c.tokens.mean_input.toFixed(0)} → ${ch.tokens.mean_input.toFixed(0)} ` +
+        `(${dIn >= 0 ? "+" : ""}${dIn.toFixed(0)})</b>` +
+        ` · output <b${regress ? ' class="reg"' : ""}>` +
         `${c.tokens.mean_output.toFixed(0)} → ${ch.tokens.mean_output.toFixed(0)} ` +
-        `(${dOut >= 0 ? "+" : ""}${dOut.toFixed(0)})${regress ? " ⚠ regression" : ""}</b>` +
-        ` · input ${c.tokens.mean_input.toFixed(0)} → ${ch.tokens.mean_input.toFixed(0)} ` +
-        `(${dIn >= 0 ? "+" : ""}${dIn.toFixed(0)})</div>`;
+        `(${dOut >= 0 ? "+" : ""}${dOut.toFixed(0)})${regress ? " ⚠ regression" : ""}</b></div>`;
     }
     detail = duel + meta + tok;
   } else {     // routing pass: embedding-router metrics, no LLM involved
@@ -823,7 +1051,9 @@ async function showPending(skill, {keepMessage = false} = {}) {
     : "";
 
   $("#pending-detail").innerHTML = detail + changed + gate + warn + stale;
+  renderRisk(p.risk);
   $("#diff").innerHTML = colorizeDiff(p.diff);
+  renderSideDiff(p.comparison);
   if (!keepMessage) say("#pending-msg", "", false);
   $("#evidence-label").hidden = $("#evidence").hidden = false;
   showEvidence(skill);
@@ -842,18 +1072,22 @@ function delta(before, after, lowerBetter) {
 function buildCompare(p) {
   const ab = p.ab || {}, c = ab.champion || {}, ch = ab.challenger || {};
   const ct = c.tokens || {}, cht = ch.tokens || {};
+  const beforeScores = c.scores || [], afterScores = ch.scores || [];
+  const scoreRows = Array.from({length: Math.max(beforeScores.length, afterScores.length)}, (_, i) =>
+    `<tr><td>Task ${i + 1}</td><td>${sc(beforeScores[i])}</td><td>${sc(afterScores[i])}</td>` +
+    `<td>${delta(beforeScores[i], afterScores[i], false)}</td></tr>`).join("");
   const models = `<div class="cmp-sec"><h4>Model breakdown</h4>
     <div class="cmp-kv"><span>Serving model (runs the skill)</span><code>${esc(p.model || ",")}</code></div>
     <div class="cmp-kv"><span>Judge (LLM-as-a-judge)</span><code>${esc(p.judge || ",")}</code></div></div>`;
-  const scores = `<div class="cmp-sec"><h4>LLM-as-a-judge score · ${(c.scores || []).length} held-out tasks</h4>
-    <table class="cmp-tbl"><tr><th></th><th>champion</th><th>challenger</th><th>Δ</th></tr>
+  const scores = `<div class="cmp-sec"><h4>LLM-as-a-judge score · ${beforeScores.length} held-out tasks</h4>
+    <table class="cmp-tbl"><tr><th></th><th>before</th><th>after</th><th>Δ</th></tr>
       <tr><td>mean</td><td>${sc(c.mean)}</td><td>${sc(ch.mean)}</td><td>${delta(c.mean, ch.mean, false)}</td></tr>
-      <tr><td>per-task</td><td colspan="3" class="cmp-pertask">${(c.scores || []).map(sc).join("  ")}<br>→ ${(ch.scores || []).map(sc).join("  ")}</td></tr>
+      ${scoreRows}
     </table></div>`;
   const tokens = `<div class="cmp-sec"><h4>Token usage / task, before → after</h4>
     <table class="cmp-tbl"><tr><th></th><th>before</th><th>after</th><th>Δ</th></tr>
-      <tr><td>output</td><td>${num(ct.mean_output)}</td><td>${num(cht.mean_output)}</td><td>${delta(ct.mean_output, cht.mean_output, true)}</td></tr>
       <tr><td>input</td><td>${num(ct.mean_input)}</td><td>${num(cht.mean_input)}</td><td>${delta(ct.mean_input, cht.mean_input, true)}</td></tr>
+      <tr><td>output</td><td>${num(ct.mean_output)}</td><td>${num(cht.mean_output)}</td><td>${delta(ct.mean_output, cht.mean_output, true)}</td></tr>
     </table></div>`;
   return models + scores + tokens;
 }
@@ -882,8 +1116,37 @@ $("#cmp-confirm").onclick = () => act("#cmp-msg", async () => {
   say("#pending-msg", r, false);
   return r;
 });
-$("#reject").onclick = () => act("#pending-msg", async () =>
-  (await j(`/api/reject/${currentPending}`, {method: "POST"})).result);
+
+function openReject() {
+  if (!currentPending) return;
+  $("#reject-skill").textContent = currentPending;
+  $("#reject-reason").value = "";
+  say("#reject-msg", "", false);
+  $("#reject-overlay").hidden = false;
+  $("#reject-reason").focus();
+}
+function closeReject() { $("#reject-overlay").hidden = true; }
+$("#reject").onclick = openReject;
+$("#reject-close").onclick = closeReject;
+$("#reject-cancel").onclick = closeReject;
+$("#reject-overlay").onclick = e => { if (e.target === $("#reject-overlay")) closeReject(); };
+$("#reject-confirm").onclick = () => act("#reject-msg", async () => {
+  const skill = currentPending;
+  const result = (await j(`/api/reject/${skill}`, {
+    method: "POST", headers: {"Content-Type": "application/json"},
+    body: JSON.stringify({reason: $("#reject-reason").value})
+  })).result;
+  closeReject();
+  say("#pending-msg", result, false);
+  return result;
+});
+
+document.addEventListener("keydown", e => {
+  if (e.key !== "Escape") return;
+  if (!$("#reject-overlay").hidden) closeReject();
+  else if (!$("#skill-overlay").hidden) closeSkillVersions();
+  else if (!$("#cmp-overlay").hidden) closeCompare();
+});
 
 j("/api/config").then(c => {
   langfuseUrl = c.langfuse_url;

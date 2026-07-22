@@ -15,9 +15,8 @@ Three properties, all defaults, none optional:
 
   OpenRouter then routes only to ZDR endpoints operated by providers that do not collect user
   data. A model with no qualifying endpoint fails loudly rather than falling back to one that
-  retains prompts. Provider-direct endpoints work too: Fireworks AI, for example, is
-  [zero-data-retention by default](https://docs.fireworks.ai/guides/security_compliance/data_handling)
-  for open models on serverless, under its own retention policy.
+  retains prompts. OpenRouter is the supported hosted path. Fully local vLLM and Ollama endpoints
+  are supported when traffic must remain on the machine.
 - **Self-hosted tracing.** The default evals backend is a self-hosted Langfuse (Postgres,
   ClickHouse, MinIO) that runs inside the compose stack, so traces stay on your machine (hosted
   inference is the separate exception noted below). Its ports are bound to `127.0.0.1` and its
@@ -27,20 +26,12 @@ Three properties, all defaults, none optional:
   [Network exposure](#network-exposure)).
 
 The only data that leaves your machine is the LLM traffic itself. `BASE_URL` + `API_KEY` point
-everything at any OpenAI-compatible provider (`MODEL_BASE_URL`/`MODEL_API_KEY` override just the
-serving role):
+hosted traffic at OpenRouter (`MODEL_BASE_URL`/`MODEL_API_KEY` can keep the serving role local):
 
 ```bash
 # the default (.env.example): OpenRouter, ZDR-only provider routing enforced in code
 BASE_URL=https://openrouter.ai/api/v1
 API_KEY=sk-or-...
-
-# provider-direct alternative: Fireworks AI (ZDR by default for open models on serverless)
-BASE_URL=https://api.fireworks.ai/inference/v1
-API_KEY=fw_...
-AGENT_MODEL=accounts/fireworks/models/qwen3p7-plus
-SKILLOPT_MODEL=accounts/fireworks/models/glm-5p2
-JUDGE_MODEL=accounts/fireworks/models/deepseek-v4-pro
 
 # fully local (no key needed at all): everything on Ollama / vLLM
 BASE_URL=http://172.17.0.1:11434/v1  AGENT_MODEL=qwen3:32b  SKILLOPT_MODEL=qwen3:32b  JUDGE_MODEL=llama3.3:70b
@@ -74,18 +65,18 @@ Write paths, and what guards each:
 
 ### Network exposure
 
-**Everything is localhost-only by default, because nothing is authenticated.** The MCP tools and the
-change-control UI's endpoints (which can trigger paid candidate runs, activate a skill, or roll one
-back) have no auth of their own; the default protection is that no service is reachable off the
-machine:
+**Everything is localhost-only by default.** The MCP tools have no built-in authentication. The
+change-control UI is password-gated by Compose, using the local demo login `admin` / `ingot`, and
+supports OIDC for shared deployments. Loopback binding remains the first protection layer:
 
 - `docker-compose.yml` publishes every port on loopback only (`127.0.0.1:8000` MCP,
   `127.0.0.1:8080` UI, `127.0.0.1:3100` Langfuse).
 - Run outside Docker, the MCP server also binds `127.0.0.1` by default.
 
-To expose a service, change its port mapping in `docker-compose.yml` from `"127.0.0.1:8000:8000"`
-to `"8000:8000"` (or bind a specific interface). Do this knowingly: anyone who can reach those
-ports can queue candidates, approve activations, roll skills back, and spend your API budget.
+To expose MCP, use a private interface override as shown in [Production setup](../PRODUCTION_SETUP.md)
+and place it behind a private network, firewall, VPN, or authenticating proxy. Do this knowingly:
+anyone who can reach an unprotected MCP endpoint can load the skill library. UI authentication is
+separate and does not protect MCP.
 
 **The change-control UI has a ready-made path.** The `lan` profile runs a Caddy TLS front door
 that publishes only the UI, on every interface, while the UI itself stays loopback-bound:
@@ -102,18 +93,17 @@ certificates into `ops/caddy/Caddyfile`. The UI keeps its password gate (default
 pinned non-empty in `docker-compose.yml`); change `AUTH_PASSWORD` in `.env` before pointing
 teammates at it.
 
-**Sharing the UI on a trusted LAN?** Turn on the built-in password gate so approvals are gated and
-attributable, add a user and the change-control UI requires HTTP Basic auth (against a local
-`runs/auth.json` of salted PBKDF2 hashes), and each approval or rollback records that username as
-the audit `actor` instead of `local-operator`:
+**Sharing the UI on a trusted LAN?** Change the Compose default password first. The login makes
+approvals attributable. Add more HTTP Basic users in a local `runs/auth.json` of salted PBKDF2
+hashes when needed:
 
 ```bash
-docker compose run --rm ui python -m ui.auth add alice   # prompts for a password; auth is now ON
+docker compose run --rm ui python -m ui.auth add alice
 ```
 
-It's off until the first user exists (the local default stays zero-config). This is LAN-grade:
-Basic credentials ride every request, so keep the server inside your network boundary and add TLS
-if you can. For a shared or company-wide deployment, [Sign in with Google](sso.md)
+Set `AUTH_MODE=open` explicitly only for a local deployment where no login is wanted. Basic
+credentials ride every request, so keep the server inside your network boundary and use TLS. For a
+shared or company-wide deployment, [Sign in with Google](sso.md)
 (`AUTH_MODE=oidc`) adds domain-restricted login and the viewer/proposer/approver/admin roles, with
 the signed-in email as the audit actor. For authenticating the MCP serving endpoints themselves, put
 an authenticating reverse proxy in front.

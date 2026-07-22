@@ -55,7 +55,7 @@ def test_optimize_without_key_is_friendly_400(client, monkeypatch):
     monkeypatch.delenv("OPENROUTER_API_KEY")
     r = client.post("/api/optimize/pdf")
     assert r.status_code == 400
-    assert "OPENROUTER_API_KEY" in r.json()["detail"]
+    assert "API_KEY" in r.json()["detail"]
     assert ".env" in r.json()["detail"]
 
 
@@ -119,6 +119,23 @@ def test_reject_records_a_reject_audit_entry(client):
     assert trail[0]["skill"] == "pdf" and trail[0]["revision"] == "abc123"
 
 
+def test_reject_records_an_optional_normalized_reason(client):
+    P.save_pending("pdf", {"skill": "pdf", "champion_components": {},
+                           "challenger_components": {}})
+    r = client.post("/api/reject/pdf", json={"reason": "  deleted   required checks\nby mistake  "})
+    assert r.status_code == 200
+    record = client.get("/api/history").json()["audit"]["records"][0]
+    assert record["action"] == "reject"
+    assert record["reason"] == "deleted required checks by mistake"
+
+
+def test_reject_reason_is_limited_before_pending_is_consumed(client):
+    P.save_pending("pdf", {"skill": "pdf", "champion_components": {},
+                           "challenger_components": {}})
+    assert client.post("/api/reject/pdf", json={"reason": "x" * 501}).status_code == 422
+    assert P.load_pending("pdf") is not None
+
+
 def test_reject_audits_an_empty_revision_when_none_is_recorded(client):
     P.save_pending("pdf", {"skill": "pdf", "champion_components": {}, "challenger_components": {}})
     assert client.post("/api/reject/pdf").status_code == 200
@@ -158,6 +175,16 @@ def test_auth_me_is_a_200_unauthenticated_shape_in_password_mode(client):
     assert r.json() == {"authenticated": False, "email": "", "name": "", "role": ""}
 
 
+def test_auth_me_surfaces_the_password_user(client, monkeypatch):
+    monkeypatch.setenv("AUTH_MODE", "password")
+    monkeypatch.setenv("AUTH_USER", "reviewer")
+    monkeypatch.setenv("AUTH_PASSWORD", "secret")
+    r = client.get("/auth/me", auth=("reviewer", "secret"))
+    assert r.status_code == 200
+    assert r.json() == {"authenticated": True, "email": "", "name": "reviewer",
+                        "role": "admin"}
+
+
 def test_compose_mcp_service_mounts_the_runs_directory():
     """The mcp service records skill usage into runs/skill_usage.json; without the runs mount that
     write stays inside the ephemeral container and the board always reads 0 uses."""
@@ -195,6 +222,62 @@ def test_pending_renders_component_diff_and_warnings(client):
     assert p["evidence"]["markdown"].endswith("EVIDENCE.md")
 
 
+def test_pending_reports_large_body_change_risk_and_side_by_side_content(client):
+    before = "\n".join(f"line {number}" for number in range(1, 9))
+    P.save_pending("pdf", {
+        "skill": "pdf", "changed_components": ["body"],
+        "champion_components": {"description": "d", "body": before},
+        "challenger_components": {"description": "d", "body": "line 1"},
+    })
+    p = client.get("/api/pending/pdf").json()
+    assert p["risk"] == {"added_lines": 0, "removed_lines": 7, "changed_pct": 87.5,
+                          "size_delta_pct": p["risk"]["size_delta_pct"], "high_risk": True}
+    assert p["comparison"] == [{"component": "SKILL.md (body)", "before": before,
+                                 "after": "line 1"}]
+
+
+def test_skill_version_explorer_reads_active_pending_and_snapshot(client, tmp_path, monkeypatch):
+    root = tmp_path / "skills"
+    active = root / "pdf"
+    active.mkdir(parents=True)
+    (active / "SKILL.md").write_text(
+        "---\nname: pdf\ndescription: Active description.\n---\nactive body\n")
+    (active / "notes.md").write_text("active notes")
+    monkeypatch.setenv("SKILL_ROUTER_PATHS", str(root))
+
+    pending = {"description": "Pending description.", "body": "pending body",
+               "file:notes.md": "pending notes"}
+    P.save_pending("pdf", {"skill": "pdf", "created": 123,
+                            "champion_components": {"description": "Active description.",
+                                                    "body": "active body"},
+                            "challenger_components": pending})
+
+    snapshot = P.REVISIONS_DIR / "pdf" / "abc123"
+    snapshot.mkdir(parents=True)
+    (snapshot / "SKILL.md").write_text(
+        "---\nname: pdf\ndescription: Snapshot description.\n---\nsnapshot body\n")
+    (snapshot / "notes.md").write_text("snapshot notes")
+
+    versions = client.get("/api/skills/pdf/versions").json()["versions"]
+    assert [version["kind"] for version in versions] == ["active", "pending", "snapshot"]
+    assert client.get("/api/skills/pdf/versions/active").json()["body"] == "active body"
+    pending_payload = client.get("/api/skills/pdf/versions/pending").json()
+    assert pending_payload["description"] == "Pending description."
+    assert pending_payload["files"] == [{"path": "notes.md", "content": "pending notes"}]
+    snapshot_payload = client.get("/api/skills/pdf/versions/abc123").json()
+    assert snapshot_payload["body"] == "snapshot body"
+    assert snapshot_payload["files"] == [{"path": "notes.md", "content": "snapshot notes"}]
+
+
+def test_skill_version_explorer_refuses_unknown_versions(client, tmp_path, monkeypatch):
+    root = tmp_path / "skills"
+    skill = root / "pdf"
+    skill.mkdir(parents=True)
+    (skill / "SKILL.md").write_text("---\nname: pdf\ndescription: PDF.\n---\nbody\n")
+    monkeypatch.setenv("SKILL_ROUTER_PATHS", str(root))
+    assert client.get("/api/skills/pdf/versions/missing").status_code == 404
+
+
 def test_pending_exposes_model_and_judge_for_the_comparison_panel(client):
     P.save_pending("pdf", {
         "skill": "pdf", "model": "qwen/qwen3-32b", "judge": "google/gemini-2.5-flash",
@@ -220,6 +303,45 @@ def test_comparison_panel_controls_are_in_the_page(client):
     assert "cmp-overlay" in layout.ancestors["cmp-confirm"]
 
 
+def test_review_panel_ships_risk_side_diff_and_confirmed_rejection(client):
+    html = client.get("/").text
+    layout = _Layout(html)
+    for element_id in ("risk-summary", "side-diff", "side-diff-body", "reject-overlay",
+                       "reject-reason", "reject-confirm"):
+        assert element_id in layout.ancestors, f"review panel missing #{element_id}"
+    assert "pending-card" in layout.ancestors["risk-summary"]
+    assert "pending-card" in layout.ancestors["side-diff"]
+    assert "reject-overlay" in layout.ancestors["reject-confirm"]
+    assert "renderRisk(p.risk);" in html
+    assert "renderSideDiff(p.comparison);" in html
+    assert 'JSON.stringify({reason: $("#reject-reason").value})' in html
+
+
+def test_skill_list_ships_search_filters_version_explorer_and_live_updates(client):
+    html = client.get("/").text
+    layout = _Layout(html)
+    for element_id in ("skill-filter", "skill-filter-count", "skill-overlay",
+                       "skill-version", "skill-file", "board-announcer"):
+        assert element_id in layout.ancestors, f"skill explorer missing #{element_id}"
+    assert 'id="skill-search"' in html  # input is a void element, so _Layout does not record it
+    assert 'aria-live="polite"' in html
+    assert "signature !== boardSignature" in html
+    assert "skillInventory.filter" in html
+    assert "/api/skills/${encodeURIComponent(skill)}/versions" in html
+
+
+def test_comparison_panel_orders_tokens_and_tables_numbered_task_scores(client):
+    html = client.get("/").text
+    compare = html[html.index("function buildCompare(p)"):html.index("function openCompare()")]
+
+    assert compare.index("<td>input</td>") < compare.index("<td>output</td>")
+    assert "<th>before</th><th>after</th><th>Δ</th>" in compare
+    assert "<td>Task ${i + 1}</td>" in compare
+    task_count = "Math.max(beforeScores.length, afterScores.length)"
+    assert f"const scoreRows = Array.from({{length: {task_count}}}" in compare
+    assert 'class="cmp-pertask"' not in compare
+
+
 def test_api_skills_rows_carry_a_load_count(client, monkeypatch):
     """Every active skill row exposes `uses` so the UI can render the load-counter chip."""
     import ui.app as ui_app
@@ -231,24 +353,6 @@ def test_api_skills_rows_carry_a_load_count(client, monkeypatch):
     monkeypatch.setattr(usage_counts, "load_counts", lambda: {"pdf": 7})
     active = client.get("/api/skills").json()
     assert active and active[0]["uses"] == 7
-
-
-def test_pending_reads_legacy_gepa_scores(client):
-    """Review slots written before the GEPA body loop was removed store the candidate-search
-    scores under `gepa`; an existing queue must still render."""
-    P.save_pending("pdf", {
-        "skill": "pdf", "dataset": "pdf-holdout",
-        "gepa": {"seed_score": 0.1, "best_score": 0.9, "budget": 30},
-        "ab": {"champion": {"run": 1, "mean": 0.2, "scores": [0.2], "tokens": {}},
-               "challenger": {"run": 2, "mean": 0.8, "scores": [0.8], "tokens": {}}},
-        "gate": {"promotable": True, "blocked": [], "warnings": []},
-        "changed_components": ["body"],
-        "champion_components": {"description": "d", "body": "old line"},
-        "challenger_components": {"description": "d", "body": "new line"},
-    })
-    p = client.get("/api/pending/pdf").json()
-    assert p["inner_loop"] == {"seed_score": 0.1, "best_score": 0.9, "budget": 30}
-    assert "gepa" not in p
 
 
 def test_pending_without_search_scores_still_renders(client):
@@ -332,7 +436,7 @@ def test_index_ships_eval_chips_and_disabled_candidate_run(client):
     assert "no evals" in html          # chip for skills without an eval task set
     assert "has_tasks" in html         # rendering keys off the API flag
     assert "auto-drafts" in html       # the disabled generate button explains how to get evals
-    assert "Generate candidate" in html  # optimization is offered as an optional experiment
+    assert "Optimize with SkillOpt" in html  # optimization is a first-class, human-gated workflow
 
 
 def test_index_leads_with_review_before_candidate_generation(client):
@@ -513,7 +617,7 @@ def _promotable_pending() -> None:
 def test_approval_and_rollback_are_refused_while_one_is_in_flight(client, tmp_path, monkeypatch):
     """Promotion and rollback each snapshot, stage, and swap directories over several steps, and
     the endpoints run on a thread pool. A second action is refused with 409 rather than allowed to
-    interleave those steps, the way a second candidate run is."""
+    interleave those steps, the way a second SkillOpt run is."""
     import ui.app as U
     skill, replaced = _promoted_skill(tmp_path, monkeypatch)
     _promotable_pending()
@@ -715,9 +819,10 @@ def test_index_preserves_a_chosen_revision_across_refreshes(client):
 
 def test_index_reports_action_failures(client):
     html = client.get("/").text
-    assert 'act("#pending-msg"' in html          # approve and reject
+    assert 'act("#cmp-msg"' in html              # approve
+    assert 'act("#reject-msg"' in html           # reject
     assert 'act("#history-msg"' in html          # rollback
-    assert 'act("#skills-msg"' in html           # candidate generation
+    assert 'act("#skills-msg"' in html           # SkillOpt optimization
     assert "could not load history" in html      # a failed poll degrades per section
     assert "Promise.allSettled" in html
 

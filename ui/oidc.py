@@ -1,4 +1,4 @@
-"""OIDC ID-token validation primitive (see docs/superpowers/specs/2026-07-19-sso-rbac-design.md).
+"""OIDC ID-token validation primitive (see docs/sso.md).
 
 Provider-agnostic and network-free: given a JWKS (discovery + fetch + caching happen in the
 implementation phase), validate an ID token's signature, `iss`, `aud`, `exp`/`iat`, and `nonce`, and

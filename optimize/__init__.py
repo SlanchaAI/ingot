@@ -12,8 +12,7 @@ _KEY_HELP = """\
 error: no API key is set for your LLM endpoint, and candidate generation needs one.
 
   1. cp .env.example .env
-  2. put your key in it (OpenRouter: https://openrouter.ai/keys, or set BASE_URL + API_KEY for
-     any other OpenAI-compatible provider, e.g. Fireworks)
+  2. put your OpenRouter key in it (https://openrouter.ai/keys)
   3. re-run this command
 
 (Running fully local instead? Point BASE_URL / MODEL_BASE_URL at your vLLM or Ollama
@@ -25,7 +24,7 @@ def agent_model() -> str:
     """The serving/agent model, everything that *executes* skills (agent runs, A/B eval agents,
     candidate rollouts). AGENT_MODEL wins; MODEL is the legacy alias so existing .env files keep
     working."""
-    return os.environ.get("AGENT_MODEL") or os.environ.get("MODEL") or "qwen/qwen3.6-27b"
+    return os.environ.get("AGENT_MODEL") or os.environ.get("MODEL") or "qwen/qwen3-32b"
 
 
 def skillopt_model() -> str:
@@ -35,15 +34,15 @@ def skillopt_model() -> str:
 
 def model_base_url() -> str:
     """Endpoint for the serving-model role (agent runs, A/B eval agents, candidate rollouts).
-    MODEL_BASE_URL lets this role run against a different provider (local vLLM/Ollama, or e.g.
-    Fireworks direct) while the teacher and judge stay wherever BASE_URL points."""
+    MODEL_BASE_URL lets this role run locally through vLLM or Ollama while the teacher and judge
+    stay on the endpoint BASE_URL names."""
     return os.environ.get("MODEL_BASE_URL") or teacher_base_url()
 
 
 def teacher_base_url() -> str:
     """Endpoint for the teacher-side roles (candidate authoring, reflection, judge, task drafting).
-    Generic BASE_URL wins (any OpenAI-compatible provider); OPENROUTER_BASE_URL is the legacy
-    alias."""
+    BASE_URL names OpenRouter for hosted use or a local OpenAI-compatible endpoint;
+    OPENROUTER_BASE_URL is the legacy alias."""
     return (os.environ.get("BASE_URL") or os.environ.get("OPENROUTER_BASE_URL") or OPENROUTER_URL)
 
 
@@ -54,8 +53,7 @@ def api_key() -> str:
 
 
 def model_api_key() -> str:
-    """Key for the serving-model endpoint (falls back to the shared key), hybrid setups can use
-    a different vendor for the serving role."""
+    """Key for the serving-model endpoint, falling back to the shared OpenRouter key."""
     return os.environ.get("MODEL_API_KEY", "") or api_key()
 
 
@@ -77,7 +75,7 @@ def langfuse_available() -> bool:
 
 def openrouter_extra_body() -> dict:
     """Provider preferences for OpenRouter calls: the hardcoded ZDR policy, plus an optional
-    priority list (OPENROUTER_PROVIDERS=fireworks[,groq] -> provider.order): listed providers
+    priority list (OPENROUTER_PROVIDERS=groq[,deepinfra] -> provider.order): listed providers
     are tried first, in order, and models none of them serves fall back to the rest of the
     pool. The priority composes with ZDR: a listed provider still must qualify as
     zero-data-retention for the model, or routing skips it."""
@@ -90,9 +88,9 @@ def openrouter_extra_body() -> dict:
 
 def client_kwargs(base_url: str, key: str | None = None, reasoning: bool = False) -> dict:
     """ChatOpenAI connection kwargs for an endpoint. OpenRouter gets the hardcoded ZDR provider
-    preference (plus the optional OPENROUTER_PROVIDERS allowlist); any other OpenAI-compatible
-    endpoint (Fireworks/Together direct, local vLLM/Ollama) gets no provider preferences and a
-    placeholder api_key if none is set (the client requires one). reasoning=True pins OpenRouter's
+    preference (plus the optional OPENROUTER_PROVIDERS priority); a local OpenAI-compatible
+    endpoint such as vLLM or Ollama gets no provider preferences and a placeholder api_key if none
+    is set (the client requires one). reasoning=True pins OpenRouter's
     unified reasoning parameter on rather than relying on per-model defaults; local endpoints
     ignore it (thinking is a server-side setting there)."""
     key = key if key is not None else api_key()
@@ -173,6 +171,10 @@ def preflight_provider_pins() -> list[str]:
         conflict = provider_conflict(model, pins)
         if conflict:
             problems.append(f"  {role}={model}: {conflict}")
+    unavailable = [problem for problem in problems if "has no endpoints on OpenRouter" in problem]
+    if unavailable:
+        raise SystemExit("OpenRouter model configuration is unavailable:\n" +
+                         "\n".join(unavailable))
     if problems:
         print("warning: some roles are not covered by OPENROUTER_PROVIDERS and will fall back "
               "to the open ZDR pool:\n" + "\n".join(problems), file=sys.stderr)

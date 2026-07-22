@@ -5,8 +5,8 @@ prompts once and every request (including an approval) carries the username. Tha
 the audit-trail `actor`, which is the whole point, on a shared server an approval has to be
 attributable to a person, not to `local-operator`.
 
-Opt-in: with no users file the UI stays open (the zero-config local default is unchanged). Create
-the first user to turn auth on:
+Compose supplies the local demo login `admin` / `ingot`, so its UI is gated by default. A bare
+process with no credentials or users file infers open mode. Add another local user with:
 
     python -m ui.auth add alice        # prompts for a password, writes runs/auth.json (mode 0600)
 
@@ -86,7 +86,7 @@ def using_default_password() -> bool:
 
 
 def _actor_from(request: Request) -> str | None:
-    """The authenticated username, `_ANON` when auth is off, or None when creds are missing/invalid."""
+    """The authenticated username, `_ANON` in open mode, or None for invalid credentials."""
     if not auth_enabled():
         return _ANON
     header = request.headers.get("Authorization", "")
@@ -106,8 +106,9 @@ def _challenge() -> HTTPException:
 
 # --- Auth mode selection ---------------------------------------------------------------------
 # Three modes coexist: `oidc` (Sign in with Google, ui/oidc_flow.py), `password` (LAN Basic, above),
-# and `open` (the zero-config local default). Explicit AUTH_MODE wins; otherwise infer password when
-# credentials exist, else open. OIDC is opt-in via AUTH_MODE=oidc because it needs the OIDC_* config.
+# and `open` (explicit in Compose, inferred for a bare process with no credentials). Explicit
+# AUTH_MODE wins; otherwise infer password when credentials exist, else open. OIDC is opt-in via
+# AUTH_MODE=oidc because it needs the OIDC_* config.
 _OIDC_BOOTSTRAP = ("/auth/login", "/auth/callback", "/auth/logout")
 _REQUIRED_OIDC_ENV = ("OIDC_CLIENT_ID", "OIDC_REDIRECT_URL", "SESSION_SECRET")
 

@@ -20,6 +20,6 @@ Before opening a pull request:
 1. Run the full Docker test suite.
 2. Confirm `docker compose config --quiet` succeeds when Compose files change.
 3. Describe user-visible behavior, risks, and verification evidence.
-4. Run the repository's Code Health safeguard when available and fix regressions.
+4. Run CodeScene only when the pull request or reviewer explicitly asks for it.
 
 Report security issues through the private process in [SECURITY.md](SECURITY.md), not a public issue.

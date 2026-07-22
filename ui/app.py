@@ -1,7 +1,7 @@
 """Change-control UI: the review surface for quarantined instruction changes.
 
-Reviewers see the evidence and the promotion decision first; candidate generation (the optional
-generator) is a secondary action that only ever writes to the pending queue. Promotion and
+Reviewers see the evidence and the promotion decision first. SkillOpt optimization is a core
+workflow that only ever writes to the pending queue. Promotion and
 rollback both go through `optimize.promote`, which snapshots the displaced revision and swaps
 directories atomically.
 """
@@ -15,13 +15,14 @@ from urllib.parse import urlparse
 
 from fastapi import Depends, FastAPI, HTTPException, Request
 from fastapi.responses import FileResponse, RedirectResponse
+from pydantic import BaseModel, Field
 
-from mcp_server.registry import SLUG_RE, load_skills
+from mcp_server.registry import SLUG_RE, load_skills, read_components, skill_revision
 from optimize.ab import TASKS_DIR, run_ab
 from ui.auth import (auth_mode, current_actor, require_auth, require_role, using_default_password)
 from optimize.promote import (_audit_best_effort, approve_pending, list_revisions,
-                              list_snapshotted_skills, load_pending, pending_path, read_audit,
-                              rollback, stale_evidence_reason)
+                              list_snapshotted_skills, load_pending, load_snapshot_components,
+                              pending_path, read_audit, rollback, stale_evidence_reason)
 
 logger = logging.getLogger(__name__)
 REPO_ROOT = Path(__file__).resolve().parent.parent
@@ -39,7 +40,7 @@ def _check(skill: str) -> str:
 
 def same_origin(request: Request):
     """CSRF guard on state-changing endpoints: a cross-site page can POST to localhost (a paid
-    candidate run, a silent promotion, a rollback) without being able to read the response. Require
+    SkillOpt run, a silent promotion, or a rollback) without being able to read the response. Require
     the request to originate from this app's own origin."""
     origin = request.headers.get("origin")
     if origin is None:  # non-browser client (curl, the demo's own scripts), no ambient cookies to abuse
@@ -50,8 +51,8 @@ def same_origin(request: Request):
 app = FastAPI(title="ingot change control",
               description="Review evidence for quarantined skill changes, promote them "
                           "atomically, and roll back a promoted revision.",
-              # LAN-grade gate: no-op when no users file exists (local default stays open);
-              # HTTP Basic against runs/auth.json once a user is added (see ui/auth.py).
+              # Compose uses a LAN-grade Basic-auth gate; a bare process with no credentials
+              # infers open mode. Additional users live in runs/auth.json (see ui/auth.py).
               dependencies=[Depends(require_auth)])
 
 if using_default_password():
@@ -73,12 +74,13 @@ if auth_mode() == "oidc":
                        **oidc_cookie_kwargs())
     app.include_router(oidc_router)
 else:
-    # Password/open mode carries no session identity, but the frontend polls /auth/me on every
-    # load: answer with a stable unauthenticated shape instead of a 404 (the OIDC router owns the
-    # real endpoint when that profile is on).
+    # Password mode can surface the Basic username in the board. Open mode has no signed-in user.
+    # The OIDC router owns the richer session-backed endpoint when that profile is active.
     @app.get("/auth/me")
-    def auth_me():
-        return {"authenticated": False, "email": "", "name": "", "role": ""}
+    def auth_me(actor: str = Depends(current_actor)):
+        password = auth_mode() == "password"
+        return {"authenticated": password, "email": "", "name": actor if password else "",
+                "role": "admin" if password else ""}
 
 RUNS: dict[str, dict] = {}  # skill -> {"status": running|done|error, "log": [lines]}
 
@@ -141,10 +143,75 @@ def skills():
     ]
 
 
+def _active_skill(skill: str):
+    match = next((item for item in _cached_load_skills() if item.name == skill), None)
+    if match is None:
+        raise HTTPException(404, f"no active skill named '{skill}'")
+    return match
+
+
+def _pending_revision(skill, pending: dict) -> str:
+    recorded = _challenger_revision(pending)
+    if recorded:
+        return recorded
+    try:
+        return skill_revision(Path(skill.root), pending["challenger_components"])
+    except (KeyError, OSError, TypeError, ValueError):
+        return ""
+
+
+def _version_payload(skill: str, kind: str, revision: str, created: int | None,
+                     components: dict[str, str]) -> dict:
+    files = [{"path": key[len("file:"):], "content": value}
+             for key, value in sorted(components.items()) if key.startswith("file:")]
+    return {"skill": skill, "kind": kind, "revision": revision, "created": created,
+            "description": components.get("description", ""),
+            "body": components.get("body", ""), "files": files}
+
+
+@app.get("/api/skills/{skill}/versions")
+def skill_versions(skill: str):
+    """The live, pending, and snapshotted versions available to inspect for one active skill."""
+    active = _active_skill(_check(skill))
+    versions = [{"key": "active", "kind": "active", "revision": active.revision,
+                 "created": None}]
+    pending = load_pending(skill)
+    if pending and isinstance(pending.get("challenger_components"), dict):
+        versions.append({"key": "pending", "kind": "pending",
+                         "revision": _pending_revision(active, pending),
+                         "created": pending.get("created")})
+    versions.extend({"key": item["revision"], "kind": "snapshot", **item}
+                    for item in list_revisions(skill))
+    return {"skill": skill, "description": active.description, "versions": versions}
+
+
+@app.get("/api/skills/{skill}/versions/{version}")
+def skill_version(skill: str, version: str):
+    """Read one version's instructions and bundled text files without changing active state."""
+    active = _active_skill(_check(skill))
+    if version == "active":
+        return _version_payload(skill, "active", active.revision, None,
+                                read_components(Path(active.root)))
+    if version == "pending":
+        pending = load_pending(skill)
+        components = pending.get("challenger_components") if pending else None
+        if not isinstance(components, dict):
+            raise HTTPException(404, f"no pending version for '{skill}'")
+        return _version_payload(skill, "pending", _pending_revision(active, pending),
+                                pending.get("created"), components)
+    try:
+        components = load_snapshot_components(skill, version)
+    except ValueError as exc:
+        raise HTTPException(404, str(exc))
+    created = next((item["created"] for item in list_revisions(skill)
+                    if item["revision"] == version), None)
+    return _version_payload(skill, "snapshot", version, created, components)
+
+
 @app.post("/api/optimize/{skill}",
           dependencies=[Depends(same_origin), Depends(require_role("proposer"))])
 def optimize(skill: str):
-    """Start the optional candidate generator for one skill. It never activates anything: the
+    """Start a SkillOpt optimization for one skill. It never activates anything: the
     result is a quarantined pending record for review."""
     _check(skill)
     _preflight_optimize(skill)
@@ -163,18 +230,18 @@ def _preflight_optimize(skill: str) -> None:
     _preflight_provider()
     if not (TASKS_DIR / f"{skill}.yaml").exists():
         raise HTTPException(404, f"no eval task set for '{skill}'")
-    # one candidate run at a time: the token ledger is process-global, and concurrent runs
+    # one SkillOpt run at a time: the token ledger is process-global, and concurrent runs
     # would also contend for the same OpenRouter budget
     if any(s.get("status") == "running" for s in RUNS.values()):
-        raise HTTPException(409, "a candidate run is already in progress")
+        raise HTTPException(409, "a SkillOpt run is already in progress")
 
 
 def _preflight_provider() -> None:
     from optimize import openrouter_key_missing, preflight_provider_pins
     if openrouter_key_missing():
-        raise HTTPException(400, "OPENROUTER_API_KEY is not set, copy .env.example to .env, "
+        raise HTTPException(400, "API_KEY is not set, copy .env.example to .env, "
                                  "add your key (https://openrouter.ai/keys), and restart the stack "
-                                 "(or point MODEL_BASE_URL/OPENROUTER_BASE_URL at a local endpoint)")
+                                 "(or point BASE_URL/MODEL_BASE_URL at a local endpoint)")
     try:
         preflight_provider_pins()
     except SystemExit as e:  # pin/model conflict, surface the explanation, don't start a run
@@ -203,9 +270,26 @@ def _label(component: str) -> str:
 
 
 def _inner_loop(record: dict) -> dict | None:
-    """Candidate-search scores. Records written before the GEPA body loop was removed store these
-    under `gepa`; read either so an existing review slot still renders."""
-    return record.get("inner_loop") or record.get("gepa")
+    """Candidate-search scores recorded by current SkillOpt optimization runs."""
+    return record.get("inner_loop")
+
+
+def _review_risk(champion: dict, challenger: dict) -> dict:
+    """Line and body-size risk metrics shown before a reviewer opens the full diff."""
+    before = str(champion.get("body", "")).splitlines()
+    after = str(challenger.get("body", "")).splitlines()
+    removed = added = 0
+    for tag, i1, i2, j1, j2 in difflib.SequenceMatcher(None, before, after).get_opcodes():
+        if tag != "equal":
+            removed += i2 - i1
+            added += j2 - j1
+    changed_pct = round(100 * max(added, removed) / max(len(before), len(after), 1), 1)
+    before_chars = len(str(champion.get("body", "")))
+    after_chars = len(str(challenger.get("body", "")))
+    size_delta_pct = round(100 * (after_chars - before_chars) / max(before_chars, 1), 1)
+    return {"added_lines": added, "removed_lines": removed, "changed_pct": changed_pct,
+            "size_delta_pct": size_delta_pct,
+            "high_risk": changed_pct >= 50 or size_delta_pct <= -50}
 
 
 @app.get("/api/pending/{skill}")
@@ -215,17 +299,24 @@ def pending(skill: str):
         raise HTTPException(404, f"no pending change for '{skill}'")
     champ, chall = p["champion_components"], p["challenger_components"]
     blocks = []
-    for comp in p.get("changed_components") or [k for k in champ if champ[k] != chall.get(k, "")]:
+    changed_components = (p.get("changed_components") or
+                          [key for key in champ if champ[key] != chall.get(key, "")])
+    for comp in changed_components:
         label = _label(comp)
         blocks.append("\n".join(difflib.unified_diff(
             champ[comp].splitlines(), chall.get(comp, "").splitlines(),
             fromfile=f"{label} (champion)", tofile=f"{label} (challenger)", lineterm="")))
+    comparison = [{"component": _label(component), "before": str(champ.get(component, "")),
+                   "after": str(chall.get(component, ""))}
+                  for component in changed_components]
     return {"skill": skill, "kind": p.get("kind", "quality"), "inner_loop": _inner_loop(p),
             "ab": p.get("ab"), "routing": p.get("routing"), "dataset": p.get("dataset"),
             "evidence": p.get("evidence_paths"), "stale": _stale_reason(skill, p),
             "model": p.get("model"), "judge": p.get("judge"),
             "gate": p.get("gate", {"promotable": True, "blocked": []}),
-            "changed": [_label(c) for c in p.get("changed_components", [])], "diff": "\n\n".join(blocks)}
+            "risk": _review_risk(champ, chall), "comparison": comparison,
+            "changed": [_label(c) for c in changed_components],
+            "diff": "\n\n".join(blocks)}
 
 
 def _stale_reason(skill: str, pending: dict) -> str | None:
@@ -339,9 +430,14 @@ def _challenger_revision(pending: dict) -> str:
     return revision if isinstance(revision, str) else ""
 
 
+class RejectRequest(BaseModel):
+    reason: str = Field(default="", max_length=500)
+
+
 @app.post("/api/reject/{skill}",
           dependencies=[Depends(same_origin), Depends(require_role("approver"))])
-def reject(skill: str, actor: str = Depends(current_actor)):
+def reject(skill: str, payload: RejectRequest | None = None,
+           actor: str = Depends(current_actor)):
     _check(skill)
     # Load, validate, delete, and audit all under the lock: checking existence first and deleting
     # later would let a second reject pass the check, then re-delete and double-audit after the
@@ -352,7 +448,8 @@ def reject(skill: str, actor: str = Depends(current_actor)):
             raise HTTPException(404, f"no pending change for '{skill}'")
         revision = _challenger_revision(pending)
         pending_path(skill).unlink(missing_ok=True)
-        _audit_best_effort("reject", skill, revision, actor)
+        reason = " ".join((payload.reason if payload else "").split())
+        _audit_best_effort("reject", skill, revision, actor, reason=reason)
     return {"result": f"rejected the pending change for '{skill}'"}
 
 

@@ -36,6 +36,17 @@ def is_qwen_onnx(model: str) -> bool:
     return "qwen3-embedding" in model.lower() and "onnx" in model.lower()
 
 
+def _baked_qwen(model: str, onnx_file: str) -> bool:
+    """Whether this exact Qwen export was cached while the container image was built."""
+    return (model == os.environ.get("BAKED_EMBED_MODEL")
+            and onnx_file == os.environ.get("BAKED_EMBED_ONNX_FILE"))
+
+
+def _baked_fastembed(model: str) -> bool:
+    """Whether this fastembed fallback was cached while the container image was built."""
+    return model == os.environ.get("BAKED_FALLBACK_EMBED_MODEL")
+
+
 class QwenOnnxEmbedding:
     """A Qwen3-Embedding ONNX export on ONNX Runtime CPU. Right padding with attention-mask-indexed
     last-token pooling (equivalent to the official left-padded pooling under causal attention: the
@@ -46,8 +57,11 @@ class QwenOnnxEmbedding:
         import onnxruntime as ort
         from huggingface_hub import hf_hub_download
         from tokenizers import Tokenizer
-        self._tokenizer = Tokenizer.from_file(hf_hub_download(model, "tokenizer.json"))
-        self._session = ort.InferenceSession(hf_hub_download(model, onnx_file),
+        local_only = _baked_qwen(model, onnx_file)
+        self._tokenizer = Tokenizer.from_file(
+            hf_hub_download(model, "tokenizer.json", local_files_only=local_only))
+        self._session = ort.InferenceSession(
+            hf_hub_download(model, onnx_file, local_files_only=local_only),
                                              providers=["CPUExecutionProvider"])
         self._inputs = self._session.get_inputs()
         self._out = next(o.name for o in self._session.get_outputs() if "hidden" in o.name)
@@ -97,7 +111,7 @@ class FastembedEmbedding:
 
     def __init__(self, model: str = EMBED_MODEL):
         from fastembed import TextEmbedding
-        self._model = TextEmbedding(model_name=model)
+        self._model = TextEmbedding(model_name=model, local_files_only=_baked_fastembed(model))
 
     def embed(self, texts):
         return self._model.embed(list(texts))

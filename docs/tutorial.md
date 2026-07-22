@@ -37,8 +37,6 @@ docker compose run --rm agent "How do I merge several PDFs into one and add page
 COMPATIBLE ROUTE (MCP route_and_load):
     0.74  pdf: Use this skill whenever the user wants to do anything with PDF files...
 
-SERVING MODEL: accounts/fireworks/models/qwen3p7-plus
-
 LOADED SKILLS (MCP route_and_load): ['pdf@83a75cf1f9b5…']
 TOKENS: 23233 in / 698 out
 
@@ -50,10 +48,9 @@ The agent asked the canonical router (`route_and_load`), received one compatible
 followed it. The `@…` suffix is the skill's content-hash revision, which also lands on the trace as
 a tag. Unconstrained suggestions never control the serving model or loaded instructions.
 A routed task runs on the cheap `AGENT_MODEL` because the skill carries the method; only truly
-novel tasks escalate to `STRONG_MODEL` (step 10). Steps 2 to 4 were recorded on Fireworks model
-IDs and steps 5 to 8 on the OpenRouter `AGENT_MODEL` default at recording time, `qwen/qwen3-32b`
-(the current default is `qwen/qwen3.6-27b`); the `SERVING MODEL` line always shows whatever
-`AGENT_MODEL` you configure. The run's full trace just landed in Langfuse
+novel tasks escalate to `STRONG_MODEL` (step 10). The historical serving-model identifier is
+omitted from this recorded output because hosted configuration now uses OpenRouter model slugs.
+Steps 5 to 8 used the current default, `qwen/qwen3-32b`. The run's full trace just landed in Langfuse
 (`localhost:3100`); that's what the miner reads in step 4.
 
 ### 3. Write a first-draft skill and watch it under-deliver
@@ -120,30 +117,38 @@ docker compose run --rm optimize-mine tailwind
 ```
 
 ```
-[mine] 39/50 recent traces relevant to 'tailwind'
-[mine] analyzed 39 real traces · mean judge score 0.50 · 20 bad cases (score < 0.5)
-[mine] failure dimensions, most common first:
-    correctness             20/39  █████
-    completeness            20/39  █████
-    instruction_following   20/39  █████
-    efficiency              16/39  ████
-[mine] 6 weakest tasks mined as eval candidates → optimize on these next.
+[mine] 19/36 fetched traces relevant to 'tailwind' (tagged with it, or ranking it in the embedding top-5)
+[mine] 8 representative(s) judged; unchanged verdicts are cached
+[mine] 19 uses collapsed into 8 semantic task cluster(s); 19/19 uses represented by a judge verdict (100% coverage)
+[mine] analyzed 19 represented real uses · weighted mean judge score 0.99 · 0 bad cases (score < 0.5)
+[mine] failure dimensions (paper's Failure Analyzer), most common first:
+    completeness              1/19  █
+    correctness               0/19
+    instruction_following     0/19
+    efficiency                0/19
+[mine] 1 candidate(s) dropped as near-duplicates of existing train tasks (leakage guard)
+[mine] 1 weakest tasks mined as eval candidates (coverage-spread) → optimize on these next.
 ```
 
-The diagnosis is version drift: answers built on `tailwind.config.js` and `@tailwind` directives,
-the v3 world the stub teaches. The weakest mined tasks are surfaced as candidates only; mining does
-not edit the task set. Review them, add accepted tasks and explicit rubrics to
-`optimize/tasks/<skill>.yaml`, then keep train and holdout separate. See
-[Writing eval task sets](configuration.md#writing-eval-task-sets).
+The default now considers all 36 project traces, not only a newest-50 sample. Nineteen relevant uses
+collapsed into eight task families, so only eight representative judge calls covered every use.
+The cache makes later runs cheaper. Repeated uses still weight the health score and failure counts,
+and `--limit N` remains available when an operator explicitly wants only the newest traffic.
 
-Reference-free judging of live traffic is noisy. Treat mined dimensions as a diagnosis to
-investigate, not a verdict; the evidence gate runs on rubrics.
+This real run also demonstrates why reference-free traffic judging is a diagnostic, not promotion
+evidence. Step 3 directly observed a v3 answer, and the loaded body is visibly stale, yet the live
+judge scored the mostly reference-free history at 0.99. The rubric-backed train and holdout set in
+step 5 is what supplies the missing v4 ground truth. Mined tasks are suggestions only: there is no UI
+promotion action and mining never edits the YAML. Review a failure, replace any reference-free
+rubric with explicit ground truth, and add it to `train`. Do not add an inspected failure to
+`holdout`; author new holdout cases separately so the final promotion evidence stays uncontaminated.
+See [Writing eval task sets](configuration.md#writing-eval-task-sets).
 
-### 5. (Optional) Generate a candidate in the background
+### 5. Train a skill revision with SkillOpt
 
-At this point you know what is wrong and could fix the body by hand: edit `SKILL.md`, and the router
-serves the new revision on the next request. This step does it the other way, with the optional
-candidate generator, so the change arrives with measured evidence attached.
+At this point you know what is wrong and could fix the body by hand. SkillOpt integration is the
+other half of Ingot's value: it trains a bounded instruction revision from real failures and
+attaches measured evidence without activating the result.
 
 Write an eval task set for the skill (`optimize/tasks/tailwind.yaml`) with train and holdout tasks
 whose rubrics carry the v4 ground truth (the teacher can also auto-draft one on a skill's first CLI
@@ -153,9 +158,10 @@ run). Then run it headless, which is how it is meant to run:
 docker compose run --rm optimize tailwind
 ```
 
-The generator authors several candidate bodies in parallel, races them on the train tasks, and A/Bs
-the winner against the champion through the full agent on the held-out tasks (about two minutes, a
-few cents). The UI's **Generate candidate** button starts the same run. Our run:
+SkillOpt reflects on failing minibatches, proposes bounded edits, keeps only train-set
+improvements, and A/Bs its best revision against the champion through the full agent on held-out
+tasks (about two minutes, a few cents). The UI's **Optimize with SkillOpt** button starts the same run.
+Our run:
 
 ```
 [skillopt] seed: hard 0.000 soft 0.000 gate 0.000 (mixed) on 6 train tasks; 2 epoch(s), minibatch 3, ≤3 edits/step
@@ -202,7 +208,7 @@ Generation is greedy: one component per pass, each scored by its own role's metr
 
 | pass | command | candidate-search objective | cost |
 |------|---------|---------------------------|------|
-| body (default) | `optimize tailwind`, or the UI's **Generate candidate** button | LLM judge on train tasks; full-agent A/B for the evidence | ~$0.05 |
+| body (default) | `optimize tailwind`, or the UI's **Optimize with SkillOpt** button | LLM judge on train tasks; full-agent A/B for the evidence | ~$0.05 |
 | description | `optimize tailwind --description` | the routing suite, scored by the real embedding router; no LLM rollouts | ~$0.01, a couple of minutes |
 | scripts | `optimize tailwind --scripts` | LLM judge grounded by execution checks; greedy, one bundled `scripts/` file at a time | like the body pass, per file |
 
@@ -213,30 +219,39 @@ in place, both the rollouts and the A/B serve the assembled skill (body plus bun
 rewritten file is actually exercised by the evidence run. Other bundled text files can still join
 the body pass by name (`OPTIMIZE_COMPONENTS=body,file:<path>`). The candidate search serves each
 rollout under the exact contract the A/B serves, so the search can't optimize against different
-instructions than the A/B measures. `GEPA_ROLLOUTS=agent` runs every rollout through the full agent
-scaffold instead (a legacy variable name: it predates the removal of the GEPA body loop and now
-selects the SkillOpt candidate search's rollout mode).
+instructions than the A/B measures. `SKILLOPT_ROLLOUTS=agent` runs every rollout through the full
+agent scaffold instead.
 
 ### 6. Review, promote, roll back
 
 Back at **http://localhost:8080**, the header pill flips to **1 to review**, the Review section
 leads with the evidence, and the `tailwind` row shows a `change awaiting review` chip. The card
 carries the champion-vs-challenger judge scores, the before/after token shift, the gate verdict and
-its warnings, the recorded evidence bundle, and the component diff, here the red lines are the v3
-guidance SkillOpt removed and the green lines are the v4 body it wrote:
+its warnings, and a risk summary above the diff with added lines, removed lines, body-change
+percentage, and size change. The unified diff remains visible, and a collapsed side-by-side view
+lets you inspect complete before and after components. Here the red lines are the v3 guidance
+SkillOpt removed and the green lines are the v4 body it wrote:
 
 ![Review card, the tailwind v3→v4 challenger, promotable with warnings](ui-review.webp)
 
-**Approve** doesn't promote in one click: it opens a comparison panel with the model breakdown,
-the before/after token usage, and the per-task judge scores, and a final **Approve & promote** that
-reveals a separate **Confirm**, so a promotion is deliberate.
+**Approve** doesn't promote in one click: it opens a comparison panel with the real serving and
+judge model names, input tokens above output tokens, and a numbered before/after table for every
+held-out task. A final **Approve & promote** reveals a separate **Confirm**, so a promotion is
+deliberate.
 
 ![Comparison panel, model, tokens, and judge scores before Confirm](ui-compare.webp)
 
 **Approve & promote** verifies the evidence still matches the on-disk champion, snapshots the prior
 revision into `runs/revisions/tailwind/<revision>/`, swaps the challenger into `skills/tailwind/` by
 rename, and appends an `approve` record to `runs/approval-audit.jsonl`. The MCP server picks up the
-revision change with no restart. **Reject** discards the candidate.
+revision change with no restart. **Reject** asks for confirmation and accepts an optional reason,
+which is stored with the rejection audit record.
+
+The skills list can be searched by name or description and filtered by pending or eval status.
+Click any skill row to inspect active instructions, a pending challenger, rollback snapshots, and
+bundled text files without changing the serving revision. The top bar shows the password or OIDC
+identity responsible for decisions, and the three-second board poll announces count changes to
+assistive technology.
 
 That snapshot is the undo. It appears in the UI's **History** section, and restoring it is one
 click, or one command:
@@ -248,7 +263,7 @@ docker compose run --rm --entrypoint python optimize -m optimize.promote rollbac
 
 Rollback snapshots the revision it displaces too, so the round trip is symmetric, and it writes its
 own audit record. The trail records the actor as the approver's authenticated identity, the HTTP
-Basic username or OIDC email, or `local-operator` in the zero-config open mode, where it can record
+Basic username or OIDC email, or `local-operator` in explicit open mode, where it can record
 that a local operator approved, not who. Both
 records are appended after the swap has already happened, so an audit write that fails (a full or
 read-only disk) is logged and the change stands: a missing line means the trail is incomplete, not
@@ -313,11 +328,11 @@ puts the right skill in front of the model; the A/B proves what happens when it 
 That's the lifecycle: a first-draft skill → real traffic → mined diagnosis → a proposed change with
 held-out evidence → human approval → hot reload → a snapshot you can roll back to.
 
-### 9. (Optional) Run candidate generation unattended
+### 9. Run SkillOpt optimization unattended
 
-This is where candidate generation belongs: in the background, not on the review path. One command mines
-every skill's real traffic for health and proposes changes only for the ones actually failing,
-leaving every survivor quarantined in the review queue (nothing auto-promotes):
+SkillOpt can run in the background while human approval remains on the review path. One command
+mines every skill's real traffic for health and proposes changes only for the ones actually
+failing, leaving every survivor quarantined in the review queue (nothing auto-promotes):
 
 ```bash
 docker compose run --rm optimize-loop            # all skills with eval sets; add names to target some
@@ -325,10 +340,14 @@ docker compose run --rm optimize-loop            # all skills with eval sets; ad
 
 ```
 [loop] ===== pdf =====
-[mine] analyzed 23 real traces · mean judge score 0.52 · 11 bad cases
-[loop] pdf: below health bar (mean 0.52), optimizing…
-[loop] done. 1 challenger(s) queued for review: ['pdf']
+[mine] ... unjudged cluster(s) remain; the next run continues from the cache
+[loop] pdf: mining coverage is ...; deferring the health decision until cached representative judging covers every trace cluster.
 ```
+
+With a cold cache, the loop spends at most `MINE_MAX_JUDGE_CALLS` new calls on the most frequent
+clusters and defers rather than extrapolating from partial coverage. Re-running drains the backlog
+without paying again for unchanged verdicts. Only after every cluster is represented does the loop
+compare the frequency-weighted mean with `LOOP_HEALTH_THRESHOLD` and decide whether to optimize.
 
 Routing quality decays as the library *grows* (a new skill's description can shadow an old one),
 so there is also a library-wide routing health check: it replays every skill's routing suite

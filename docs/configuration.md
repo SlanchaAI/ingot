@@ -4,17 +4,17 @@ Set in `.env` (never committed):
 
 | var | default | notes |
 |-----|---------|-------|
-| `BASE_URL` | `https://openrouter.ai/api/v1` | endpoint for everything; any OpenAI-compatible provider. On OpenRouter, [ZDR provider routing](https://openrouter.ai/docs/features/zdr) is enforced in code. `OPENROUTER_BASE_URL` is the legacy alias |
+| `BASE_URL` | `https://openrouter.ai/api/v1` | endpoint for everything. OpenRouter is the supported hosted endpoint, and [ZDR provider routing](https://openrouter.ai/docs/features/zdr) is enforced in code. A local OpenAI-compatible vLLM or Ollama endpoint is also supported. `OPENROUTER_BASE_URL` is the legacy alias |
 | `API_KEY` | (none) | bearer token for `BASE_URL`; `OPENROUTER_API_KEY` is the legacy alias. Local `http://` endpoints need no key |
-| `AGENT_MODEL` | `qwen/qwen3.6-27b` | the agent: everything that executes skills, incl. rollouts; `MODEL` is the legacy alias |
+| `AGENT_MODEL` | `qwen/qwen3-32b` | the agent model served through OpenRouter, including Groq endpoints; executes skills and candidate rollouts. `MODEL` is the legacy alias |
 | `MODEL_BASE_URL` / `MODEL_API_KEY` | `BASE_URL` / `API_KEY` | serving-role-only overrides for hybrid setups |
-| `OPENROUTER_PROVIDERS` | (none) | OpenRouter only: provider priority (e.g. `fireworks,groq`), tried in order; composes with ZDR, and roles no listed provider serves fall back to the open ZDR pool |
-| `SKILLOPT_MODEL` | `z-ai/glm-5.2` | authors eval sets and skill revisions, including reflection for the optional description pass |
+| `OPENROUTER_PROVIDERS` | (none) | OpenRouter provider priority (for example, `groq,deepinfra`), tried in order; composes with ZDR, and roles no listed provider serves fall back to the open ZDR pool |
+| `SKILLOPT_MODEL` | `z-ai/glm-5.2` | authors eval sets and skill revisions, including reflection for description optimization |
 | `STRONG_MODEL` | `SKILLOPT_MODEL` | serves novel requests (no skill matched) |
 | `JUDGE_MODEL` | `google/gemini-2.5-flash` | the LLM judge; must differ from `SKILLOPT_MODEL` |
 | `MIN_SCORE` | `0.53` | at/above: routable match; below: `related` band or novel. Calibrated to `EMBED_MODEL` (0.65 for bge-small) |
 | `RELATED_SCORE` | `0.37` | floor of the `related` band; below it a task is novel (weak/strong escalation). Calibrated to `EMBED_MODEL` (0.45 for bge-small) |
-| `EMBED_MODEL` | `onnx-community/Qwen3-Embedding-0.6B-ONNX` | router embedding model (q4 ONNX, ~15 ms/query on CPU; +7 top-1 over bge-small on a 297-query eval). Any fastembed name also works, but recalibrate the three score thresholds with it. Keep in sync with the Dockerfile's build arg |
+| `EMBED_MODEL` | `onnx-community/Qwen3-Embedding-0.6B-ONNX` | router embedding model (q4 ONNX, ~15 ms/query on CPU; +7 top-1 over the former bge-small default on a 297-query eval). The default Qwen files are baked into the image and loaded cache-only. Ingot does not use BGE-M3. Any fastembed name also works, but an unbaked override may download at first use and requires recalibrating the three score thresholds. Keep in sync with the Dockerfile's build arg |
 | `EMBED_ONNX_FILE` | `onnx/model_q4.onnx` | which ONNX weight file to load inside the `EMBED_MODEL` repo; only relevant for ONNX exports that ship multiple quantizations |
 | `BODY_TARGET_CHARS` | `6000` | length penalty starts past this body size |
 | `LENGTH_PENALTY` | `0.10` | max score subtracted for a very long body |
@@ -30,7 +30,7 @@ Set in `.env` (never committed):
 | `SKILLOPT_ACCEPT_PENALTY` | `0.5` | how hard the inner loop docks a candidate whose train answers violate the skill's acceptance criteria (steers it to remove forbidden content, not append around it) |
 | `PROMOTE_ACCEPT_BLOCK_RATE` | `0.5` | acceptance violations block promotion past this fraction of holdout answers; a smaller share is a ⚠ review warning. `0` = strict (any violation blocks), `>=1` = warning-only |
 | `COMPAT_MODELS` | `AGENT_MODEL` | comma-separated serving models the cross-model compatibility sweep runs (`optimize-compat`) |
-| `GEPA_ROLLOUTS` | `direct` | how the candidate search rolls out: `direct` (one call under the serving contract) or `agent` (full scaffold per rollout, ~10× cost). Legacy name, kept so existing `.env` files work |
+| `SKILLOPT_ROLLOUTS` | `direct` | how SkillOpt body training rolls out: `direct` (one call under the serving contract) or `agent` (full scaffold per rollout, ~10× cost) |
 | `RETENTION_WARN` | `0.5` | review warning when the challenger keeps less than this fraction of the champion body |
 | `OPTIMIZE_COMPONENTS` | `body` | what may be rewritten; add `description` or `file:<path>` entries |
 | `EXEC_SANDBOX` | `docker` | `docker` = locked-down container, `1` = bare subprocess (legacy), `off` = static checks only |
@@ -52,7 +52,7 @@ OIDC/SSO variables (`OIDC_ISSUER`, `OIDC_CLIENT_ID`, `OIDC_CLIENT_SECRET`, `OIDC
 Evidence-gate knobs (`PROMOTE_MIN_MARGIN`, `PROMOTE_MIN_SAMPLES`, `COLLISION_SCORE`,
 `JUDGE_MODELS`) are covered in [The evidence gate](evidence-gate.md).
 
-### Candidate generation
+### SkillOpt optimization
 
 The body pass trains the skill body with **[SkillOpt](https://github.com/microsoft/SkillOpt)**'s
 reflective loop (Yang et al., arXiv:2605.23904; MIT, © Microsoft), the skill document is treated
@@ -71,10 +71,10 @@ a validation gate, with no change to the serving model's weights. Per step
 
 All SkillOpt code is imported from the pinned `skillopt` package and funnelled through the single
 seam `optimize/skillopt_bridge.py` (its prompts vendored under `optimize/skillopt_prompts/`); that
-module and directory are the only things to touch when upgrading the dependency. The GEPA and
-best-of-N body loops it replaced are **removed**, along with `OPTIMIZE_STRATEGY` /
-`OPTIMIZE_CANDIDATES`. The optional description pass still uses GEPA as its search implementation,
-but its authoring model is configured by `SKILLOPT_MODEL`. `GEPA_ROLLOUTS` retains its legacy name.
+module and directory are the only things to touch when upgrading the dependency. Older body-search
+loops are **removed**, along with `OPTIMIZE_STRATEGY` / `OPTIMIZE_CANDIDATES`. Description
+optimization also uses SkillOpt bounded edits, scored against the real embedding router.
+`SKILLOPT_ROLLOUTS` selects direct versus full-agent rollouts for body training.
 
 The champion's held-out A/B results are cached in `runs/eval-cache/`, keyed by (skill revision,
 holdout tasks, serving model, judge), so repeat runs against an unchanged champion only pay for
@@ -185,8 +185,10 @@ The mined-candidate selection is deterministic after representative judging:
    an existing train task.
 4. Greedily choose the task with the largest `difficulty * novelty`, where novelty is one minus its
    highest cosine similarity to an already selected task. Stop at six tasks or when no task adds
-   positive value. Each returned task includes its represented `occurrences`. This favors frequent,
-   hard failures while preventing a set of near-paraphrases.
+   positive value. Each returned task includes its represented `occurrences` for operator context.
+   Occurrence counts weight aggregate health and prioritize which unjudged clusters fill the cache
+   first, but it does not multiply this candidate-ranking score. This keeps the candidate set focused
+   on hard failures without returning six near-paraphrases.
 
 After inspecting mined failures, add accepted cases to `train`, not to the existing `holdout`.
 Looking at a failure or its score before adding it to holdout contaminates promotion evidence. Add

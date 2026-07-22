@@ -1,18 +1,16 @@
-"""Routing-objective GEPA pass over a skill's `description` (component-pass spec, pass 2).
+"""SkillOpt routing pass over a skill's `description`.
 
-The inner loop never calls an LLM: each candidate description is scored by the real embedding
-router against the skill's `routing:` cases (top-1 and recall@3 on expected matches, precision on
-expected-no-route negatives). GEPA's reflection (the only model calls; ZDR like everything else)
-turns per-case routing failures into better trigger phrasing. Gate: no regression on any routing
-metric vs the champion, at least one strict improvement, no collision with another skill's
-description, then the same quarantined pending record and human approval as the body pass."""
+Each candidate description is scored by the real embedding router against the skill's `routing:`
+cases. SkillOpt reflects on the per-case failures, proposes bounded edits, and keeps only strict
+improvements. The promotion gate requires no routing regression, at least one strict improvement,
+and no collision with another skill description."""
+import os
 import time
+from dataclasses import dataclass
 from dataclasses import replace
 from pathlib import Path
 
-import gepa
 import yaml
-from gepa import EvaluationBatch
 
 from mcp_server.registry import SKILLS_DIR, load_skills, optimizable_components, skill_revision
 from mcp_server.router import Router
@@ -22,6 +20,7 @@ from .ab import COLLISION_SCORE, TASKS_DIR, _description_shadows
 from .evidence import RoutingRun, build_routing_evidence, recorded_path, write_evidence
 from .promote import save_pending
 from .rollout import make_reflection_lm
+from . import skillopt_bridge as sk
 
 EVIDENCE_DIR = Path(__file__).resolve().parent.parent / "runs" / "evidence"
 
@@ -31,11 +30,15 @@ _DIAGNOSIS = ("The `description` is a routing trigger matched by embedding simil
               "instructions.")
 
 
-class RoutingAdapter:
-    """gepa.GEPAAdapter over {'description'}: batch items are routing cases, scored by the real
-    embedding router, 1.0 for the expected outcome, 0.5 for a top-3 near-miss, 0.0 otherwise."""
+@dataclass
+class RoutingBatch:
+    outputs: list
+    scores: list[float]
+    trajectories: list[dict] | None
 
-    propose_new_texts = None  # gepa probes this optional hook; None -> use its default reflection
+
+class RoutingAdapter:
+    """Score a description with the real router: exact is 1, top-three is 0.5, miss is 0."""
 
     def __init__(self, skill: str, router_factory=None):
         self._skill = skill
@@ -73,14 +76,67 @@ class RoutingAdapter:
             outputs.append(match)
             scores.append(score)
             trajectories.append({"task": case["task"], "output": str(match), "feedback": feedback})
-        return EvaluationBatch(outputs=outputs, scores=scores,
-                               trajectories=trajectories if capture_traces else None)
+        return RoutingBatch(outputs, scores, trajectories if capture_traces else None)
 
-    def make_reflective_dataset(self, candidate, eval_batch, components_to_update):
-        records = [{"Inputs": t["task"], "Generated Outputs": t["output"],
-                    "Feedback": t["feedback"], "Diagnosis": _DIAGNOSIS}
-                   for t in (eval_batch.trajectories or [])]
-        return {comp: records for comp in components_to_update}
+
+def _score(batch: RoutingBatch) -> float:
+    return sum(batch.scores) / len(batch.scores) if batch.scores else 0.0
+
+
+def _hard_score(batch: RoutingBatch) -> float:
+    return (sum(score == 1.0 for score in batch.scores) / len(batch.scores)
+            if batch.scores else 0.0)
+
+
+def optimize_description(skill: str, seed: str, cases: list[dict], budget: int,
+                         reflection_lm=None, adapter=None) -> tuple[str, float, float]:
+    """Train a routing description with bounded SkillOpt edits and a strict router-score gate.
+
+    `budget` caps router case evaluations. The seed consumes one full evaluation, and each proposed
+    revision consumes another. Rejected edits and routing failures are fed into the next reflection.
+    """
+    if cases and budget < len(cases):
+        raise ValueError(f"routing budget {budget} is smaller than the {len(cases)}-case suite; "
+                         "one complete suite evaluation is required")
+    adapter = adapter or RoutingAdapter(skill)
+    reflection_lm = reflection_lm or make_reflection_lm()
+    max_edits = int(os.environ.get("SKILLOPT_MAX_EDITS", "3"))
+    current = best = seed
+    current_batch = adapter.evaluate(cases, {"description": current}, capture_traces=True)
+    seed_score = best_score = _score(current_batch)
+    remaining = max(0, budget - len(cases))
+    buffer: list[str] = []
+
+    while remaining >= len(cases):
+        failures = [trajectory for trajectory, score in
+                    zip(current_batch.trajectories or [], current_batch.scores) if score < 1.0]
+        if not failures:
+            break
+        context = _DIAGNOSIS
+        if buffer:
+            context += "\n\nRejected edits from prior steps:\n" + "\n".join(buffer[-4:])
+        edits, _summary = sk.reflect_edits(current, failures, context, max_edits, reflection_lm)
+        if not edits:
+            break
+        edit_budget = sk.decide_edit_budget(current, edits, _hard_score(current_batch), best_score,
+                                             len(cases),
+                                             context, reflection_lm, max_edits)
+        edits = sk.rank_edits(current, edits, edit_budget, reflection_lm) if edit_budget else []
+        candidate, _report = sk.apply_edits(current, edits)
+        if not edits or candidate.strip() == current.strip():
+            break
+        candidate_batch = adapter.evaluate(cases, {"description": candidate}, capture_traces=True)
+        remaining -= len(cases)
+        candidate_score = _score(candidate_batch)
+        if candidate_score > best_score:
+            current = best = candidate.strip()
+            current_batch = candidate_batch
+            best_score = candidate_score
+        else:
+            buffer.extend(
+                f"{edit.get('op', 'edit')} target={edit.get('target', '')[:80]!r}"
+                for edit in edits)
+    return best, seed_score, best_score
 
 
 def routing_gate(skill: str, metrics: dict, challenger: dict) -> tuple[bool, list[str]]:
@@ -118,16 +174,12 @@ def run_routing(skill: str, budget: int = 60, log=print) -> dict:
                                          TASKS_DIR, log=log)
 
     log(f"[routing] optimizing '{skill}' description against {len(cases)} routing cases "
-        f"(budget {budget} metric calls; inner loop is embedding-only, no LLM rollouts)…")
-    result = gepa.optimize(seed_candidate={"description": champion["description"]},
-                           trainset=cases, adapter=RoutingAdapter(skill),
-                           reflection_lm=make_reflection_lm(), max_metric_calls=budget,
-                           display_progress_bar=True, raise_on_exception=False)
-    seed_score = result.val_aggregate_scores[0]
-    best_score = result.val_aggregate_scores[result.best_idx]
+        f"(budget {budget} router case evaluations; SkillOpt reflection, no LLM rollouts)…")
+    description, seed_score, best_score = optimize_description(
+        skill, champion["description"], cases, budget)
     log(f"[routing] inner-loop score: seed {seed_score:.3f} -> best {best_score:.3f}")
 
-    challenger = {**champion, "description": result.best_candidate["description"]}
+    challenger = {**champion, "description": description}
     if challenger["description"].strip() == champion["description"].strip():
         log("[routing] no better description found, champion holds.")
         return {"skill": skill, "improved": False}
