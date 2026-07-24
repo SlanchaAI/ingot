@@ -10,6 +10,7 @@ from __future__ import annotations
 import os
 import sys
 import threading
+from collections import OrderedDict
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -41,7 +42,8 @@ class _RankedSkill:
 
 
 class Router:
-    _vector_cache: dict[tuple[str, str, str, str], np.ndarray] = {}
+    _vector_cache: OrderedDict[tuple[str, str, str, str], np.ndarray] = OrderedDict()
+    _vector_cache_limit = 4096
     _cache_lock = threading.Lock()
 
     def __init__(self, skills: list[Skill]):
@@ -63,15 +65,32 @@ class Router:
 
     def _matrix(self, representation: str, texts: list[str]) -> np.ndarray:
         keys = [(_MODEL, self._embedding_identity, representation, text) for text in texts]
+        resolved = {}
         with self._cache_lock:
-            missing = list(dict.fromkeys(key for key in keys if key not in self._vector_cache))
+            missing = []
+            for key in dict.fromkeys(keys):
+                vector = self._vector_cache.get(key)
+                if vector is None:
+                    missing.append(key)
+                    continue
+                self._vector_cache.move_to_end(key)
+                resolved[key] = vector
         if missing:
-            vectors = self._embed.embed([text for _, _, _, text in missing])
+            vectors = list(self._embed.embed([text for _, _, _, text in missing]))
+            if len(vectors) != len(missing):
+                raise RuntimeError("embedding backend returned the wrong vector count")
+            generated = {
+                key: np.asarray(vector, dtype=np.float32)
+                for key, vector in zip(missing, vectors)
+            }
+            resolved.update(generated)
             with self._cache_lock:
-                for key, vector in zip(missing, vectors):
-                    self._vector_cache[key] = np.asarray(vector, dtype=np.float32)
-        with self._cache_lock:
-            mat = np.array([self._vector_cache[key] for key in keys], dtype=np.float32)
+                for key, vector in generated.items():
+                    self._vector_cache[key] = vector
+                    self._vector_cache.move_to_end(key)
+                while len(self._vector_cache) > self._vector_cache_limit:
+                    self._vector_cache.popitem(last=False)
+        mat = np.array([resolved[key] for key in keys], dtype=np.float32)
         return mat / (np.linalg.norm(mat, axis=1, keepdims=True) + 1e-8)
 
     def _content_text(self, skill: Skill, harness: str) -> str:
@@ -199,12 +218,20 @@ class Router:
 
     @staticmethod
     def _novel_response(score: float = 0.0, reason: str = "no compatible skill candidates",
-                        alternatives: list[dict] | None = None) -> dict:
+                        alternatives: list[dict] | None = None,
+                        candidate: _RankedSkill | None = None) -> dict:
+        explanation = (
+            candidate.explanation()
+            if candidate is not None
+            else {
+                "matched_on": None,
+                "score_components": {"description": 0.0, "content": 0.0},
+            }
+        )
         return {
             "match": None, "related_match": None, "score": round(score, 3),
             "reason": reason, "skill_body": "", "skill_root": None, "revision": None,
-            "alternatives": alternatives or [], "novel": True, "matched_on": None,
-            "score_components": {"description": 0.0, "content": 0.0},
+            "alternatives": alternatives or [], "novel": True, **explanation,
         }
 
     @staticmethod
@@ -261,6 +288,6 @@ class Router:
                            *alternatives]
                 reason = (f"best compatible score {score:.3f} below related threshold "
                           f"{related_score:.3f}")
-                return self._novel_response(score, reason, related[:3])
+                return self._novel_response(score, reason, related[:3], top)
             return self._related_response(top, harness, min_score, alternatives)
         return self._direct_response(top, harness, alternatives)

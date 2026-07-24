@@ -101,10 +101,17 @@ Final verification used the complete dependency environment:
 
 ```text
 .worktrees/ingot-launch-teaser/.venv/bin/python -m pytest -q
-532 passed, 3 skipped, 1 warning in 53.03s
+533 passed, 3 skipped, 1 warning in 52.94s
 ```
 
 The warning is Starlette's existing `httpx` deprecation notice.
+
+Independent review found one MAJOR issue: the original process-wide vector
+cache retained every promoted body revision forever. The cache is now
+least-recently-used and capped at 4,096 vectors; a regression test drives the
+limit down to two and proves stale revisions evict. Review also found
+inconsistent component metadata on below-threshold no-match responses; the
+top candidate's real component scores now accompany the top-level score.
 
 An external AI-council run was not submitted: the healthy roster included a
 metered API member and this task had no API-spend opt-in. Three read-only

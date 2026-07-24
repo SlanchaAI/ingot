@@ -96,6 +96,8 @@ def test_route_returns_clean_no_match_below_threshold():
     assert result["skill_body"] == "" and result["skill_root"] is None
     assert "threshold" in result["reason"]
     assert result["alternatives"][0]["name"] == "pdf"
+    assert result["matched_on"] in {"description", "content"}
+    assert result["score"] == max(result["score_components"].values())
 
 
 def test_route_novel_flag_signals_weak_strong_escalation():
@@ -268,6 +270,25 @@ def test_body_change_reuses_description_vector_and_reembeds_content(monkeypatch)
     assert len(embedder.document_calls) == 3
     assert "Instructions:" in embedder.document_calls[1][0]
     assert "CrashLoopBackOff" in embedder.document_calls[2][0]
+
+
+def test_vector_cache_evicts_stale_body_revisions(monkeypatch):
+    import mcp_server.router as router_mod
+    embedder = _BodyAwareEmbedding()
+    monkeypatch.setattr(router_mod, "build_embedding", lambda: embedder)
+    monkeypatch.setattr(router_mod.Router, "_vector_cache_limit", 2, raising=False)
+    router_mod.Router._vector_cache.clear()
+
+    for revision in range(4):
+        skill = Skill(**{
+            **_skill("runbook", "Operate a production service.").__dict__,
+            "body": f"revision {revision} Diagnose a CrashLoopBackOff.",
+        })
+        router_mod.Router([skill]).route(
+            "diagnose a kubernetes pod", "codex", "/tmp", min_score=0.0
+        )
+
+    assert len(router_mod.Router._vector_cache) <= 2
 
 
 @pytest.mark.parametrize("value", ["0", "4001", "invalid"])

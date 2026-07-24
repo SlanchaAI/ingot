@@ -58,7 +58,9 @@ took roughly 47 seconds cold.
 
 The cache key includes embedding model, representation kind, and exact text.
 A body or variant change therefore misses the content cache while unchanged
-descriptions continue to reuse their vectors.
+descriptions continue to reuse their vectors. The process-wide cache retains at
+most 4,096 least-recently-used vectors, so repeated promotions cannot grow
+service memory without bound.
 
 ## Response changes
 
@@ -93,8 +95,9 @@ No existing field changes meaning. Alternatives remain body-free.
 4. Description vector reuse remains intact across refreshes.
 5. Response explanations identify the winning component without exposing
    alternative bodies.
-6. Existing focused and full suites pass in the repository runtime.
-7. The committed routing suite has no regression. A larger held-out corpus is
+6. Repeated body revisions never grow the shared cache beyond 4,096 vectors.
+7. Existing focused and full suites pass in the repository runtime.
+8. The committed routing suite has no regression. A larger held-out corpus is
    required before claiming a production accuracy lift.
 
 ## Deferred
