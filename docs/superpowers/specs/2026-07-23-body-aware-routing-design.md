@@ -47,9 +47,14 @@ deterministic tie-breakers. Conflicts still filter the returned ranking.
 
 ## Bounded content
 
-The content document includes at most `ROUTER_BODY_CHARS` body characters,
-default 16,000. The value must be a positive integer. Name and description are
+The content document includes at most `ROUTER_BODY_CHARS` body-prefix
+characters, default 1,000 and hard-capped at 4,000. Name and description are
 always retained. Harness variants receive separate cached representations.
+The ceiling keeps the decoder-style CPU ONNX attention allocation below its
+4 GB tensor limit for the router's embedding batch size. The 1,000-character
+default routed the committed body-only case with a 10.5-second cold content
+index and 51.82 ms mean hot route on the development machine; 4,000 characters
+took roughly 47 seconds cold.
 
 The cache key includes embedding model, representation kind, and exact text.
 A body or variant change therefore misses the content cache while unchanged
@@ -76,8 +81,8 @@ No existing field changes meaning. Alternatives remain body-free.
 - Incompatible content cannot affect ranking.
 - Body text never crosses the boundary unless that skill is selected.
 - A content vector cannot change `nearest` collision behavior.
-- Invalid or zero `ROUTER_BODY_CHARS` fails at router construction instead of
-  silently truncating to an unintended document.
+- Values outside 1–4000 for `ROUTER_BODY_CHARS` fail at router construction
+  instead of silently selecting an unsafe or empty projection.
 
 ## Success criteria
 

@@ -50,7 +50,7 @@ Expected: failure because `Router` has no content representation.
 Add:
 
 ```python
-BODY_CHARS = int(os.environ.get("ROUTER_BODY_CHARS", "16000"))
+BODY_CHARS = int(os.environ.get("ROUTER_BODY_CHARS", "1000"))
 
 @staticmethod
 def _content_text(skill: Skill, harness: str) -> str:

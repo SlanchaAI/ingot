@@ -36,11 +36,14 @@ exposes only loopback ports.
 
 1. The bundled agent sends task and execution context to `route_and_load` over MCP.
 2. The router refreshes the skill registry when files change, filters by harness, platform, scope,
-   tools, MCPs, activation, and trust, then ranks compatible descriptions. Description embeddings
-   are cached across refreshes.
+   tools, MCPs, activation, and trust, then ranks compatible skills by the stronger cosine score
+   from the description or a bounded document containing name, description, and approved
+   harness-specific body. Both representations are cached across refreshes; description-only
+   vectors remain authoritative for collision detection.
 3. One response is authoritative for the direct `match` or explicit `related_match`, loaded body,
-   revision, root, body-free alternatives, and `novel` escalation signal. A related match is loaded
-   for compose-or-extend use. The agent uses the weak model unless `novel` is true.
+   revision, root, body-free alternatives, component scores, and `novel` escalation signal. A
+   related match is loaded for compose-or-extend use. The agent uses the weak model unless `novel`
+   is true.
 4. The run is recorded to Langfuse (the default evals backend, or a Langfuse-compatible endpoint
    `LANGFUSE_*` points at); mining reads it back and has no local fallback. Hosted model calls use
    the configured OpenAI-compatible endpoint. OpenRouter calls always request ZDR providers.
