@@ -36,9 +36,13 @@ require_command node
 require_command python3
 
 CODEX_VERSION=$(codex --version | awk '{print $2}')
-CODEX_MINOR=$(printf '%s' "$CODEX_VERSION" | awk -F. '{print $2}')
-if [ "${CODEX_VERSION%%.*}" = "0" ] && [ "${CODEX_MINOR:-0}" -lt 128 ]; then
-  echo "error: Codex 0.128 or newer is required by the Langfuse plugin" >&2
+# The 0.128 floor stands for one thing: the `codex plugin` subcommand this script
+# installs through. Probe for that directly. A locally built codex stamps no
+# version — `codex-cli 0.0.0` parses as older than every release while carrying
+# the capability, so a version comparison rejects a build that works.
+if ! codex plugin --help >/dev/null 2>&1; then
+  echo "error: this codex build has no 'plugin' subcommand, which the Langfuse plugin needs" >&2
+  echo "       (released builds carry it from 0.128; found version $CODEX_VERSION)" >&2
   exit 1
 fi
 NODE_MAJOR=$(node -p 'process.versions.node.split(".")[0]')
@@ -54,6 +58,12 @@ MARKETPLACE_OK=0
 codex plugin marketplace list --json 2>/dev/null | grep -F 'codex-observability-plugin' >/dev/null && MARKETPLACE_OK=1
 PLUGIN_OK=0
 codex plugin list --json 2>/dev/null | grep -F 'tracing@codex-observability-plugin' >/dev/null && PLUGIN_OK=1
+# Codex runs a hook only after a human has reviewed it once and Codex has persisted
+# the approval. Until then the Stop hook is skipped in silence: the plugin reports
+# installed and enabled, and no trace is ever written.
+TRUST_OK=0
+grep -q 'tracing@codex-observability-plugin:hooks/hooks.json:stop' \
+  "${CODEX_HOME:-$HOME/.codex}/config.toml" 2>/dev/null && TRUST_OK=1
 
 if [ "$MODE" = "doctor" ]; then
   echo "Codex version: $CODEX_VERSION"
@@ -62,13 +72,29 @@ if [ "$MODE" = "doctor" ]; then
   [ "$MARKETPLACE_OK" = "1" ] && echo "Langfuse marketplace: installed" || echo "Langfuse marketplace: missing"
   [ "$PLUGIN_OK" = "1" ] && echo "Langfuse plugin: installed" || echo "Langfuse plugin: missing"
   [ -f "$LANGFUSE_CONFIG" ] && echo "Langfuse config: present at $LANGFUSE_CONFIG" || echo "Langfuse config: missing"
-  if command -v curl >/dev/null 2>&1 && curl -sSf "$LF_URL/api/public/health" >/dev/null 2>&1; then
+  [ "$TRUST_OK" = "1" ] && echo "Stop hook: trusted" || echo "Stop hook: not yet trusted — run codex interactively once and approve it"
+  # Probe with Node rather than curl. Node is what uploads the traces, and it reads a
+  # CA store of its own: against a private CA, curl can report a healthy endpoint that
+  # Node cannot reach. Whichever curl happens to sit first on PATH answers for a third
+  # trust store, so it speaks for nothing here.
+  if node -e '
+const url = process.argv[1] + "/api/public/health";
+const lib = url.startsWith("https:") ? require("https") : require("http");
+const req = lib.get(url, { timeout: 10000 }, (res) => {
+  res.resume();
+  process.exit(res.statusCode === 200 ? 0 : 1);
+});
+req.on("timeout", () => { req.destroy(); process.exit(1); });
+req.on("error", () => process.exit(1));
+' "$LF_URL" 2>/dev/null; then
     echo "Langfuse endpoint: healthy at $LF_URL"
   else
-    echo "Langfuse endpoint: unreachable at $LF_URL"
+    echo "Langfuse endpoint: unreachable from Node at $LF_URL"
+    echo "  (if curl reaches it, Node is missing the CA — set NODE_EXTRA_CA_CERTS to the root)"
   fi
   trap - 0
-  [ "$MCP_OK" = "1" ] && [ "$MARKETPLACE_OK" = "1" ] && [ "$PLUGIN_OK" = "1" ] && [ -f "$LANGFUSE_CONFIG" ]
+  [ "$MCP_OK" = "1" ] && [ "$MARKETPLACE_OK" = "1" ] && [ "$PLUGIN_OK" = "1" ] \
+    && [ -f "$LANGFUSE_CONFIG" ] && [ "$TRUST_OK" = "1" ]
   exit
 fi
 
