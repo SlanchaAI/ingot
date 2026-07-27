@@ -22,9 +22,9 @@ import yaml
 from langchain_core.tools import tool
 
 from agent.run import build_agent, langfuse_config, run_task
-from mcp_server.registry import SKILLS_DIR, load_skills, optimizable_components, skill_revision
+from mcp_server.registry import load_skills, optimizable_components, skill_revision
 
-from . import agent_model, langfuse_available
+from . import agent_model, langfuse_available, resolve_skill_dir
 from . import usage as usage_ledger
 from .acceptance import classify as acceptance_classify, load_criteria as load_acceptance
 from .judge import MODELS as JUDGE_MODELS, judge
@@ -191,15 +191,8 @@ def load_tasks(skill: str, log=print) -> tuple[list[dict], list[dict], dict]:
     the teacher drafts one; that draft must include a real holdout before promotion."""
     p = TASKS_DIR / f"{skill}.yaml"
     if not p.exists():
-        from mcp_server.registry import load_skills, read_components
-        # Resolve the skill where it actually lives. Only the authoring root is writable; in a
-        # multi-root library most skills are served from read-only mounts, and looking for them
-        # under SKILLS_DIR made drafting die on a bare FileNotFoundError for every one of those —
-        # the same lookup promotion already does correctly via load_skills().
-        matches = [item for item in load_skills() if item.name == skill]
-        if not matches:
-            raise SystemExit(f"no indexed skill named '{skill}'; check SKILL_ROUTER_PATHS")
-        comps = read_components(Path(matches[0].root))
+        from mcp_server.registry import read_components
+        comps = read_components(resolve_skill_dir(skill))
         from .draft import draft_and_save
         draft_and_save(skill, comps["description"], comps["body"], TASKS_DIR, log=log)
     data = yaml.safe_load(p.read_text())
@@ -443,9 +436,7 @@ def run_ab(skill: str, skip_search: bool = False, challenger_file: str | None = 
     usage_ledger.reset()
     components = components if components is not None else OPTIMIZE_COMPONENTS
     train, holdout, split = load_tasks(skill)
-    skill_dir = SKILLS_DIR / skill
-    if not (skill_dir / "SKILL.md").exists():
-        raise SystemExit(f"No skill named '{skill}' in skills/.")
+    skill_dir = resolve_skill_dir(skill)
     # description + body always; bundled file components join only when `components` names
     # them (they then also render into rollouts and the A/B serving). Everything else stays
     # untouched on disk.
@@ -583,9 +574,7 @@ def script_pass_components(skill: str) -> list[str]:
     judge alone cannot tell a broken script from a working one), so a scripts pass without checks
     would produce evidence worth nothing."""
     from mcp_server.registry import read_components
-    skill_dir = SKILLS_DIR / skill
-    if not (skill_dir / "SKILL.md").exists():
-        raise SystemExit(f"No skill named '{skill}' in skills/.")
+    skill_dir = resolve_skill_dir(skill)
     scripts = sorted(k for k in read_components(skill_dir) if k.startswith("file:scripts/"))
     if not scripts:
         raise SystemExit(f"'{skill}' bundles no scripts/ files, nothing for the scripts pass "

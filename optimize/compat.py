@@ -22,9 +22,10 @@ from pathlib import Path
 
 from langchain_openai import ChatOpenAI
 
-from mcp_server.registry import SKILLS_DIR, optimizable_components
+from mcp_server.registry import optimizable_components
 
-from . import SERVE_TEMPLATE, agent_model, client_kwargs, model_api_key, model_base_url
+from . import (SERVE_TEMPLATE, agent_model, client_kwargs, model_api_key, model_base_url,
+               resolve_skill_dir)
 from . import usage as usage_ledger
 from .ab import load_tasks
 from .judge import invoke_retry, judge
@@ -66,12 +67,11 @@ def run_compat(skill: str, log=print) -> dict:
     """Sweep COMPAT_MODELS over the skill's held-out tasks (skill vs no-skill) and write the matrix
     to runs/compat/<skill>.json. Returns the summary."""
     usage_ledger.reset()
-    if not (SKILLS_DIR / skill / "SKILL.md").exists():
-        raise SystemExit(f"No skill named '{skill}' in skills/.")
+    skill_dir = resolve_skill_dir(skill)
     _, holdout, _ = load_tasks(skill)
     if not holdout:
         raise SystemExit(f"'{skill}' has no held-out eval tasks to run.")
-    skill_system = SERVE_TEMPLATE.format(body=assemble(optimizable_components(SKILLS_DIR / skill)))
+    skill_system = SERVE_TEMPLATE.format(body=assemble(optimizable_components(skill_dir)))
     base_system = SERVE_TEMPLATE.format(body=NO_SKILL_BODY)
     models = compat_models()
     log(f"[compat] '{skill}': {len(holdout)} held-out tasks × {len(models)} model(s); "

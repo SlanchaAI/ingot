@@ -440,7 +440,7 @@ def _script_skill(tmp_path, monkeypatch, scripts=("scripts/helper.py",), holdout
         holdout[0]["check"] = {"fixture": "x = 1", "assert": "assert x == 1"}
     (tasks / "excel.yaml").write_text(yaml.safe_dump(
         {"train": [{"task": "t2", "rubric": "r"}], "holdout": holdout}))
-    monkeypatch.setattr(ab_mod, "SKILLS_DIR", skills)
+    monkeypatch.setattr(ab_mod, "resolve_skill_dir", lambda name: skills / name)
     monkeypatch.setattr(ab_mod, "TASKS_DIR", tasks)
     return d
 

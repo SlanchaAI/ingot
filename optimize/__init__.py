@@ -193,3 +193,16 @@ see your workspace.
 
 # Loaded skill
 {body}"""
+
+
+def resolve_skill_dir(name: str):
+    """Where a skill lives, as a clean CLI exit rather than a traceback when it is not indexed.
+
+    Every optimize entry point needs this and none of them should hand-build `SKILLS_DIR / name`:
+    only the authoring root is writable, so that path misses every skill served from a read-only
+    mount."""
+    from mcp_server.registry import resolve_skill_dir as _resolve
+    try:
+        return _resolve(name)
+    except LookupError as e:
+        raise SystemExit(str(e)) from e

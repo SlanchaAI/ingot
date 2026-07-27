@@ -18,7 +18,7 @@ def test_compat_models_parses_env_else_defaults(monkeypatch):
 def test_run_compat_sweeps_models_and_computes_lift(tmp_path, monkeypatch):
     (tmp_path / "tailwind").mkdir()
     (tmp_path / "tailwind" / "SKILL.md").write_text("x")
-    monkeypatch.setattr(compat, "SKILLS_DIR", tmp_path)
+    monkeypatch.setattr(compat, "resolve_skill_dir", lambda name: tmp_path / name)
     monkeypatch.setattr(compat, "COMPAT_DIR", tmp_path / "out")
     monkeypatch.setenv("COMPAT_MODELS", "m1,m2")
     monkeypatch.setattr(compat, "load_tasks",
@@ -40,6 +40,8 @@ def test_run_compat_sweeps_models_and_computes_lift(tmp_path, monkeypatch):
 
 
 def test_run_compat_rejects_unknown_skill(tmp_path, monkeypatch):
-    monkeypatch.setattr(compat, "SKILLS_DIR", tmp_path)
-    with pytest.raises(SystemExit, match="No skill named"):
+    """An unresolvable name is a roots misconfiguration, and the message has to say so — the old
+    text pointed at skills/, a directory the operator may never have configured."""
+    monkeypatch.setattr("mcp_server.registry.load_skills", lambda *a, **k: [])
+    with pytest.raises(SystemExit, match="SKILL_ROUTER_PATHS"):
         compat.run_compat("nope", log=lambda *a: None)

@@ -115,7 +115,7 @@ def test_run_routing_auto_drafts_missing_cases(monkeypatch, tmp_path):
     skill = tmp_path / "skills" / "sk"
     skill.mkdir(parents=True)
     (skill / "SKILL.md").write_text("---\nname: sk\ndescription: d.\n---\nbody\n")
-    monkeypatch.setattr(R, "SKILLS_DIR", tmp_path / "skills")
+    monkeypatch.setattr(R, "resolve_skill_dir", lambda name: tmp_path / "skills" / name)
     monkeypatch.setattr(R, "TASKS_DIR", tmp_path / "tasks", raising=False)
     (tmp_path / "tasks").mkdir()
 
@@ -138,7 +138,7 @@ def test_run_routing_writes_an_evidence_bundle_and_records_relative_paths(monkey
     skill.mkdir(parents=True)
     (skill / "SKILL.md").write_text("---\nname: sk\ndescription: old trigger.\n---\nbody\n")
     monkeypatch.setenv("SKILL_ROUTER_PATHS", str(root))
-    monkeypatch.setattr(R, "SKILLS_DIR", root)
+    monkeypatch.setattr(R, "resolve_skill_dir", lambda name: root / name)
     tasks = tmp_path / "tasks"
     tasks.mkdir()
     (tasks / "sk.yaml").write_text(

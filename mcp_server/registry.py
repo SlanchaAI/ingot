@@ -202,6 +202,19 @@ def load_skills(skills_dir: Path | None = None, *, roots: Iterable[str | Path] |
     return skills
 
 
+def resolve_skill_dir(name: str) -> Path:
+    """The directory `name` actually lives in, across every configured root.
+
+    `SKILLS_DIR / name` is only correct for the one *writable* authoring root. A merged library
+    serves most of its skills from read-only mounts, so that path finds them by luck or not at
+    all — and every optimize entry point used to build it by hand, which meant the optimizer
+    silently refused to touch anything it did not itself author."""
+    for item in load_skills():
+        if item.name == name:
+            return Path(item.root)
+    raise LookupError(f"no indexed skill named '{name}'; check SKILL_ROUTER_PATHS")
+
+
 # --- writing / full-skill components (used by candidate generation and promotion) ---
 
 _TEXT_SUFFIXES = {".md", ".txt", ".py", ".sh", ".js", ".ts", ".json", ".yaml", ".yml", ".toml", ".cfg"}

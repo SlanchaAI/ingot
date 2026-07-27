@@ -12,9 +12,10 @@ from pathlib import Path
 
 import yaml
 
-from mcp_server.registry import SKILLS_DIR, load_skills, optimizable_components, skill_revision
+from mcp_server.registry import load_skills, optimizable_components, skill_revision
 from mcp_server.router import Router
 
+from . import resolve_skill_dir
 from . import usage as usage_ledger
 from .ab import COLLISION_SCORE, TASKS_DIR, _description_shadows
 from .evidence import RoutingRun, build_routing_evidence, recorded_path, write_evidence
@@ -161,9 +162,7 @@ def routing_gate(skill: str, metrics: dict, challenger: dict) -> tuple[bool, lis
 
 def run_routing(skill: str, budget: int = 60, log=print) -> dict:
     usage_ledger.reset()
-    skill_dir = SKILLS_DIR / skill
-    if not (skill_dir / "SKILL.md").exists():
-        raise SystemExit(f"No skill named '{skill}' in skills/.")
+    skill_dir = resolve_skill_dir(skill)
     tasks_path = TASKS_DIR / f"{skill}.yaml"
     cases = (yaml.safe_load(tasks_path.read_text()) or {}).get("routing") if tasks_path.exists() else None
     champion = optimizable_components(skill_dir)
