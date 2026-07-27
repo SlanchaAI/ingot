@@ -191,8 +191,15 @@ def load_tasks(skill: str, log=print) -> tuple[list[dict], list[dict], dict]:
     the teacher drafts one; that draft must include a real holdout before promotion."""
     p = TASKS_DIR / f"{skill}.yaml"
     if not p.exists():
-        from mcp_server.registry import SKILLS_DIR as _SD, read_components
-        comps = read_components(_SD / skill)
+        from mcp_server.registry import load_skills, read_components
+        # Resolve the skill where it actually lives. Only the authoring root is writable; in a
+        # multi-root library most skills are served from read-only mounts, and looking for them
+        # under SKILLS_DIR made drafting die on a bare FileNotFoundError for every one of those —
+        # the same lookup promotion already does correctly via load_skills().
+        matches = [item for item in load_skills() if item.name == skill]
+        if not matches:
+            raise SystemExit(f"no indexed skill named '{skill}'; check SKILL_ROUTER_PATHS")
+        comps = read_components(Path(matches[0].root))
         from .draft import draft_and_save
         draft_and_save(skill, comps["description"], comps["body"], TASKS_DIR, log=log)
     data = yaml.safe_load(p.read_text())

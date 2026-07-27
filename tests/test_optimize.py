@@ -125,6 +125,48 @@ def test_load_tasks_reads_explicit_train_holdout(tmp_path, monkeypatch):
     assert split == {"kind": "holdout", "leakage": False}
 
 
+def test_load_tasks_drafts_from_the_skills_own_root(tmp_path, monkeypatch):
+    """A multi-root library serves most skills from read-only mounts, never from the writable
+    authoring root. Drafting must resolve the skill where the registry indexed it — looking under
+    SKILLS_DIR instead meant every mounted skill died on FileNotFoundError before a task set
+    could be written."""
+    from mcp_server.registry import Skill
+
+    mounted = tmp_path / "mounted-library" / "gb10-serving"
+    mounted.mkdir(parents=True)
+    monkeypatch.setattr(ab_mod, "TASKS_DIR", tmp_path / "tasks")
+    (tmp_path / "tasks").mkdir()
+    monkeypatch.setattr("mcp_server.registry.load_skills",
+                        lambda *a, **k: [Skill(name="gb10-serving", description="d", body="b",
+                                               path=str(mounted / "SKILL.md"), root=str(mounted))])
+    monkeypatch.setattr("mcp_server.registry.read_components",
+                        lambda d: {"description": f"desc-from:{d}", "body": "body"})
+
+    seen = {}
+
+    def fake_draft(name, description, body, tasks_dir, **kw):
+        seen.update(name=name, description=description)
+        (tasks_dir / f"{name}.yaml").write_text(
+            "skill: gb10-serving\ntrain:\n  - task: a\n    rubric: r\nholdout:\n  - task: b\n    rubric: r\n")
+
+    monkeypatch.setattr("optimize.draft.draft_and_save", fake_draft)
+    train, holdout, split = ab_mod.load_tasks("gb10-serving")
+
+    assert seen["description"] == f"desc-from:{mounted}"   # the mount, not SKILLS_DIR
+    assert [t["task"] for t in train] == ["a"] and split["leakage"] is False
+
+
+def test_load_tasks_names_the_skill_when_it_is_not_indexed(tmp_path, monkeypatch):
+    """An unindexed name means the roots are misconfigured. Say so — the old code raised a bare
+    FileNotFoundError on a path the operator never configured directly."""
+    import pytest
+    monkeypatch.setattr(ab_mod, "TASKS_DIR", tmp_path)
+    monkeypatch.setattr("mcp_server.registry.load_skills", lambda *a, **k: [])
+    with pytest.raises(SystemExit) as exc:
+        ab_mod.load_tasks("nonexistent")
+    assert "nonexistent" in str(exc.value) and "SKILL_ROUTER_PATHS" in str(exc.value)
+
+
 def test_greedy_pick_spreads_across_failure_modes():
     import numpy as np
     from optimize.mine import _greedy_pick
