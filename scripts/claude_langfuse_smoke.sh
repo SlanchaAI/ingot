@@ -3,6 +3,7 @@ set -eu
 
 LF_URL=${LANGFUSE_BASE_URL:-http://localhost:3100}
 LF_DOCKER_URL=${SMOKE_LANGFUSE_DOCKER_URL:-http://host.docker.internal:3100}
+MCP_URL=${INGOT_MCP_URL:-http://localhost:8000/mcp}
 LF_PK=${LANGFUSE_PUBLIC_KEY:-pk-lf-local-demo}
 LF_SK=${LANGFUSE_SECRET_KEY:-sk-lf-local-demo}
 MARKER="ingot-claude-smoke-$(date +%s)"
@@ -12,7 +13,7 @@ trap 'rm -rf "$WORKDIR"' EXIT INT TERM
 
 command -v claude >/dev/null 2>&1 || { echo "error: claude is required" >&2; exit 1; }
 curl -sSf "$LF_URL/api/public/health" >/dev/null
-curl -sS -o /dev/null http://localhost:8000/mcp || [ "$?" -eq 52 ]
+curl -sS -o /dev/null "$MCP_URL" || [ "$?" -eq 52 ]
 
 (cd "$WORKDIR" && CC_LANGFUSE_DEBUG=1 claude -p --output-format stream-json --verbose \
   --permission-mode bypassPermissions --allowedTools=mcp__ingot__route_and_load \
