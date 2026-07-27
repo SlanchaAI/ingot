@@ -132,11 +132,16 @@ def _cached_load_skills():
 def skills():
     tasksets = {p.stem for p in TASKS_DIR.glob("*.yaml")}
     from mcp_server.usage_counts import load_counts
+    from mcp_server import provenance
     counts = load_counts()
+    # One parsed ledger per root, not per skill: a merged library re-reads the same VENDORED.md
+    # once for every skill it serves otherwise.
+    ledgers: dict = {}
     return [
         {"name": s.name, "description": s.description, "has_tasks": s.name in tasksets,
          "pending": load_pending(s.name) is not None, "revision": s.revision,
          "uses": counts.get(s.name, 0),
+         "provenance": provenance.classify(s.name, s.root, ledgers=ledgers),
          "status": RUNS.get(s.name, {}).get("status")}
         for s in _cached_load_skills()
         if SLUG_RE.fullmatch(s.name)  # a non-slug name (hostile frontmatter) can't be optimized anyway

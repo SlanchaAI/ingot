@@ -221,6 +221,13 @@
     background: var(--paper-2); color: var(--ink); }
   .filter-count { font: .68rem/1.4 var(--mono); color: var(--ink-3); align-self: center; }
   .skilllist { margin-top: 1.1rem; border-top: 1px solid var(--line); }
+  /* Provenance folders: which of these skills did we write, and which came from elsewhere. */
+  .skill-folder + .skill-folder { margin-top: 1.4rem; }
+  .skill-folder-head { display: flex; flex-wrap: wrap; align-items: baseline; gap: .45rem .7rem;
+    padding: .55rem .45rem; border-bottom: 1px solid var(--line-2); background: var(--paper-2);
+    position: sticky; top: 0; z-index: 1; }
+  .skill-folder-title { font-weight: 600; color: var(--ink); letter-spacing: .01em; }
+  .skill-folder-note { color: var(--ink-3); font-size: .82rem; flex: 1 1 14rem; min-width: 0; }
   .srow { display: flex; flex-wrap: wrap; align-items: baseline; gap: .5rem 1rem;
     padding: .9rem .45rem; border-bottom: 1px solid var(--line); transition: background .15s ease-out; }
   .srow.pend { background: var(--rust-bg); }
@@ -541,6 +548,9 @@
           <option value="pending">Awaiting review</option>
           <option value="evals">Has evals</option>
           <option value="no-evals">Needs evals</option>
+          <option value="authored">Authored here</option>
+          <option value="vendored">Vendored in</option>
+          <option value="fetched">Fetched</option>
         </select></div>
       <span class="filter-count" id="skill-filter-count"></span>
     </div>
@@ -770,7 +780,8 @@ function renderSkillRows() {
   const visible = skillInventory.filter(s => {
     const matchesText = !query || `${s.name} ${s.description}`.toLowerCase().includes(query);
     const matchesFilter = filter === "all" || (filter === "pending" && s.pending) ||
-      (filter === "evals" && s.has_tasks) || (filter === "no-evals" && !s.has_tasks);
+      (filter === "evals" && s.has_tasks) || (filter === "no-evals" && !s.has_tasks) ||
+      filter === (s.provenance || "external");
     return matchesText && matchesFilter;
   });
   $("#skill-filter-count").textContent = `${visible.length} of ${skillInventory.length}`;
@@ -781,7 +792,7 @@ function renderSkillRows() {
     return;
   }
   const ordered = [...visible].sort((a, b) => (b.pending - a.pending) || (b.has_tasks - a.has_tasks));
-  $("#skills-list").innerHTML = ordered.map(s => {
+  const skillCard = s => {
     const run = runInventory[s.name];
     const lines = run?.log || [];
     const versionCount = 1 + (s.pending ? 1 : 0) + (revisionInventory[s.name] || []).length;
@@ -816,7 +827,27 @@ function renderSkillRows() {
       </div>
       ${runLog}
     </div>`;
-  }).join("");
+  };
+  // Folders by provenance. A merged library otherwise shows one flat list where a skill
+  // written here is indistinguishable from one pulled off GitHub.
+  const FOLDERS = [
+    ["authored", "Authored here", "Written in this library."],
+    ["vendored", "Vendored in", "Copied from an upstream repo and recorded in VENDORED.md."],
+    ["fetched", "Fetched", "Pulled by scripts/fetch_skills.sh."],
+    ["external", "External root", "Served from another configured root."],
+  ];
+  const groups = FOLDERS
+    .map(([key, title, note]) => [key, title, note, ordered.filter(s => (s.provenance || "external") === key)])
+    .filter(([, , , items]) => items.length);
+  $("#skills-list").innerHTML = groups.map(([key, title, note, items]) => `
+    <div class="skill-folder" data-provenance="${esc(key)}">
+      <div class="skill-folder-head">
+        <span class="skill-folder-title">${esc(title)}</span>
+        <span class="chip mute">${items.length}</span>
+        <span class="skill-folder-note">${esc(note)}</span>
+      </div>
+      ${items.map(skillCard).join("")}
+    </div>`).join("");
   document.querySelectorAll(".skill-run-log").forEach(log => { log.scrollTop = log.scrollHeight; });
 }
 
