@@ -103,25 +103,30 @@ def local_root() -> Path:
     return Path(os.environ.get("SKILLS_DIR") or Path(__file__).resolve().parent.parent / "skills")
 
 
-def classify(name: str, root: Path, *, ledgers: dict[Path, set[str]] | None = None) -> str:
-    """Provenance of one skill, given the root serving it.
+def classify(name: str, skill_dir: str | Path, *,
+             ledgers: dict[Path, set[str]] | None = None) -> str:
+    """Provenance of one skill.
 
-    ``ledgers`` caches each root's parsed ledger so a whole inventory costs one read per root
-    rather than one per skill.
+    ``skill_dir`` is ``Skill.root``, which is the skill's OWN directory
+    (``/srv/skills/dotfiles/game-dev``), not the library root. The ledger lives one level up,
+    beside its sibling skills, so the library root is the parent.
+
+    ``ledgers`` caches each library root's parsed ledger, so a whole inventory costs one read
+    per root rather than one per skill.
     """
-    root = Path(root)
+    library = Path(skill_dir).parent
     if ledgers is None:
         ledgers = {}
-    if root not in ledgers:
-        ledgers[root] = vendored_names(root)
-    if name in ledgers[root]:
+    if library not in ledgers:
+        ledgers[library] = vendored_names(library)
+    if name in ledgers[library]:
         return VENDORED
     try:
-        if root.resolve() == local_root().resolve():
+        if library.resolve() == local_root().resolve():
             return FETCHED
     except OSError:
         pass
-    return AUTHORED if (root / LEDGER_NAME).exists() else EXTERNAL
+    return AUTHORED if (library / LEDGER_NAME).exists() else EXTERNAL
 
 
 def label(provenance: str) -> str:
