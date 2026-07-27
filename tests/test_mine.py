@@ -185,6 +185,33 @@ def test_relevant_traces_keeps_tagged_or_embedding_ranked(monkeypatch):
     assert mine.relevant_traces(traces, "excel") == traces[:2]
 
 
+def test_relevant_traces_matches_every_harness_tag_spelling(monkeypatch):
+    """Real traffic is tagged by whichever harness produced it, not by us. Claude Code writes
+    `skill:<name>`, namespaced by plugin when the skill came from one; our own agent writes the
+    bare name plus a `revision=<name>@<hash>` pin. Matching the bare form alone drops every
+    externally-produced trace, and mining then reports a heavily-used skill as never used."""
+    class FakeRouter:
+        def __init__(self, skills):
+            pass
+
+        def suggest(self, task, k=5, min_score=0.0):
+            return [{"name": "other"}]      # never ranks, so the tag check alone decides
+
+    monkeypatch.setattr("mcp_server.router.Router", FakeRouter)
+    monkeypatch.setattr("mcp_server.registry.load_skills", lambda: [])
+    traces = [
+        {"task": "t", "tags": ["pdf"]},                                   # bare, our agent
+        {"task": "t", "tags": ["claude-code", "skill:pdf"]},              # Claude Code
+        {"task": "t", "tags": ["skill:superpowers:pdf"]},                 # plugin-namespaced
+        {"task": "t", "tags": ["demo", "revision=pdf@83a75cf1f9b5ada5"]},  # revision pin
+        {"task": "t", "tags": ["skill:pdf-tools"]},                       # neighbour -> drop
+        {"task": "t", "tags": ["revision=excel@abc123"]},                 # other skill -> drop
+        {"task": "t", "tags": []},                                        # untagged -> drop
+        {"task": "t"},                                                    # no tags key -> drop
+    ]
+    assert mine.relevant_traces(traces, "pdf") == traces[:4]
+
+
 def test_mine_exits_when_no_traces_are_relevant(monkeypatch):
     import pytest
     monkeypatch.setattr(mine, "fetch_traces",

@@ -121,6 +121,24 @@ def _task_answer(inp, ans):
     return None
 
 
+def _tagged_with(tags, skill: str) -> bool:
+    """Does any tag name `skill`? Harnesses spell it three ways, and only the first is bare:
+    our own agent writes `pdf` plus a revision pin `revision=pdf@<hash>`, while Claude Code
+    writes `skill:<name>`, namespaced by plugin when the skill came from one
+    (`skill:superpowers:systematic-debugging`). Matching the bare form alone drops every trace an
+    external harness produced — which is nearly all real traffic — and mining then reports
+    'no traces relevant to X' as though the skill were never used."""
+    for tag in tags or []:
+        tag = str(tag)
+        if tag == skill:
+            return True
+        if tag.startswith("revision=") and tag[len("revision="):].split("@", 1)[0] == skill:
+            return True
+        if tag.startswith("skill:") and tag[len("skill:"):].rsplit(":", 1)[-1] == skill:
+            return True
+    return False
+
+
 def relevant_traces(traces: list[dict], skill: str, k: int = 5) -> list[dict]:
     """Traces attributable to `skill`: tagged with it (external harnesses tag the
     routed skill), or ranking it in the embedding top-k for the task text. The rank check is what
@@ -130,7 +148,7 @@ def relevant_traces(traces: list[dict], skill: str, k: int = 5) -> list[dict]:
     from mcp_server.router import Router
     router = Router(load_skills())
     return [t for t in traces
-            if skill in t.get("tags", [])
+            if _tagged_with(t.get("tags"), skill)
             or any(s["name"] == skill for s in router.suggest(t["task"], k=k, min_score=0.0))]
 
 
