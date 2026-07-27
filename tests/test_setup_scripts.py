@@ -46,6 +46,7 @@ def test_codex_setup_is_idempotent_and_writes_private_config(tmp_path):
     _executable(fake_bin / "codex", '''
 echo "codex $*" >> "$TEST_STATE/calls"
 if [ "$1" = "--version" ]; then echo "codex-cli 0.144.5"; exit 0; fi
+if [ "$1 $2" = "plugin --help" ]; then exit 0; fi
 if [ "$1 $2 $3" = "mcp get ingot" ]; then
   test -f "$TEST_STATE/mcp" && echo "url: http://localhost:8000/mcp"
   test -f "$TEST_STATE/mcp"
@@ -79,17 +80,45 @@ if [ "$1 $2" = "plugin add" ]; then touch "$TEST_STATE/plugin"; exit; fi
     assert stat.S_IMODE(config.stat().st_mode) == 0o600
 
 
-def test_codex_setup_rejects_old_codex_before_writing_config(tmp_path):
+def test_codex_setup_rejects_a_codex_without_the_plugin_subcommand(tmp_path):
+    """The floor is a capability, not a number: the script installs through `codex plugin`, so it
+    probes for that. A build too old to carry it is rejected before any credential is written."""
     env, fake_bin = _environment(tmp_path)
     _executable(fake_bin / "node", 'echo 22\n')
-    _executable(fake_bin / "codex", 'echo "codex-cli 0.127.9"\n')
+    _executable(fake_bin / "codex", '''
+if [ "$1" = "--version" ]; then echo "codex-cli 0.127.9"; exit 0; fi
+if [ "$1" = "plugin" ]; then echo "unrecognized subcommand 'plugin'" >&2; exit 2; fi
+exit 0
+''')
 
     result = subprocess.run([str(ROOT / "scripts" / "codex_setup.sh")], cwd=ROOT, env=env,
                             text=True, capture_output=True)
 
     assert result.returncode != 0
-    assert "Codex 0.128 or newer" in result.stderr
+    assert "no 'plugin' subcommand" in result.stderr
     assert not (Path(env["HOME"]) / ".codex" / "langfuse.json").exists()
+
+
+def test_codex_setup_accepts_a_local_build_that_stamps_no_version(tmp_path):
+    """A locally built codex reports `codex-cli 0.0.0`, which sorts below every release while
+    carrying the plugin subcommand. A version comparison rejected exactly the build that works —
+    this is the regression the capability probe exists to prevent."""
+    env, fake_bin = _environment(tmp_path)
+    _executable(fake_bin / "node", 'echo 22\n')
+    _executable(fake_bin / "codex", '''
+if [ "$1" = "--version" ]; then echo "codex-cli 0.0.0-wire-persona"; exit 0; fi
+if [ "$1 $2" = "plugin --help" ]; then exit 0; fi
+if [ "$1 $2 $3" = "mcp get ingot" ]; then exit 1; fi
+exit 0
+''')
+    env.update({"LANGFUSE_BASE_URL": "https://langfuse.example",
+                "LANGFUSE_PUBLIC_KEY": "pk-test", "LANGFUSE_SECRET_KEY": "sk-test"})
+
+    result = subprocess.run([str(ROOT / "scripts" / "codex_setup.sh")], cwd=ROOT, env=env,
+                            text=True, capture_output=True)
+
+    assert result.returncode == 0, result.stderr
+    assert (Path(env["HOME"]) / ".codex" / "langfuse.json").exists()
 
 
 def test_remote_setup_requires_explicit_langfuse_credentials(tmp_path):

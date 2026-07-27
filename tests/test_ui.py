@@ -346,13 +346,14 @@ def test_comparison_panel_orders_tokens_and_tables_numbered_task_scores(client):
     assert 'class="cmp-pertask"' not in compare
 
 
-def test_api_skills_rows_carry_a_load_count(client, monkeypatch):
+def test_api_skills_rows_carry_a_load_count(client, monkeypatch, tmp_path):
     """Every active skill row exposes `uses` so the UI can render the load-counter chip."""
     import ui.app as ui_app
     from mcp_server import usage_counts
 
     class _Skill:
         name, description, revision = "pdf", "merge PDFs", "rev1"
+        root = str(tmp_path / "library" / "pdf")   # provenance classifies from the skill's own root
     monkeypatch.setattr(ui_app, "load_skills", lambda: [_Skill()])
     monkeypatch.setattr(usage_counts, "load_counts", lambda: {"pdf": 7})
     active = client.get("/api/skills").json()
