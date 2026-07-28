@@ -14,6 +14,7 @@ scores are comparable across models.
 Usage:  python -m optimize.compat <skill>
 Config: COMPAT_MODELS=qwen/qwen3-32b,openai/gpt-5.5,anthropic/claude-sonnet-...  (default: AGENT_MODEL)
 """
+import hashlib
 import json
 import os
 import statistics
@@ -24,8 +25,8 @@ from langchain_openai import ChatOpenAI
 
 from mcp_server.registry import optimizable_components
 
-from . import (SERVE_TEMPLATE, agent_model, client_kwargs, model_api_key, model_base_url,
-               resolve_skill_dir)
+from . import (SERVE_TEMPLATE, agent_model, api_key, client_kwargs, model_api_key,
+               model_base_url, resolve_skill_dir, teacher_base_url)
 from . import usage as usage_ledger
 from .ab import load_tasks
 from .judge import invoke_retry, judge
@@ -33,6 +34,7 @@ from .rollout import assemble
 
 _MAX_WORKERS = 8
 COMPAT_DIR = Path(__file__).resolve().parent.parent / "runs" / "compat"
+BASELINE_CACHE_DIR = Path(__file__).resolve().parent.parent / "runs" / "compat-baseline"
 # The no-skill baseline: the identical serving contract with no skill body, so `lift` isolates the
 # body's contribution rather than the difference between two different prompts.
 NO_SKILL_BODY = "(no skill loaded, answer the task from your own knowledge)"
@@ -45,10 +47,27 @@ def compat_models() -> list[str]:
 
 
 def _llm(model: str):
-    # OpenRouter (default) selects the model by slug over one endpoint, with ZDR routing applied;
-    # a local MODEL_BASE_URL serves a single model, so a multi-model sweep only makes sense on a
-    # multi-model endpoint. reasoning is left at the provider default, some models reject the flag.
-    return ChatOpenAI(model=model, temperature=0, **client_kwargs(model_base_url(), key=model_api_key()))
+    # Route each row to the endpoint that actually serves it. The model this box serves
+    # (AGENT_MODEL) comes from MODEL_BASE_URL — a local vLLM, and therefore a free row in the grid;
+    # every other slug goes to the hosted endpoint. Sending the whole sweep to one endpoint meant
+    # either the local row was impossible, or MODEL_BASE_URL had to be overridden by hand for the
+    # run, which loses the free reference row exactly when you want to compare against it.
+    # reasoning is left at the provider default, some models reject the flag.
+    if model == agent_model():
+        base, key = model_base_url(), model_api_key()
+    else:
+        base, key = teacher_base_url(), api_key()
+    return ChatOpenAI(model=model, temperature=0, **client_kwargs(base, key=key))
+
+
+def _baseline_cache_key(model: str, holdout: list[dict]) -> str:
+    """The no-skill baseline is a pure function of (serving model, held-out tasks, judge): the skill
+    body is precisely what it leaves out, so editing the skill cannot change it. Uncached, every
+    re-sweep paid again for byte-identical work — half the cost of every run after the first."""
+    payload = json.dumps({"v": 1, "model": model, "holdout": holdout,
+                          "judge": os.environ.get("JUDGE_MODELS") or os.environ.get("JUDGE_MODEL", "")},
+                         sort_keys=True)
+    return hashlib.sha256(payload.encode()).hexdigest()[:16]
 
 
 def _score(llm, system: str, task: dict, role: str = "compat") -> float:
@@ -84,7 +103,14 @@ def run_compat(skill: str, log=print) -> dict:
         # point of the sweep is that the serving model changes underneath it.
         role = f"compat:{model}"
         skill_scores = _run_arm(llm, skill_system, holdout, role)
-        base_scores = _run_arm(llm, base_system, holdout, role)
+        cache_path = BASELINE_CACHE_DIR / f"{_baseline_cache_key(model, holdout)}.json"
+        if cache_path.exists():
+            base_scores = json.loads(cache_path.read_text())
+            log(f"[compat] {model:<34} baseline reused from cache (no spend)")
+        else:
+            base_scores = _run_arm(llm, base_system, holdout, role)
+            BASELINE_CACHE_DIR.mkdir(parents=True, exist_ok=True)
+            cache_path.write_text(json.dumps(base_scores))
         s_mean, b_mean = statistics.mean(skill_scores), statistics.mean(base_scores)
         models_out[model] = {"skill_mean": s_mean, "baseline_mean": b_mean, "lift": s_mean - b_mean,
                              "skill_scores": skill_scores, "baseline_scores": base_scores}
