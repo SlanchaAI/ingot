@@ -138,6 +138,8 @@
   .alert.act .atag { color: var(--rust); } .alert.warn .atag { color: var(--warn); }
   .alert.ok .atag { color: var(--pass); }
   .alert .atxt { font-size: .84rem; color: var(--ink-2); }
+  .alert .atxt code { font-family: var(--mono); font-size: .92em; background: var(--paper-3);
+    color: var(--ink); border-radius: 5px; padding: .06rem .3rem; }
 
   /* ---- section scaffold ---- */
   .band { padding-top: 2.6rem; }
@@ -195,6 +197,14 @@
   .cmp-tbl .win { color: var(--pass); font-weight: 700; }
   .cmp-tbl .lose { color: var(--fail); font-weight: 700; }
   .cmp-actions { display: flex; align-items: center; gap: .7rem; margin-top: 1.1rem; flex-wrap: wrap; }
+  /* The promotion dialog is the last screen before an irreversible change, and its evidence grows
+     with the held-out set. Scroll the evidence under a pinned decision row rather than scrolling
+     the whole modal, which had already pushed Approve off the bottom edge at eight tasks. */
+  #cmp-overlay .cmp-modal { display: flex; flex-direction: column; overflow: hidden; }
+  #cmp-body { flex: 1 1 auto; overflow: auto; min-height: 0; }
+  #cmp-body > .margin { margin-bottom: 1.1rem; }
+  #cmp-overlay .cmp-actions { flex: none; margin-top: 0; padding-top: 1rem;
+    border-top: 1px solid var(--line); }
 
   /* Read-only skill and revision explorer */
   .skill-modal { width: min(900px, 96vw); }
@@ -310,6 +320,13 @@
   .gate.ok { color: var(--pass); background: var(--pass-bg); }
   .gate.block { color: var(--fail); background: var(--fail-bg); font-weight: 600; }
   .gate.warn { color: var(--warn); background: var(--warn-bg); }
+  /* margin-vs-resolution sits directly under the two scores, because that pair of big numbers is
+     what a reviewer reads first and it is the part that overstates a thin result */
+  .margin { font-family: var(--mono); font-size: .74rem; line-height: 1.65; color: var(--ink-2);
+    margin-top: .7rem; font-variant-numeric: tabular-nums; text-wrap: pretty; }
+  .margin b { color: var(--ink); }
+  .margin.thin { color: var(--warn); border-left: 2px solid var(--warn); padding-left: .6rem; }
+  .margin.thin b { color: var(--warn); }
   .metaline b.win { color: var(--pass); } .metaline b.lose { color: var(--fail); }
   .review-actions { display: flex; align-items: center; gap: .7rem; margin-top: 1.2rem; flex-wrap: wrap; }
   .review-actions .msg { font-family: var(--mono); font-size: .74rem; color: var(--pass); }
@@ -551,6 +568,8 @@
           <option value="authored">Authored here</option>
           <option value="vendored">Vendored in</option>
           <option value="fetched">Fetched</option>
+          <!-- the list groups into an "External root" folder, so the filter has to reach it too -->
+          <option value="external">External root</option>
         </select></div>
       <span class="filter-count" id="skill-filter-count"></span>
     </div>
@@ -631,6 +650,43 @@ async function act(sel, run) {
   refresh();
 }
 
+// Opening a dialog has to move focus into it, and closing has to put focus back where it came
+// from. The skill browser opens from a row inside a list of a hundred: a keyboard reviewer who
+// closed it was returned to the top of the document with their place gone. Tab is held inside the
+// open dialog too, so `aria-modal="true"` describes what the page actually does.
+const FOCUSABLE = 'a[href], button:not([disabled]), input, select, textarea, [tabindex]:not([tabindex="-1"])';
+const dialogReturn = new WeakMap();
+
+function openDialog(overlaySel, firstSel) {
+  const overlay = $(overlaySel);
+  dialogReturn.set(overlay, document.activeElement);
+  overlay.hidden = false;
+  const target = (firstSel && $(firstSel)) || overlay.querySelector(FOCUSABLE);
+  if (target) target.focus();
+}
+
+function closeDialog(overlaySel) {
+  const overlay = $(overlaySel);
+  overlay.hidden = true;
+  const back = dialogReturn.get(overlay);
+  dialogReturn.delete(overlay);
+  // `body` is what activeElement reports when the dialog was opened by something other than a
+  // click, and focusing it is a silent no-op, which would strand focus inside the hidden dialog.
+  const target = back && back !== document.body && document.contains(back) ? back : $("#pending-heading");
+  if (target) target.focus({preventScroll: true});
+}
+
+document.addEventListener("keydown", e => {
+  if (e.key !== "Tab") return;
+  const overlay = [...document.querySelectorAll(".cmp-overlay")].find(o => !o.hidden);
+  if (!overlay) return;
+  const items = [...overlay.querySelectorAll(FOCUSABLE)].filter(el => el.offsetParent !== null);
+  if (!items.length) return;
+  const first = items[0], last = items[items.length - 1];
+  if (e.shiftKey && document.activeElement === first) { e.preventDefault(); last.focus(); }
+  else if (!e.shiftKey && document.activeElement === last) { e.preventDefault(); first.focus(); }
+});
+
 const kpi = (cls, n, l, d) =>
   `<div class="kpi ${cls}"><span class="n">${n}</span><span class="l">${l}</span>${d ? `<span class="d">${d}</span>` : ""}</div>`;
 const alert = (cls, tag, txt) =>
@@ -642,6 +698,43 @@ const statusChip = s => s.pending ? `<span class="chip rust">change awaiting rev
   : s.status === "running" ? `<span class="chip warn">SkillOpt running</span>`
   : !s.has_tasks ? `<span class="chip mute">no evals</span>`
   : `<span class="chip pass">evals</span>`;
+
+// The judge answers on a small ladder of discrete scores, not a continuum. Its rungs are the
+// resolution of the whole comparison: a mean that moves less than one rung is carried by which
+// side of a rung two or three tasks happened to land on, and re-running an unchanged arm has
+// moved a mean by exactly that much. A reviewer reading "+0.037" as a win cannot see any of
+// that, so measure the margin in rungs and say which it is.
+function judgeStep(...arms) {
+  const seen = [...new Set(arms.flat().map(Number).filter(Number.isFinite))].sort((a, b) => a - b);
+  const gaps = seen.slice(1).map((v, i) => v - seen[i]).filter(g => g > 1e-9);
+  return gaps.length ? Math.min(...gaps) : 0;
+}
+
+function marginNote(champion, challenger) {
+  const step = judgeStep(champion.scores || [], challenger.scores || []);
+  const n = (challenger.scores || []).length;
+  if (!step || !n) return "";   // one distinct score, or no held-out set: nothing to compare against
+  const d = challenger.mean - champion.mean, steps = Math.abs(d) / step;
+  const thin = steps < 1;
+  return `<div class="margin${thin ? " thin" : ""}">Margin <b>${d >= 0 ? "+" : ""}${d.toFixed(3)}</b>` +
+    ` over ${n} held-out task${n === 1 ? "" : "s"} = <b>${steps.toFixed(1)}×</b> the judge's smallest` +
+    ` step (${step.toFixed(3)}).` +
+    (thin ? " Below one step, the result turns on how few tasks crossed a boundary." : "") + `</div>`;
+}
+
+// Every reason to hesitate, in one block. The review card and the promotion dialog both render
+// this: the dialog is where the irreversible click lives, and it used to show the score tables
+// alone, so a change carrying a gate warning read there as an unqualified win.
+function cautions(p) {
+  const gate = p.gate && !p.gate.promotable
+    ? `<div class="gate block">⛔ Evidence gate: ${esc(p.gate.blocked.join("; "))}. Approval is refused.</div>`
+    : (p.gate ? `<div class="gate ok">✓ Passes the evidence gate</div>` : "");
+  const warn = (p.gate && p.gate.warnings && p.gate.warnings.length)
+    ? `<div class="gate warn">⚠ ${esc(p.gate.warnings.join("; "))}</div>` : "";
+  const stale = p.stale
+    ? `<div class="gate block">⛔ Stale evidence: ${esc(p.stale)}. Approval is refused.</div>` : "";
+  return gate + warn + stale;
+}
 
 // History is a separate endpoint, and it can fail on its own. The two numbers it feeds report
 // that instead of reading as zero, and the rest of the board still renders from the skills
@@ -678,8 +771,13 @@ function renderBoard(skills, withTasks, history) {
     "a SkillOpt run is in progress; follow it under the skill."));
   if (!pending && !running) alerts.push(alert("ok", "CLEAR",
     "nothing quarantined; every skill is serving its approved revision."));
+  // The library arrives with no eval task sets, which leaves every Optimize button disabled and
+  // the whole board at rest. The step that changes that used to live only in a title tooltip on
+  // one of those disabled buttons, so name it here, where the state is first reported.
   if (!withTasks.length) alerts.push(alert("info", "NO EVALS",
-    `${skills.length} skill${skills.length === 1 ? "" : "s"} tracked, none with an eval task set, which SkillOpt optimization needs.`));
+    `${skills.length} skill${skills.length === 1 ? "" : "s"} tracked, none with an eval task set. ` +
+    `SkillOpt measures against held-out tasks, so it needs one first: ` +
+    `<code>docker compose run --rm optimize &lt;skill&gt;</code> drafts a set.`));
   $("#attention").innerHTML = alerts.join("");
 
   const pill = $("#status-pill");
@@ -786,9 +884,21 @@ function renderSkillRows() {
   });
   $("#skill-filter-count").textContent = `${visible.length} of ${skillInventory.length}`;
   if (!visible.length) {
-    $("#skills-list").innerHTML =
-      `<div class="empty"><div class="et">No skills match.</div>
-       <div class="ed">Change the search text or filter to see more skills.</div></div>`;
+    // "Change the search text" is the wrong advice when the filter names a state no skill is in
+    // yet: the library has none to find, and the reviewer needs the step that creates one instead.
+    const nothing = !query && {
+      evals: ["No skill has an eval task set yet.",
+              `SkillOpt measures a change against held-out tasks, so it needs one first. ` +
+              `<code>docker compose run --rm optimize &lt;skill&gt;</code> drafts a set and leaves the ` +
+              `result quarantined for review.`],
+      "no-evals": ["Every skill has an eval task set.", "Nothing here needs one."],
+      pending: ["Nothing is quarantined.",
+                "Approved and rejected changes leave this filter; History keeps the record."],
+    }[filter];
+    $("#skills-list").innerHTML = nothing
+      ? `<div class="empty"><div class="et">${nothing[0]}</div><div class="ed">${nothing[1]}</div></div>`
+      : `<div class="empty"><div class="et">No skills match.</div>
+         <div class="ed">Change the search text or filter to see more skills.</div></div>`;
     return;
   }
   const ordered = [...visible].sort((a, b) => (b.pending - a.pending) || (b.has_tasks - a.has_tasks));
@@ -867,7 +977,7 @@ async function openSkillVersions(skill) {
   $("#skill-version-desc").textContent = "";
   $("#skill-version-meta").innerHTML = "";
   say("#skill-version-msg", "Loading versions…", false);
-  $("#skill-overlay").hidden = false;
+  openDialog("#skill-overlay");
   try {
     const summary = await j(`/api/skills/${encodeURIComponent(skill)}/versions`);
     $("#skill-version").innerHTML = summary.versions.map(v =>
@@ -906,7 +1016,7 @@ function renderSkillVersionFile() {
   $("#skill-version-content").textContent = file ? file.content : "";
 }
 
-function closeSkillVersions() { $("#skill-overlay").hidden = true; }
+function closeSkillVersions() { closeDialog("#skill-overlay"); }
 $("#skill-close").onclick = closeSkillVersions;
 $("#skill-overlay").onclick = e => { if (e.target === $("#skill-overlay")) closeSkillVersions(); };
 $("#skill-version").onchange = loadSkillVersion;
@@ -1002,8 +1112,9 @@ function renderRisk(risk) {
   const el = $("#risk-summary");
   el.classList.toggle("high", Boolean(r.high_risk));
   el.innerHTML =
-    `<div class="risk-stat"><b>+${r.added_lines}</b><span>lines added</span></div>` +
-    `<div class="risk-stat"><b>−${r.removed_lines}</b><span>lines removed</span></div>` +
+    // a pure-addition edit is the common SkillOpt result, and it used to report "−0 lines removed"
+    `<div class="risk-stat"><b>${r.added_lines ? "+" : ""}${r.added_lines}</b><span>lines added</span></div>` +
+    `<div class="risk-stat"><b>${r.removed_lines ? "−" : ""}${r.removed_lines}</b><span>lines removed</span></div>` +
     `<div class="risk-stat"><b>${Number(r.changed_pct).toFixed(1)}%</b><span>body changed</span></div>` +
     `<div class="risk-stat"><b>${signed(r.size_delta_pct)}</b><span>body size</span></div>` + warning;
 }
@@ -1051,7 +1162,7 @@ async function showPending(skill, {keepMessage = false, scroll = false} = {}) {
        <span class="score">${o.mean.toFixed(3)}</span>
        <span class="foot">judge score · ${o.scores.length} tasks</span></div>`;
     const duel = `<div class="duel">${cand("champion", c, !chalWins)}
-      <span class="versus">vs</span>${cand("challenger", ch, chalWins)}</div>`;
+      <span class="versus">vs</span>${cand("challenger", ch, chalWins)}</div>` + marginNote(c, ch);
 
     const meta = `<div class="metaline">${search
         ? `candidate search <b>${search.seed_score.toFixed(2)} → ${search.best_score.toFixed(2)}</b> · ` : ""}
@@ -1086,19 +1197,7 @@ async function showPending(skill, {keepMessage = false, scroll = false} = {}) {
       p.changed.map(x => `<span class="chip rust">${esc(x)}</span>`).join("") + `</div>`
     : "";
 
-  const gate = p.gate && !p.gate.promotable
-    ? `<div class="gate block">⛔ Evidence gate: ${esc(p.gate.blocked.join("; "))}. Approval is refused.</div>`
-    : (p.gate ? `<div class="gate ok">✓ Passes the evidence gate</div>` : "");
-
-  const warn = (p.gate && p.gate.warnings && p.gate.warnings.length)
-    ? `<div class="gate warn">⚠ ${esc(p.gate.warnings.join("; "))}</div>`
-    : "";
-
-  const stale = p.stale
-    ? `<div class="gate block">⛔ Stale evidence: ${esc(p.stale)}. Approval is refused.</div>`
-    : "";
-
-  $("#pending-detail").innerHTML = detail + changed + gate + warn + stale;
+  $("#pending-detail").innerHTML = detail + changed + cautions(p);
   renderRisk(p.risk);
   $("#diff").innerHTML = colorizeDiff(p.diff);
   renderSideDiff(p.comparison);
@@ -1141,7 +1240,7 @@ function buildCompare(p) {
       <tr><td>input</td><td>${num(ct.mean_input)}</td><td>${num(cht.mean_input)}</td><td>${delta(ct.mean_input, cht.mean_input, true)}</td></tr>
       <tr><td>output</td><td>${num(ct.mean_output)}</td><td>${num(cht.mean_output)}</td><td>${delta(ct.mean_output, cht.mean_output, true)}</td></tr>
     </table></div>`;
-  return models + scores + tokens;
+  return cautions(p) + marginNote(c, ch) + models + scores + tokens;
 }
 function openCompare() {
   const p = currentPendingData;
@@ -1149,9 +1248,9 @@ function openCompare() {
   $("#cmp-skill").textContent = currentPending;
   $("#cmp-body").innerHTML = buildCompare(p);
   say("#cmp-msg", "", false);
-  $("#cmp-overlay").hidden = false;
+  openDialog("#cmp-overlay");
 }
-function closeCompare() { $("#cmp-overlay").hidden = true; }
+function closeCompare() { closeDialog("#cmp-overlay"); }
 $("#approve").onclick = openCompare;
 $("#cmp-cancel").onclick = closeCompare;
 $("#cmp-cancel2").onclick = closeCompare;
@@ -1167,10 +1266,9 @@ function openReject() {
   $("#reject-skill").textContent = currentPending;
   $("#reject-reason").value = "";
   say("#reject-msg", "", false);
-  $("#reject-overlay").hidden = false;
-  $("#reject-reason").focus();
+  openDialog("#reject-overlay", "#reject-reason");
 }
-function closeReject() { $("#reject-overlay").hidden = true; }
+function closeReject() { closeDialog("#reject-overlay"); }
 $("#reject").onclick = openReject;
 $("#reject-close").onclick = closeReject;
 $("#reject-cancel").onclick = closeReject;
