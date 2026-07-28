@@ -26,7 +26,8 @@ def test_run_compat_sweeps_models_and_computes_lift(tmp_path, monkeypatch):
     monkeypatch.setattr(compat, "optimizable_components", lambda d: {"description": "d", "body": "THEBODY"})
     monkeypatch.setattr(compat, "_llm", lambda model: model)   # pass the model name through as the "llm"
     # the skill arm serves THEBODY (score 0.9); the no-skill baseline does not (0.2)
-    monkeypatch.setattr(compat, "_score", lambda llm, system, task: 0.9 if "THEBODY" in system else 0.2)
+    monkeypatch.setattr(compat, "_score",
+                        lambda llm, system, task, role="compat": 0.9 if "THEBODY" in system else 0.2)
 
     out = compat.run_compat("tailwind", log=lambda *a: None)
     assert set(out["models"]) == {"m1", "m2"}

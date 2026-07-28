@@ -63,9 +63,32 @@ def _role_models() -> dict[str, str]:
             "judge": judge, "reflection": teacher}
 
 
+def _model_for(role: str) -> str:
+    """The model a ledger role ran on. A role may name its own model after a colon
+    (`compat:anthropic/claude-sonnet-4.5`): the compatibility sweep varies the *serving* model by
+    design, so unlike the fixed roles it cannot be mapped to one model up front."""
+    name, _, explicit = role.partition(":")
+    return explicit or _role_models().get(name, "")
+
+
+def unpriced_roles() -> list[str]:
+    """Roles that spent tokens but contribute nothing to the estimate, because their model carries
+    no OpenRouter list price — a local endpoint (genuinely free) or a slug we could not resolve
+    (not free at all). Surfaced rather than swallowed: an unpriced role silently counts as $0, and
+    that is how the entire compatibility sweep once vanished from both the cost line and the
+    MAX_RUN_USD cap, reporting $0.04 against $1.42 actually spent."""
+    if _PRICES is None:
+        return []
+    with _LOCK:
+        return sorted(role for role, c in COUNTS.items()
+                      if (c["input"] or c["output"]) and not _PRICES.get(_model_for(role)))
+
+
 def estimated_cost() -> float | None:
     """Best-effort USD estimate for the current ledger, from OpenRouter list prices. None when
-    the endpoint isn't OpenRouter or pricing is unavailable (local endpoints cost nothing)."""
+    the endpoint isn't OpenRouter or pricing is unavailable (local endpoints cost nothing).
+    Roles whose model has no list price contribute nothing — ask unpriced_roles() which those are
+    before trusting this as a total."""
     global _PRICES
     from . import is_openrouter, teacher_base_url
     if not is_openrouter(teacher_base_url()):
@@ -74,11 +97,10 @@ def estimated_cost() -> float | None:
         _PRICES = _openrouter_prices()
     if not _PRICES:
         return None
-    models = _role_models()
     with _LOCK:
         return sum(c["input"] * p[0] + c["output"] * p[1]
                    for role, c in COUNTS.items()
-                   if (p := _PRICES.get(models.get(role, ""))))
+                   if (p := _PRICES.get(_model_for(role))))
 
 
 def report() -> dict:
@@ -100,4 +122,9 @@ def format_report() -> str:
     cost = estimated_cost()
     if cost is not None:
         lines.append(f"  estimated cost: ${cost:.2f} (OpenRouter list prices)")
+        if (blind := unpriced_roles()):
+            lines.append(f"  NOT in that estimate: {', '.join(blind)} — no list price for "
+                         f"{', '.join(sorted({_model_for(r) or '?' for r in blind}))}. "
+                         f"Free if that is a local endpoint; otherwise the figure above is low, "
+                         f"and so is any MAX_RUN_USD cap resting on it.")
     return "\n".join(lines)

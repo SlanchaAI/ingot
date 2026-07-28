@@ -51,16 +51,16 @@ def _llm(model: str):
     return ChatOpenAI(model=model, temperature=0, **client_kwargs(model_base_url(), key=model_api_key()))
 
 
-def _score(llm, system: str, task: dict) -> float:
+def _score(llm, system: str, task: dict, role: str = "compat") -> float:
     msg = invoke_retry(llm, [("system", system), ("user", task["task"])])
-    usage_ledger.add("compat", getattr(msg, "usage_metadata", None))
+    usage_ledger.add(role, getattr(msg, "usage_metadata", None))
     return judge(task["task"], task["rubric"], msg.content,
                  check=task.get("check"), deliverable=task.get("deliverable"))["score"]
 
 
-def _run_arm(llm, system: str, tasks: list[dict]) -> list[float]:
+def _run_arm(llm, system: str, tasks: list[dict], role: str = "compat") -> list[float]:
     with ThreadPoolExecutor(max_workers=min(_MAX_WORKERS, len(tasks))) as pool:
-        return list(pool.map(lambda t: _score(llm, system, t), tasks))
+        return list(pool.map(lambda t: _score(llm, system, t, role), tasks))
 
 
 def run_compat(skill: str, log=print) -> dict:
@@ -80,8 +80,11 @@ def run_compat(skill: str, log=print) -> dict:
     models_out = {}
     for model in models:
         llm = _llm(model)
-        skill_scores = _run_arm(llm, skill_system, holdout)
-        base_scores = _run_arm(llm, base_system, holdout)
+        # Bill each arm to its own model: one "compat" bucket cannot be priced, because the whole
+        # point of the sweep is that the serving model changes underneath it.
+        role = f"compat:{model}"
+        skill_scores = _run_arm(llm, skill_system, holdout, role)
+        base_scores = _run_arm(llm, base_system, holdout, role)
         s_mean, b_mean = statistics.mean(skill_scores), statistics.mean(base_scores)
         models_out[model] = {"skill_mean": s_mean, "baseline_mean": b_mean, "lift": s_mean - b_mean,
                              "skill_scores": skill_scores, "baseline_scores": base_scores}
