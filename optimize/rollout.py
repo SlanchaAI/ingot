@@ -112,6 +112,11 @@ def make_reflection_lm():
     local OPENROUTER_BASE_URL (vLLM/Ollama) is honored through litellm's generic openai provider.
     Shared by SkillOpt's body and description passes."""
     import litellm
+    # We pass a provider-prefixed model, but litellm resolves the provider again after the call
+    # for cost tracking, from the response's bare slug — which it cannot map, so it prints a red
+    # "Provider List: ..." banner around calls that succeeded. Nine of them in a 38-line run made
+    # a healthy loop read as broken. This suppresses the hint only; real errors still raise.
+    litellm.suppress_debug_info = True
     litellm.success_callback = [_track_reflection]
     base = teacher_base_url()
 
