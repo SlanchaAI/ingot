@@ -18,10 +18,51 @@ __pycache__/
 .pytest_cache/
 .hf_cache/
 .venv/
+/.venv-harbor-gateway/
+.worktrees/
+
+# packaging build artifacts (`pip install -e .`)
+*.egg-info/
+build/
+dist/
 
 # fetched skills are optional & not redistributed here (scripts/fetch_skills.sh)
 skills/*
 !skills/.gitkeep
 
+# the managed stack's skill vault: its own Git repository, created by `ingot vault init`
+vault/
+
 # eval task sets are runtime artifacts (auto-drafted or user-authored), not shipped opinions
 optimize/tasks/*.yaml
+# ...except a hand-authored one, which is the measuring instrument rather than its output: the
+# seeded working trees and weighted checklists are the experiment's design, and a matrix produced
+# by a task set that no longer exists in the tree cannot be reproduced or argued with.
+!optimize/tasks/build-loop.yaml
+!optimize/tasks/adversarial-council-review.yaml
+!optimize/tasks/assumption-audit.yaml
+!optimize/tasks/auditing-economic-claims.yaml
+!optimize/tasks/auditing-system-claims.yaml
+!optimize/tasks/decomposing-skill-libraries.yaml
+!optimize/tasks/forward-intro.yaml
+!optimize/tasks/isolated-integration-fixtures.yaml
+!optimize/tasks/live-caller-gate.yaml
+!optimize/tasks/measurement-integrity.yaml
+!optimize/tasks/memory-defrag.yaml
+!optimize/tasks/memory-notes.yaml
+!optimize/tasks/memory-reflect.yaml
+!optimize/tasks/operating-accountability-loop.yaml
+!optimize/tasks/oss-ready.yaml
+!optimize/tasks/product-marketing.yaml
+!optimize/tasks/prose-style-hemingway.yaml
+!optimize/tasks/copywriting.yaml
+!optimize/tasks/routing-economic-evidence.yaml
+!optimize/tasks/skill-security.yaml
+!optimize/tasks/skill-retrospective.yaml
+!optimize/tasks/agentic-action-safety.yaml
+!optimize/tasks/turning-buyer-notes-into-decisions.yaml
+!optimize/tasks/unattended-overnight-ops.yaml
+!optimize/tasks/writing-clearly-and-concisely.yaml
+!optimize/tasks/linting-implementation-plans.yaml
+!optimize/tasks/op-credentials.yaml
+!optimize/tasks/slancha-cred.yaml

@@ -52,6 +52,13 @@ Write paths, and what guards each:
 
 - **Generated rewrites** land in `runs/pending/` and cannot activate themselves. They also require
   evidence whose champion and challenger revisions still match the skill on disk before UI approval.
+- **Retrospective MCP submissions** may create one bounded pending update for an existing skill.
+  They require passed pressure verification, bind to the exact loaded champion revision, refuse an
+  occupied review slot, treat candidate text and verification commands as inert data, and cannot
+  approve, reject, or reload anything. Its gate explicitly identifies retrospective evidence and
+  warns that no held-out A/B quality comparison ran. Exact retries are idempotent. MCP remains
+  unauthenticated, so this reversible proposal action is available only inside the same trusted
+  network boundary as the read tools.
 - **Approval and rollback** are the only application paths that write under `skills/`. Both go
   through `optimize/promote.py`, both snapshot what they displace, and both append an audit record
   on a best-effort basis (a failed append is logged and does not undo the committed change).
@@ -70,7 +77,8 @@ change-control UI is password-gated by Compose, using the local demo login `admi
 supports OIDC for shared deployments. Loopback binding remains the first protection layer:
 
 - `docker-compose.yml` publishes every port on loopback only (`127.0.0.1:8000` MCP,
-  `127.0.0.1:8080` UI, `127.0.0.1:3100` Langfuse).
+  `127.0.0.1:8080` UI, `127.0.0.1:3100` Langfuse). `INGOT_MCP_PORT` and `INGOT_UI_PORT` move the
+  host port when the box already serves one of them; the loopback binding is not theirs to change.
 - Run outside Docker, the MCP server also binds `127.0.0.1` by default.
 
 To expose MCP, use a private interface override as shown in [Production setup](../PRODUCTION_SETUP.md)

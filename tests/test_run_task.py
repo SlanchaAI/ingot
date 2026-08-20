@@ -156,7 +156,7 @@ def test_serving_contract_requires_inline_deliverables():
     # the scaffold habit of writing code to its scratch FS and describing it must be countered in
     # BOTH serving contracts, symmetrically, production agent and A/B eval agent
     from agent.run import INSTRUCTIONS
-    from optimize.ab import EVAL_INSTRUCTIONS
+    from ingot.optimize.ab import EVAL_INSTRUCTIONS
     for contract in (INSTRUCTIONS, EVAL_INSTRUCTIONS):
         assert "final answer must contain the complete deliverable" in contract
         assert "cannot" in contract and "workspace" in contract
@@ -240,7 +240,7 @@ def test_main_routes_with_connected_capabilities_and_reuses_tools(monkeypatch):
     monkeypatch.setattr(run_mod, "_connect", connect)
     monkeypatch.setattr(run_mod, "_serve", serve)
     monkeypatch.setattr(run_mod, "_print_route", lambda routed: None)
-    monkeypatch.setattr("optimize.openrouter_key_missing", lambda: False)
+    monkeypatch.setattr("ingot.optimize.openrouter_key_missing", lambda: False)
 
     asyncio.run(run_mod.main("write a skill"))
 

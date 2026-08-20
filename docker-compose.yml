@@ -32,16 +32,51 @@ services:
       - ./ops/keycloak:/opt/keycloak/data/import:ro
     profiles: ["sso"]
 
+  # The one writer of the served library. Every other service mounts ./vault read-only, so an
+  # approved change reaches what is served through this process or not at all. The default backend
+  # is `local`: the vault is a Git repository on this machine and no network is involved. See
+  # compose.forge.yaml for the opt-in GitHub lane, and compose.dev.yaml for the writable stack.
+  #
+  # `ingot vault init` runs on every start and is idempotent, so a first `docker compose up` on an
+  # empty checkout is not a failure. Approval writes runs/publications at mode 0700, so this and
+  # the ui must run as the same user; both default to root and both follow INGOT_UID/INGOT_GID.
+  publisher:
+    build: .
+    user: "${INGOT_UID:-0}:${INGOT_GID:-0}"
+    command: ["sh", "-c", "ingot vault init /app/vault && exec python -m ingot.optimize.publisher --watch"]
+    environment:
+      INGOT_PUBLISH_BACKEND: ${INGOT_PUBLISH_BACKEND:-local}
+      # State is configuration, not a directory next to the code. Every service names what it
+      # mounted; a default would put the review queue and the receipts inside the image.
+      INGOT_VAULT_PATH: /app/vault
+      INGOT_LIBRARY: /app/vault
+      INGOT_RUNS: /app/runs
+      # INGOT_DELIVERY_TARGETS: claude=filesystem:/app/targets/claude
+    volumes:
+      - ./vault:/app/vault   # the only writable mount of the served library in this stack
+      - ./runs:/app/runs     # the approval receipts it consumes
+      # Native delivery: mount an agent's skill directory here and name it in
+      # INGOT_DELIVERY_TARGETS, and the publisher installs each approved revision into it as well
+      # as the vault (docs/managed-deployment.md, "Delivery targets"). Writable on purpose -- this
+      # is the destination, and the publisher is still the only thing that writes it.
+      # - ~/.claude/skills:/app/targets/claude
+
   mcp:
     build: .
-    command: python -m mcp_server.server
+    # Creation proposals are mode 0600 in the same runs/ queue the UI reads. Keep both services on
+    # one configured host identity or MCP-authored proposals become invisible to review.
+    user: "${INGOT_UID:-0}:${INGOT_GID:-0}"
+    command: python -m ingot.mcp_server.server
     environment:
       HOST: 0.0.0.0                    # bind the container interface (needed for the port publish);
                                        # host access stays localhost-only via the 127.0.0.1 mapping
+      INGOT_LIBRARY: /app/skills
+      INGOT_RUNS: /app/runs
+      INGOT_TASKS: /app/ingot/optimize/tasks
     ports:
-      - "127.0.0.1:8000:8000"          # MCP streamable-HTTP, localhost only (see README: Network exposure)
+      - "127.0.0.1:${INGOT_MCP_PORT:-8000}:8000"   # MCP streamable-HTTP, localhost only (see README: Network exposure)
     volumes:
-      - ./skills:/app/skills # promoted skills must reach the running server (hot reload)
+      - ./vault:/app/skills:ro   # the served library, read-only: only the publisher may change it
       - ./runs:/app/runs     # usage counts (runs/skill_usage.json) must reach the host runs/ the ui reads
 
   agent:
@@ -52,6 +87,9 @@ services:
       - path: .env           # OPENROUTER_API_KEY (see .env.example)
         required: false      # a missing .env/key gets a friendly in-app message instead
     environment:
+      INGOT_LIBRARY: /app/skills
+      INGOT_RUNS: /app/runs
+      INGOT_TASKS: /app/ingot/optimize/tasks
       MCP_URL: http://mcp:8000/mcp
       LANGFUSE_BASE_URL: ${LANGFUSE_BASE_URL:-http://langfuse-web:3000}
       LANGFUSE_PUBLIC_KEY: ${LANGFUSE_PUBLIC_KEY:-pk-lf-local-demo}
@@ -68,19 +106,22 @@ services:
   # Writes a quarantined pending record; it can never activate a skill.
   optimize:
     build: .
-    entrypoint: ["python", "-m", "optimize.ab"]
+    entrypoint: ["python", "-m", "ingot.optimize.ab"]
     env_file:
       - path: .env
         required: false
     environment:
+      INGOT_LIBRARY: /app/skills
+      INGOT_RUNS: /app/runs
+      INGOT_TASKS: /app/ingot/optimize/tasks
       MCP_URL: http://mcp:8000/mcp
       LANGFUSE_BASE_URL: ${LANGFUSE_BASE_URL:-http://langfuse-web:3000}
       LANGFUSE_PUBLIC_KEY: ${LANGFUSE_PUBLIC_KEY:-pk-lf-local-demo}
       LANGFUSE_SECRET_KEY: ${LANGFUSE_SECRET_KEY:-sk-lf-local-demo}
     volumes:
-      - ./skills:/app/skills
+      - ./vault:/app/skills:ro           # read-only: only the publisher may change what is served
       - ./runs:/app/runs
-      - ./optimize/tasks:/app/optimize/tasks   # auto-drafted eval sets must survive the container
+      - ./ingot/optimize/tasks:/app/ingot/optimize/tasks   # auto-drafted eval sets must survive the container
       - /var/run/docker.sock:/var/run/docker.sock  # EXEC_SANDBOX=docker launches locked-down sandbox containers (README: execution-grounded judging)
     depends_on:
       mcp:
@@ -92,18 +133,21 @@ services:
   # Success/failure mining over real Langfuse traces: `docker compose run --rm optimize-mine pdf`
   optimize-mine:
     build: .
-    entrypoint: ["python", "-m", "optimize.mine"]
+    entrypoint: ["python", "-m", "ingot.optimize.mine"]
     env_file:
       - path: .env
         required: false
     environment:
+      INGOT_LIBRARY: /app/skills
+      INGOT_RUNS: /app/runs
+      INGOT_TASKS: /app/ingot/optimize/tasks
       LANGFUSE_BASE_URL: ${LANGFUSE_BASE_URL:-http://langfuse-web:3000}
       LANGFUSE_PUBLIC_KEY: ${LANGFUSE_PUBLIC_KEY:-pk-lf-local-demo}
       LANGFUSE_SECRET_KEY: ${LANGFUSE_SECRET_KEY:-sk-lf-local-demo}
     volumes:
-      - ./skills:/app/skills
+      - ./vault:/app/skills:ro           # read-only: only the publisher may change what is served
       - ./runs:/app/runs                       # usage counts + mined-candidate output
-      - ./optimize/tasks:/app/optimize/tasks   # train sets feed the mined-candidate leakage guard
+      - ./ingot/optimize/tasks:/app/ingot/optimize/tasks   # train sets feed the mined-candidate leakage guard
       - /var/run/docker.sock:/var/run/docker.sock  # EXEC_SANDBOX=docker launches locked-down sandbox containers (README: execution-grounded judging)
     depends_on:
       langfuse-web:
@@ -115,14 +159,18 @@ services:
   # Set COMPAT_MODELS=modelA,modelB,... in .env. Langfuse-free (local rollout + judge).
   optimize-compat:
     build: .
-    entrypoint: ["python", "-m", "optimize.compat"]
+    entrypoint: ["python", "-m", "ingot.optimize.compat"]
     env_file:
       - path: .env
         required: false
+    environment:
+      INGOT_LIBRARY: /app/skills
+      INGOT_RUNS: /app/runs
+      INGOT_TASKS: /app/ingot/optimize/tasks
     volumes:
-      - ./skills:/app/skills
+      - ./vault:/app/skills:ro           # read-only: only the publisher may change what is served
       - ./runs:/app/runs                       # writes the compatibility matrix to runs/compat/
-      - ./optimize/tasks:/app/optimize/tasks   # held-out task sets (auto-drafted if missing)
+      - ./ingot/optimize/tasks:/app/ingot/optimize/tasks   # held-out task sets (auto-drafted if missing)
       - /var/run/docker.sock:/var/run/docker.sock  # EXEC_SANDBOX=docker launches locked-down sandbox containers
     profiles: ["optimize"]
 
@@ -130,19 +178,22 @@ services:
   # for review: `docker compose run --rm optimize-loop`
   optimize-loop:
     build: .
-    entrypoint: ["python", "-m", "optimize.loop"]
+    entrypoint: ["python", "-m", "ingot.optimize.loop"]
     env_file:
       - path: .env
         required: false
     environment:
+      INGOT_LIBRARY: /app/skills
+      INGOT_RUNS: /app/runs
+      INGOT_TASKS: /app/ingot/optimize/tasks
       MCP_URL: http://mcp:8000/mcp
       LANGFUSE_BASE_URL: ${LANGFUSE_BASE_URL:-http://langfuse-web:3000}
       LANGFUSE_PUBLIC_KEY: ${LANGFUSE_PUBLIC_KEY:-pk-lf-local-demo}
       LANGFUSE_SECRET_KEY: ${LANGFUSE_SECRET_KEY:-sk-lf-local-demo}
     volumes:
-      - ./skills:/app/skills
+      - ./vault:/app/skills:ro           # read-only: only the publisher may change what is served
       - ./runs:/app/runs
-      - ./optimize/tasks:/app/optimize/tasks   # auto-drafted eval sets must survive the container
+      - ./ingot/optimize/tasks:/app/ingot/optimize/tasks   # auto-drafted eval sets must survive the container
       - /var/run/docker.sock:/var/run/docker.sock  # EXEC_SANDBOX=docker launches locked-down sandbox containers (README: execution-grounded judging)
     depends_on:
       mcp:
@@ -154,13 +205,21 @@ services:
   # Change-control UI (review evidence, promote, roll back): http://localhost:8080
   ui:
     build: .
+    # Approval writes runs/publications at mode 0700, and the vault publisher reads those receipts
+    # from the host as an ordinary user. Where both run on one machine, set INGOT_UID/INGOT_GID in
+    # .env to that user, or the publisher silently sees an empty queue and approvals never publish.
+    # The default keeps the container as root, which is every deployment that has no host publisher.
+    user: "${INGOT_UID:-0}:${INGOT_GID:-0}"
     command: python -m uvicorn ui.app:app --host 0.0.0.0 --port 8080
     ports:
-      - "127.0.0.1:8080:8080"          # localhost only; LAN access goes through the TLS proxy (--profile lan)
+      - "127.0.0.1:${INGOT_UI_PORT:-8080}:8080"    # localhost only; LAN access goes through the TLS proxy (--profile lan)
     env_file:
       - path: .env
         required: false
     environment:
+      INGOT_LIBRARY: /app/skills
+      INGOT_RUNS: /app/runs
+      INGOT_TASKS: /app/ingot/optimize/tasks
       MCP_URL: http://mcp:8000/mcp
       # Change-control UI login. AUTH_MODE defaults to password (HTTP Basic) with the documented
       # default credentials admin/ingot, CHANGE AUTH_PASSWORD in .env before exposing the UI beyond
@@ -184,9 +243,9 @@ services:
       LANGFUSE_SECRET_KEY: ${LANGFUSE_SECRET_KEY:-sk-lf-local-demo}
       LANGFUSE_PUBLIC_URL: ${LANGFUSE_PUBLIC_URL:-http://localhost:3100}   # where the browser reaches Langfuse
     volumes:
-      - ./skills:/app/skills
+      - ./vault:/app/skills:ro           # read-only: only the publisher may change what is served
       - ./runs:/app/runs
-      - ./optimize/tasks:/app/optimize/tasks   # auto-drafted eval sets must survive the container
+      - ./ingot/optimize/tasks:/app/ingot/optimize/tasks   # auto-drafted eval sets must survive the container
       - /var/run/docker.sock:/var/run/docker.sock  # EXEC_SANDBOX=docker launches locked-down sandbox containers (README: execution-grounded judging)
     depends_on:
       mcp:

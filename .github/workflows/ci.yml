@@ -13,6 +13,39 @@ jobs:
       - name: Build image
         run: docker build -t ingot-mcp .
       - name: Run tests
-        run: docker run --rm -v "$PWD:/app" -w /app ingot-mcp python -m pytest tests -q
+        # git comes from the image now: the publisher container drives real repositories, so it is
+        # a runtime dependency rather than something only the tests need.
+        run: >
+          docker run --rm -v "$PWD:/app" -w /app ingot-mcp
+          python -m pytest tests -q
       - name: Smoke test Compose and Langfuse TLS
         run: ./scripts/compose_smoke.sh
+
+  # The control-plane claim is that no non-publisher service can change what is served. Everything
+  # else that checks it -- tests/test_compose_managed.py, `docker compose config` -- reads the
+  # configuration. This job is the only one that watches the kernel refuse the write, so it is the
+  # one that has to pass before that claim is repeated anywhere. Make it a required check.
+  managed:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: One writer, and it is the publisher
+        run: ./scripts/managed_smoke.sh
+      - name: A removed read-only mount must fail the smoke test
+        # A check that cannot fail proves nothing. This deliberately breaks the invariant and
+        # requires the script to notice, so a later edit that quietly drops a `:ro` cannot leave a
+        # green job behind it.
+        run: |
+          python3 - <<'PY'
+          import pathlib
+          path = pathlib.Path("docker-compose.yml")
+          text = path.read_text()
+          broken = text.replace("./vault:/app/skills:ro", "./vault:/app/skills", 1)
+          assert broken != text, "no read-only served mount left to break"
+          path.write_text(broken)
+          PY
+          if MANAGED_SMOKE_PROJECT=ingot-managed-negative ./scripts/managed_smoke.sh; then
+            echo "the smoke test passed with a writable served mount; it is checking nothing"
+            exit 1
+          fi
+          git checkout -- docker-compose.yml

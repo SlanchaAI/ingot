@@ -3,7 +3,7 @@ import re
 
 import pytest
 
-from optimize.acceptance import classify, evaluate, load_criteria
+from ingot.optimize.acceptance import classify, evaluate, load_criteria
 
 
 def test_load_criteria_parses_forbid_and_skips_empty(tmp_path):

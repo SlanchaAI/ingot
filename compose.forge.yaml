@@ -1,0 +1,26 @@
+# The opt-in GitHub publication lane.
+#
+#   INGOT_FORGE_REPOSITORY=owner/repo docker compose -f docker-compose.yml -f compose.forge.yaml up
+#
+# Publication authority becomes a merged pull request in the configured repository rather than the
+# local commit, so a receipt sits at `awaiting_merge` until the merge lands and the activation is
+# anchored somewhere a local administrator cannot quietly rewrite. It also means the deployment is
+# no longer air-gapped: the publisher needs the network, an authenticated `gh`, and a vault whose
+# remote is the configured repository.
+#
+# The publisher refuses to start unless `gh` is present, authenticated, and the repository
+# resolves — loudly, at startup, rather than on the first approval.
+#
+# ./vault must already be a clone of INGOT_FORGE_REPOSITORY. `ingot vault init` creates a local
+# vault with no remote and cannot make one for you; clone it yourself first.
+services:
+  publisher:
+    environment:
+      INGOT_PUBLISH_BACKEND: forge
+      INGOT_FORGE_REPOSITORY: ${INGOT_FORGE_REPOSITORY:?set INGOT_FORGE_REPOSITORY=owner/repo}
+      INGOT_FORGE_REMOTE: ${INGOT_FORGE_REMOTE:-origin}
+      INGOT_FORGE_BRANCH: ${INGOT_FORGE_BRANCH:-main}
+    volumes:
+      # `gh` reuses the host's credentials rather than taking a token of its own. Read-only: the
+      # publisher authenticates with them and must never rewrite them.
+      - ${GH_CONFIG_DIR:-${HOME}/.config/gh}:/root/.config/gh:ro

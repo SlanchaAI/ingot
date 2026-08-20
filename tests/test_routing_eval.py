@@ -1,6 +1,6 @@
-from mcp_server.routing_eval import evaluate_cases, evaluate_parity, load_cases
-from mcp_server.registry import load_skills
-from mcp_server.router import Router
+from ingot.mcp_server.routing_eval import evaluate_cases, evaluate_parity, load_cases
+from ingot.mcp_server.registry import load_skills
+from ingot.mcp_server.router import Router
 from pathlib import Path
 
 
@@ -54,9 +54,13 @@ def test_evaluate_parity_compares_claude_and_codex_routes():
 def test_committed_suite_covers_filter_and_parity_contract():
     root = Path(__file__).resolve().parent.parent
     cases = load_cases(root / "evals" / "routing.yaml")
-    result = evaluate_cases(Router(load_skills(root / "evals" / "fixtures" / "skills")), cases)
-    parity = evaluate_parity(Router(load_skills(root / "evals" / "fixtures" / "skills")), cases)
+    router = Router(load_skills(root / "evals" / "fixtures" / "skills"))
+    result = evaluate_cases(router, cases)
+    parity = evaluate_parity(router, cases)
     assert len(cases) >= 10
     assert result["failures"] == []
     assert result["recall_at_3"] == 1.0 and result["no_route_precision"] == 1.0
     assert parity["rate"] == 1.0 and parity["total"] >= 2
+    body_case = next(case for case in cases if case["expected"] == "kubernetes-runbook")
+    routed = router.route(body_case["task"], body_case["harness"], body_case.get("cwd", "."))
+    assert routed["match"] == "kubernetes-runbook" and routed["matched_on"] == "content"

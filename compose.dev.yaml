@@ -1,0 +1,52 @@
+# Development mode: an explicitly UNMANAGED stack.
+#
+#   docker compose -f docker-compose.yml -f compose.dev.yaml up
+#
+# Every service gets the served library read-write again and the publisher is switched off. That is
+# convenient and it is not the product: nothing here prevents a service, a script, or a shell from
+# changing what is served without an approval, so quarantine and publication guarantees DO NOT
+# APPLY to a stack started this way. It must never be the configuration used to substantiate the
+# control-plane claim. `ingot status` reports UNMANAGED, and the `unmanaged` service below runs it
+# once at startup so the reason is in the log rather than in a document nobody reads.
+#
+# The managed default is `docker compose up` with no -f at all.
+services:
+  unmanaged:
+    build: .
+    command: ["ingot", "status"]
+    environment:
+      INGOT_MODE: dev        # `ingot status` reports UNMANAGED for the deployment, not per skill
+    volumes:
+      - ./skills:/app/skills
+
+  publisher:
+    deploy:
+      replicas: 0          # there is no single writer in development mode
+
+  mcp:
+    environment:
+      INGOT_MODE: dev
+    volumes:
+      - ./skills:/app/skills
+
+  optimize:
+    volumes:
+      - ./skills:/app/skills
+
+  optimize-mine:
+    volumes:
+      - ./skills:/app/skills
+
+  optimize-compat:
+    volumes:
+      - ./skills:/app/skills
+
+  optimize-loop:
+    volumes:
+      - ./skills:/app/skills
+
+  ui:
+    environment:
+      INGOT_MODE: dev
+    volumes:
+      - ./skills:/app/skills

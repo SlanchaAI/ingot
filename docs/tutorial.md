@@ -154,7 +154,7 @@ At this point you know what is wrong and could fix the body by hand. SkillOpt in
 other half of Ingot's value: it trains a bounded instruction revision from real failures and
 attaches measured evidence without activating the result.
 
-Write an eval task set for the skill (`optimize/tasks/tailwind.yaml`) with train and holdout tasks
+Write an eval task set for the skill (`ingot/optimize/tasks/tailwind.yaml`) with train and holdout tasks
 whose rubrics carry the v4 ground truth (the teacher can also auto-draft one on a skill's first CLI
 run). Then run it headless, which is how it is meant to run:
 
@@ -266,8 +266,8 @@ That snapshot is the undo. It appears in the UI's **History** section, and resto
 click, or one command:
 
 ```bash
-# --entrypoint python replaces the service's own `python -m optimize.ab` entrypoint
-docker compose run --rm --entrypoint python optimize -m optimize.promote rollback tailwind <revision>
+# --entrypoint python replaces the service's own `python -m ingot.optimize.ab` entrypoint
+docker compose run --rm --entrypoint python optimize -m ingot.optimize.promote rollback tailwind <revision>
 ```
 
 Rollback snapshots the revision it displaces too, so the round trip is symmetric, and it writes its
@@ -285,7 +285,7 @@ displaced candidate is archived beside the slot (the run tells you where) rather
 
 The body is fixed, but step 3's third request still misroutes: the routing key is the
 `description`, so routing gets its own pass with its own metric, run against the `routing:` cases
-in `optimize/tasks/tailwind.yaml`: realistic positive phrasings plus `expected: null` negatives.
+in `ingot/optimize/tasks/tailwind.yaml`: realistic positive phrasings plus `expected: null` negatives.
 The cases that matter are the real misses, so put your mined traffic in the suite (we added the
 node_modules request verbatim, plus a "classes disappear in the production build" variant):
 
@@ -364,7 +364,7 @@ against the real router plus a description-collision scan, embedding-only, no LL
 exits non-zero on problems, so it slots into cron or CI:
 
 ```bash
-docker compose run --rm --entrypoint "python -m optimize.routing_health" optimize
+docker compose run --rm --entrypoint "python -m ingot.optimize.routing_health" optimize
 # [health] tailwind: top1 1.000 · recall@3 1.000 · no-route precision 0.333 (7 cases)
 # [health] ✓ routing healthy: every suite passes and no descriptions collide.
 ```

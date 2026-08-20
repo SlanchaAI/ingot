@@ -1,5 +1,5 @@
 """Unit tests for the continuous loop's health-gating (mine + run_ab are mocked)."""
-from optimize import loop as L
+from ingot.optimize import loop as L
 
 
 def test_loop_skips_healthy_skills(monkeypatch):
@@ -53,7 +53,7 @@ def test_loop_runs_description_pass_when_configured(monkeypatch):
     monkeypatch.setattr(L, "run_ab",
                         lambda skill, **k: order.append("body") or {"improved": False,
                                                                     "gate": {"promotable": False}})
-    import optimize.routing as routing_mod
+    import ingot.optimize.routing as routing_mod
     monkeypatch.setattr(routing_mod, "run_routing",
                         lambda skill, **k: order.append("description") or {"improved": True,
                                                                            "gate": {"promotable": True}})

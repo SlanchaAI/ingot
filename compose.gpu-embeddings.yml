@@ -1,0 +1,67 @@
+# Opt-in larger router model for NVIDIA hosts. Keep docker-compose.yml as the CPU-safe default:
+#   docker compose -f docker-compose.yml -f compose.gpu-embeddings.yml \
+#     --profile gpu-embeddings up -d embed-gpu mcp
+#
+# Qwen3-Embedding-8B is the highest-ranked permissively licensed text model supported by the
+# serving stack as checked on 2026-07-28. Q4_K_M keeps its weights inside the spare GPU capacity
+# on the production multi-tenant host; routing quality still needs the project eval before this
+# overlay becomes the production default.
+services:
+  embed-gpu:
+    image: ghcr.io/ggml-org/llama.cpp:server-cuda13-b9445@sha256:f92150249e1913ef96e744b5d78f6291f0e4399a7925ffc7b1d0680d82506551
+    command:
+      - --hf-repo
+      - Qwen/Qwen3-Embedding-8B-GGUF:Q4_K_M
+      - --embedding
+      - --pooling
+      - last
+      - --ctx-size
+      - "2048"
+      - --batch-size
+      - "2048"
+      - --ubatch-size
+      - "2048"
+      # Routing batches are short-lived and MCP serializes initialization; extra slots multiply
+      # context buffers on the shared production GPU without improving this caller.
+      - --parallel
+      - "1"
+      - --cache-ram
+      - "0"
+      - --n-gpu-layers
+      - "99"
+      - --host
+      - 0.0.0.0
+      - --port
+      - "8080"
+      - --no-webui
+    deploy:
+      resources:
+        reservations:
+          devices:
+            # Fully-qualified CDI avoids Compose v5 probing absent AMD/Intel vendors for `gpus:
+            # all`. NVIDIA Container Toolkit 1.18+ keeps this device spec current on the host.
+            - driver: cdi
+              device_ids: ["nvidia.com/gpu=all"]
+              capabilities: [gpu]
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8080/health"]
+      interval: 5s
+      timeout: 3s
+      retries: 360
+      start_period: 30s
+    volumes:
+      - embed_models:/root/.cache/huggingface
+    profiles: ["gpu-embeddings"]
+
+  mcp:
+    depends_on:
+      embed-gpu:
+        condition: service_healthy
+    environment:
+      EMBED_BACKEND: remote
+      EMBED_BASE_URL: http://embed-gpu:8080/v1
+      EMBED_REMOTE_MODEL: Qwen/Qwen3-Embedding-8B-GGUF
+      EMBED_TIMEOUT_SECONDS: "120"
+
+volumes:
+  embed_models:

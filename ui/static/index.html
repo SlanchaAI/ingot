@@ -19,7 +19,7 @@
        labels) as well as fills/dots, so in light mode it is Slancha's AA-safe blue-text #0F63C9
        (≥4.5:1 on canvas/white/wash); --rust-2 is the darker hover. */
     --paper: #F7F8FA; --paper-2: #FFFFFF; --paper-3: #EEF2F7;
-    --ink: #15171C; --ink-2: #667085; --ink-3: #98A2B3;
+    --ink: #15171C; --ink-2: #515B6E; --ink-3: #667085;
     --line: #D9DEE7; --line-2: #C4CDDA;
     --rust: #0F63C9; --rust-2: #0B4F9E; --rust-bg: #E8F1FD;
     --pass: #0C6E57; --pass-bg: #E1F7EF;
@@ -34,7 +34,7 @@
   @media (prefers-color-scheme: dark) {
     :root {
       --paper: #0E1420; --paper-2: #161D2B; --paper-3: #1D2534;
-      --ink: #E8EDF4; --ink-2: #9AA6B8; --ink-3: #69748A;
+      --ink: #E8EDF4; --ink-2: #9AA6B8; --ink-3: #8A94A6;
       --line: #253044; --line-2: #313D52;
       --rust: #4D9BFF; --rust-2: #7AB4FF; --rust-bg: #16273F;
       --pass: #46C39F; --pass-bg: #10251F;
@@ -46,7 +46,7 @@
   }
   :root[data-theme="light"] { color-scheme: light;
     --paper: #F7F8FA; --paper-2: #FFFFFF; --paper-3: #EEF2F7;
-    --ink: #15171C; --ink-2: #667085; --ink-3: #98A2B3;
+    --ink: #15171C; --ink-2: #515B6E; --ink-3: #667085;
     --line: #D9DEE7; --line-2: #C4CDDA;
     --rust: #0F63C9; --rust-2: #0B4F9E; --rust-bg: #E8F1FD;
     --pass: #0C6E57; --pass-bg: #E1F7EF; --fail: #BE3B34; --fail-bg: #FFF0EF;
@@ -55,7 +55,7 @@
     --shadow: 0 1px 2px rgb(16 24 40 / 4%), 0 14px 40px rgb(35 52 78 / 9%); }
   :root[data-theme="dark"] { color-scheme: dark;
     --paper: #0E1420; --paper-2: #161D2B; --paper-3: #1D2534;
-    --ink: #E8EDF4; --ink-2: #9AA6B8; --ink-3: #69748A;
+    --ink: #E8EDF4; --ink-2: #9AA6B8; --ink-3: #8A94A6;
     --line: #253044; --line-2: #313D52;
     --rust: #4D9BFF; --rust-2: #7AB4FF; --rust-bg: #16273F;
     --pass: #46C39F; --pass-bg: #10251F; --fail: #E0796D; --fail-bg: #2D1A17;
@@ -92,7 +92,269 @@
   .pill.run { color: var(--warn); background: var(--warn-bg); }
   .pill.act { color: var(--rust); background: var(--rust-bg); }
 
-  .page { max-width: 74rem; margin: 0 auto; padding: 0 1.4rem 4rem; }
+  /* ---- shell: sidebar + one routed pane ----
+     The library is 102 skills in four roots. As one scrolling column that was 8,600px of page,
+     which is a document, not a console: nothing was reachable without scrolling past everything
+     else. The sidebar carries the routes and the counts, and only one view is mounted at a time. */
+  .shell { display: grid; grid-template-columns: 15.5rem minmax(0, 1fr); max-width: 96rem;
+    margin: 0 auto; align-items: start; }
+  .sidebar { position: sticky; top: 3.05rem; height: calc(100vh - 3.05rem); overflow-y: auto;
+    padding: 1.5rem 1rem 2rem 1.5rem; border-right: 1px solid var(--line); }
+  .main { min-width: 0; padding: 1.5rem 1.5rem 4rem 1.7rem; }
+
+  .navgroup { margin-bottom: 1.5rem; }
+  .navgroup h3 { font: 600 .62rem/1 var(--mono); letter-spacing: .11em; text-transform: uppercase;
+    color: var(--ink-3); margin: 0 0 .5rem .55rem; }
+  .navlink { display: flex; align-items: center; gap: .5rem; padding: .38rem .55rem; border-radius: 8px;
+    color: var(--ink-2); text-decoration: none; font-size: .86rem; transition: background .12s, color .12s; }
+  .navlink:hover { background: var(--paper-3); color: var(--ink); }
+  .navlink.active { background: var(--rust-bg); color: var(--rust); font-weight: 600; }
+  .navlink .ico { width: 1rem; flex: none; text-align: center; font-size: .8rem; opacity: .8; }
+  .navlink .txt { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .navcount { font-family: var(--mono); font-size: .68rem; color: var(--ink-3);
+    font-variant-numeric: tabular-nums; }
+  .navlink.active .navcount { color: var(--rust); }
+  /* Specificity, not order: `.navlink.active .navcount` is 0-3-0 and would otherwise repaint this
+     badge in --rust on a --rust fill — an invisible count, precisely while something needs review. */
+  .navcount.act, .navlink.active .navcount.act { background: var(--rust); color: var(--paper);
+    border-radius: 999px; padding: .04rem .4rem; font-weight: 700; }
+  .navlink.sub { padding-left: 1.7rem; font-size: .82rem; }
+  .navfoot { border-top: 1px solid var(--line); padding-top: .8rem; margin-top: .3rem;
+    font: .7rem/1.7 var(--mono); color: var(--ink-3); }
+  .navfoot b { color: var(--ink-2); font-weight: 600; }
+
+  /* ---- folder + card grid ---- */
+  .crumbs { display: flex; align-items: center; gap: .4rem; font: .72rem/1 var(--mono);
+    letter-spacing: .05em; text-transform: uppercase; color: var(--ink-3); margin-bottom: .5rem; }
+  .crumbs a { color: var(--rust); text-decoration: none; }
+  .crumbs a:hover { text-decoration: underline; }
+  .grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(17rem, 1fr)); gap: .8rem;
+    margin-top: 1rem; }
+  .fold { display: block; text-align: left; width: 100%; cursor: pointer; font: inherit;
+    background: var(--paper-2); border: 1px solid var(--line); border-radius: 12px;
+    padding: .95rem 1.05rem; text-decoration: none; color: inherit; box-shadow: var(--shadow-sm);
+    transition: border-color .12s, transform .12s; }
+  .fold:hover { border-color: var(--rust); transform: translateY(-1px); }
+  .fold .fname { display: flex; align-items: center; gap: .45rem; font-family: var(--mono);
+    font-size: .92rem; color: var(--rust); }
+  .fold .fcount { margin-left: auto; font-size: .72rem; color: var(--ink-3); }
+  .fold .fnote { font-size: .78rem; color: var(--ink-2); margin-top: .35rem; }
+  .fold .fbar { display: flex; gap: .3rem; margin-top: .6rem; font: .66rem/1 var(--mono);
+    color: var(--ink-3); }
+
+  .scard { background: var(--paper-2); border: 1px solid var(--line); border-radius: 12px;
+    display: flex; flex-direction: column; box-shadow: var(--shadow-sm);
+    transition: border-color .12s; }
+  .scard:hover { border-color: var(--line-2); }
+  .scard.pend { border-color: var(--rust); background: var(--rust-bg); }
+  .scard .open { flex: 1; text-align: left; background: none; border: 0; cursor: pointer;
+    font: inherit; color: inherit; padding: .85rem .95rem .6rem; border-radius: 12px 12px 0 0; }
+  .scard .sname { font-family: var(--mono); font-size: .86rem; color: var(--ink);
+    overflow-wrap: anywhere; }
+  .scard .chips { display: flex; flex-wrap: wrap; gap: .3rem; margin-top: .45rem; }
+  .scard .sdesc { font-size: .78rem; color: var(--ink-2); margin: .5rem 0 0; line-height: 1.5;
+    display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; overflow: hidden; }
+  .scard .foot { display: flex; flex-wrap: wrap; gap: .4rem; padding: 0 .95rem .8rem; }
+  .scard .foot .btn { font-size: .68rem; padding: .3rem .6rem; }
+
+  /* ---- categories ---- */
+  .cluster-meta { font: .72rem/1.8 var(--mono); color: var(--ink-3); margin-bottom: .9rem;
+    font-variant-numeric: tabular-nums; }
+  .cluster-meta b { color: var(--ink-2); }
+  /* The scatter places a hundred points from a projection that bunches most of them centrally, so
+     picking a bucket by hunting a dot is unreliable. These are the actual control; the plot shows
+     how the library sits around whatever is picked. */
+  .cluster-chips { display: flex; flex-wrap: wrap; gap: .4rem; margin-bottom: .9rem; }
+  .cchip { display: inline-flex; align-items: center; gap: .4rem; cursor: pointer; font: inherit;
+    background: var(--paper-2); border: 1px solid var(--line); border-radius: 999px;
+    padding: .25rem .7rem; font-size: .76rem; color: var(--ink-2); transition: border-color .12s; }
+  .cchip:hover { border-color: var(--line-2); color: var(--ink); }
+  .cchip[aria-selected="true"] { border-color: currentColor; color: var(--ink);
+    background: var(--paper-3); font-weight: 600; }
+  .cchip .swatch { width: .55rem; height: .55rem; border-radius: 50%; flex: none; }
+  .cchip .n { font-family: var(--mono); font-size: .68rem; color: var(--ink-3);
+    font-variant-numeric: tabular-nums; }
+  .cluster-split { display: grid; grid-template-columns: minmax(0, 1fr) 19rem; gap: 1rem;
+    align-items: start; }
+  .cluster-plot { background: var(--paper-2); border: 1px solid var(--line); border-radius: 14px;
+    padding: .6rem; box-shadow: var(--shadow-sm); }
+  .cluster-plot svg { display: block; width: 100%; height: auto; }
+  .cbub { cursor: pointer; transition: opacity .12s; }
+  .cbub:hover { opacity: .85; }
+  .clabel { font: 600 10px var(--mono); fill: var(--ink-3); pointer-events: none;
+    paint-order: stroke; stroke: var(--paper-2); stroke-width: 3px; }
+  .clabel.on { fill: var(--ink); font-size: 11.5px; }
+  .cdot { pointer-events: none; }
+  .cluster-side { background: var(--paper-2); border: 1px solid var(--line); border-radius: 14px;
+    padding: 1rem 1.1rem; box-shadow: var(--shadow-sm); }
+  .cluster-side h3 { font: 600 .95rem/1.3 var(--sans); margin: 0 0 .2rem; }
+  .cluster-side .cterms { font: .72rem/1.7 var(--mono); color: var(--ink-3); margin-bottom: .7rem; }
+  .cluster-side ul { list-style: none; margin: 0; padding: 0; max-height: 22rem; overflow-y: auto; }
+  .cluster-side li { border-top: 1px solid var(--line); }
+  .cluster-side li button { width: 100%; text-align: left; background: none; border: 0;
+    cursor: pointer; font: .78rem/1.5 var(--mono); color: var(--ink-2); padding: .35rem .1rem; }
+  .cluster-side li button:hover { color: var(--rust); }
+  .cluster-side li button .gone { color: var(--warn); font-size: .68rem; }
+  @media (max-width: 1040px) { .cluster-split { grid-template-columns: 1fr; } }
+
+  /* ---- local traces ---- */
+  .trace-note { font: .74rem/1.7 var(--mono); color: var(--ink-3); max-width: 62rem; }
+  .trace-note b { color: var(--ink-2); }
+  .trace-controls { display: grid; grid-template-columns: minmax(10rem, 1.2fr) minmax(9rem, .8fr)
+    minmax(9rem, .7fr) minmax(9rem, .7fr) auto; gap: .7rem; margin-top: 1rem;
+    align-items: end; }
+  .trace-preview-toggle { display: flex; align-items: center; gap: .45rem; min-height: 2.35rem;
+    padding: 0 .15rem; white-space: nowrap; font: .67rem/1.3 var(--mono); color: var(--ink-2); }
+  .trace-preview-toggle input { width: 1rem; height: 1rem; margin: 0; }
+  .trace-stats { display: grid; grid-template-columns: repeat(auto-fit, minmax(10rem, 1fr));
+    border: 1px solid var(--line); border-radius: 12px; background: var(--paper-2);
+    margin-top: 1rem; box-shadow: var(--shadow-sm); }
+  .trace-stat { padding: .9rem 1rem; border-right: 1px solid var(--line); }
+  .trace-stat:last-child { border-right: 0; }
+  .trace-stat .n { display: block; font: 600 1.45rem/1 var(--mono); color: var(--ink); }
+  .trace-stat .l { display: block; margin-top: .35rem; font: .63rem/1.4 var(--mono);
+    color: var(--ink-3); letter-spacing: .08em; text-transform: uppercase; }
+  /* Harness x model matrix. Each model owns a column: the fixed harness ledger lets an evaluator
+     compare like with like while the evidence plates keep absence distinct from a zero effect. */
+  .mx-controls { display: grid; grid-template-columns: minmax(12rem, .5fr) auto; gap: .7rem;
+    margin-top: 1rem; align-items: end; }
+  .mx-warn { margin-top: 1rem; padding: .85rem 1rem; border-radius: 12px; font: .75rem/1.65 var(--mono);
+    border: 1px solid var(--warn); background: var(--warn-bg); color: var(--warn); }
+  .mx-warn b { display: block; margin-bottom: .25rem; letter-spacing: .06em; text-transform: uppercase;
+    font-size: .64rem; }
+  .mx-wrap { margin-top: 1rem; border: 1px solid var(--line); border-radius: 12px;
+    background: var(--paper-2); box-shadow: var(--shadow-sm); overflow-x: auto; position: relative; }
+  .mx { width: var(--mx-width, 100%); min-width: 100%; border-collapse: separate; border-spacing: 0;
+    table-layout: fixed; font: .74rem/1.5 var(--mono); }
+  .mx td, .mx th { min-width: 12.5rem; text-align: left; padding: .7rem .9rem;
+    border-bottom: 1px solid var(--line); color: var(--ink-2); vertical-align: middle; }
+  .mx th { font-size: .63rem; letter-spacing: .08em; text-transform: uppercase; color: var(--ink-3);
+    white-space: normal; background: var(--paper-2); }
+  .mx-sticky { position: sticky; left: 0; z-index: 2; min-width: 13.5rem !important;
+    background: var(--paper-2) !important; box-shadow: 1px 0 0 var(--line); }
+  .mx-corner { z-index: 3; color: var(--ink-3) !important; }
+  .mx-harness { color: var(--ink) !important; white-space: nowrap; }
+  .mx-model { display: block; color: var(--ink-2); overflow-wrap: anywhere; }
+  .mx-count { display: block; margin-top: .35rem; font-size: .58rem; line-height: 1.45;
+    letter-spacing: 0; text-transform: none; color: var(--ink-3); }
+  .mx-column-warn { display: block; margin-top: .3rem; font-size: .58rem; line-height: 1.45;
+    letter-spacing: 0; text-transform: none; color: var(--warn); }
+  .mx-chart { margin-top: 1rem; padding: 1rem; border: 1px solid var(--line); border-radius: 12px;
+    background: var(--paper-2); box-shadow: var(--shadow-sm); }
+  .mx-chart-head { display: flex; flex-wrap: wrap; align-items: start; justify-content: space-between;
+    gap: .7rem 1.25rem; margin-bottom: .8rem; }
+  .mx-chart-head h3 { margin: 0; font: 600 1.08rem/1.3 var(--sans); color: var(--ink); }
+  .mx-chart-kicker { display: block; margin-top: .18rem; font: .66rem/1.55 var(--mono);
+    color: var(--ink-3); }
+  .mx-chart-stats { display: flex; flex-wrap: wrap; gap: .45rem; }
+  .mx-chart-stat { min-width: 6.4rem; padding: .45rem .6rem; border: 1px solid var(--line);
+    border-radius: 8px; background: var(--paper); }
+  .mx-chart-stat b { display: block; color: var(--ink); font: 600 .92rem/1 var(--mono);
+    font-variant-numeric: tabular-nums; }
+  .mx-chart-stat span { display: block; margin-top: .24rem; color: var(--ink-3);
+    font: .58rem/1.3 var(--mono); letter-spacing: .06em; text-transform: uppercase; }
+  .mx-chart-legend { display: flex; flex-wrap: wrap; gap: .4rem .9rem; margin: 0 0 .25rem;
+    padding: .6rem 0; border-top: 1px solid var(--line); border-bottom: 1px solid var(--line); }
+  .mx-chart-legend span { display: inline-flex; align-items: center; gap: .38rem;
+    color: var(--ink-2); font: .65rem/1.4 var(--mono); }
+  .mx-chart-legend i { width: .55rem; height: .55rem; border-radius: 50%; background: currentColor;
+    box-shadow: 0 0 0 2px var(--paper-2), 0 0 0 3px currentColor; }
+  .mx-chart-legend b { color: var(--ink-3); font-weight: 400; }
+  .mx-chart svg { display: block; width: 100%; height: auto; min-height: 15rem; }
+  .mx-grid { stroke: var(--line); stroke-width: 1; }
+  .mx-model-rail { stroke: var(--line-2); stroke-width: 1; stroke-dasharray: 2 4; }
+  .mx-zero { stroke: var(--ink-2); stroke-width: 1.5; }
+  .mx-zone-positive { fill: color-mix(in srgb, var(--pass) 5%, transparent); }
+  .mx-zone-negative { fill: color-mix(in srgb, var(--fail) 4%, transparent); }
+  .mx-axis, .mx-tick, .mx-legend { fill: var(--ink-3); font: 10px var(--mono); }
+  .mx-axis-title { fill: var(--ink-2); font: 11px var(--mono); }
+  .mx-size-mark { cursor: pointer; outline: none; }
+  .mx-size-mark .visible { stroke-width: 2; transition: transform .12s, stroke-width .12s; }
+  .mx-size-mark .hit { fill: transparent; stroke: none; }
+  .mx-size-mark:hover .visible, .mx-size-mark:focus-visible .visible,
+  .mx-size-mark.selected .visible { stroke: var(--ink); stroke-width: 3; transform: scale(1.18); }
+  .mx-mark-code { fill: var(--paper-2); font: 700 6px var(--mono); pointer-events: none;
+    text-anchor: middle; dominant-baseline: central; }
+  .mx-chart-detail { min-height: 3.2rem; display: flex; flex-wrap: wrap; align-items: center;
+    gap: .4rem 1rem; padding: .7rem .8rem; border-radius: 8px; background: var(--paper-3);
+    color: var(--ink-2); font: .68rem/1.5 var(--mono); }
+  .mx-chart-detail strong { color: var(--ink); font-size: .76rem; }
+  .mx-chart-detail .lift { color: var(--pass); font-size: .9rem; font-weight: 700; }
+  .mx-chart-detail .lift.down { color: var(--fail); }
+  .mx-chart-detail .lift.flat { color: var(--ink-3); }
+  .mx-chart-note { margin-top: .45rem; font: .62rem/1.55 var(--mono); color: var(--ink-3); }
+  .mx-chart-empty { margin-top: 1rem; padding: .85rem 1rem; border: 1px dashed var(--line-2);
+    border-radius: 12px; font: .72rem/1.6 var(--mono); color: var(--ink-3); }
+  .mx-cell { padding: .45rem .55rem !important; }
+  /* The plate carries a result, not a miniature dashboard: lift stays primary until provenance is
+     requested. A plain blank cell has no border or control because no run is evidence of absence. */
+  .mx-plate { display: block; width: 100%; padding: .48rem .55rem; border: 1px solid transparent;
+    border-radius: 7px; background: transparent; font: 600 .88rem/1 var(--mono); text-align: left;
+    cursor: pointer; }
+  .mx-plate:focus-visible { outline: 2px solid var(--rust); outline-offset: 2px; }
+  .mx-plate:hover { border-color: var(--line-2); background: var(--paper-3); }
+  .mx-measured { color: var(--ink); }
+  .mx-measured.up { color: var(--pass); }
+  .mx-measured.down { color: var(--fail); }
+  .mx-measured.flat { color: var(--ink-3); }
+  .mx-error { color: var(--fail); border-color: color-mix(in srgb, var(--fail) 22%, transparent); }
+  .mx-blank { color: var(--ink-3); text-align: center; font: .9rem/1 var(--mono); }
+  .mx-details { margin-top: .7rem; min-height: 3rem; padding: .75rem .9rem; border-left: 2px solid var(--line-2);
+    background: var(--paper-2); color: var(--ink-2); font: .7rem/1.65 var(--mono); }
+  .mx-details p { margin: 0; }
+  .mx-provenance { display: grid; grid-template-columns: repeat(auto-fit, minmax(8.5rem, 1fr));
+    gap: .45rem 1rem; margin-top: .55rem; }
+  .mx-provenance span { color: var(--ink-3); }
+  .mx-provenance b { display: block; color: var(--ink-2); font-weight: 500; }
+  @media (max-width: 640px) {
+    .mx td, .mx th { min-width: 10.75rem; }
+    .mx-sticky { min-width: 9.75rem !important; }
+    .mx-chart { padding: .8rem; }
+    .mx-chart-stats { width: 100%; }
+    .mx-chart-stat { flex: 1 1 5.5rem; min-width: 0; }
+    .mx-chart svg { min-width: 38rem; }
+    .mx-chart-plot { overflow-x: auto; }
+  }
+  .mx-foot { margin-top: .7rem; font: .7rem/1.7 var(--mono); color: var(--ink-3); }
+  .trace-split { display: grid; grid-template-columns: minmax(0, 1fr) 18rem; gap: 1rem;
+    align-items: start; margin-top: 1rem; }
+  .trace-list, .trace-skills { border: 1px solid var(--line); border-radius: 12px;
+    background: var(--paper-2); box-shadow: var(--shadow-sm); overflow: hidden; }
+  .trace-row { padding: .75rem .9rem; border-top: 1px solid var(--line); }
+  .trace-row:first-child { border-top: 0; }
+  .trace-task { font-size: .8rem; line-height: 1.5; color: var(--ink); overflow-wrap: anywhere; }
+  .trace-meta { display: flex; flex-wrap: wrap; gap: .35rem .7rem; margin-top: .35rem;
+    font: .66rem/1.4 var(--mono); color: var(--ink-3); }
+  .trace-skills { padding: .85rem 1rem; }
+  .trace-skills h3 { margin: 0 0 .55rem; font-size: .9rem; }
+  .trace-skills ol { margin: 0; padding: 0; list-style: none; }
+  .trace-skills li { display: flex; gap: .6rem; justify-content: space-between;
+    border-top: 1px solid var(--line); padding: .35rem 0; font: .7rem/1.4 var(--mono);
+    color: var(--ink-2); }
+  .trace-skills li span:last-child { color: var(--ink-3); }
+  @media (max-width: 900px) {
+    .trace-split { grid-template-columns: 1fr; }
+    .trace-controls { grid-template-columns: 1fr 1fr; }
+    .trace-stat { border-right: 0; border-bottom: 1px solid var(--line); }
+    .trace-stat:last-child { border-bottom: 0; }
+  }
+  @media (max-width: 560px) { .trace-controls { grid-template-columns: 1fr; } }
+
+  @media (max-width: 900px) {
+    .shell { grid-template-columns: 1fr; }
+    .sidebar { position: static; height: auto; border-right: 0; border-bottom: 1px solid var(--line);
+      padding: 1rem 1.4rem; }
+    .navgroup { margin-bottom: .9rem; }
+    .main { padding: 1.2rem 1.4rem 3rem; }
+  }
+
+  /* Fixed steps, not viewport-fluid: an operator reads this at one desk on one monitor, and a
+     heading that resizes with every pixel of window width just wobbles. One step down where the
+     column actually gets narrow. */
+  @media (max-width: 640px) {
+    .board-title { font-size: 1.9rem; }
+    .head { font-size: 1.55rem; }
+  }
 
   /* ---- board head ---- */
   .board-head { padding: 2rem 0 .3rem; }
@@ -101,10 +363,7 @@
   .board-head .eyebrow .n { color: var(--rust); }
   .board-head .eyebrow .side { color: var(--ink-3); }
   .board-title { font-family: var(--serif); font-weight: 700; letter-spacing: -.02em;
-    font-size: clamp(1.9rem, 4vw, 2.7rem); margin: .5rem 0 0; text-wrap: balance; }
-  .board-sub { color: var(--ink-2); font-size: .96rem; margin: .6rem 0 0; max-width: 48rem; text-wrap: pretty; }
-  .board-sub a { color: var(--rust); text-decoration: none; white-space: nowrap; }
-  .board-sub a:hover { text-decoration: underline; }
+    font-size: 2.4rem; margin: .5rem 0 0; text-wrap: balance; }
 
   /* ---- KPI strip ---- */
   .kpis { display: grid; grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
@@ -133,11 +392,14 @@
   .alert.warn::before { background: var(--warn); }
   .alert.ok::before { background: var(--pass); }
   .alert.info::before { background: var(--ink-3); }
+  .board-head[hidden] { display: none; }
   .alert .atag { font-family: var(--mono); font-size: .74rem; font-weight: 700; letter-spacing: .02em;
     white-space: nowrap; }
   .alert.act .atag { color: var(--rust); } .alert.warn .atag { color: var(--warn); }
   .alert.ok .atag { color: var(--pass); }
   .alert .atxt { font-size: .84rem; color: var(--ink-2); }
+  .alert .atxt code { font-family: var(--mono); font-size: .92em; background: var(--paper-3);
+    color: var(--ink); border-radius: 5px; padding: .06rem .3rem; }
 
   /* ---- section scaffold ---- */
   .band { padding-top: 2.6rem; }
@@ -147,8 +409,7 @@
   .band-head .n { color: var(--rust); }
   .band-head .side { color: var(--ink-3); }
   h2.head { font-family: var(--serif); font-weight: 700; letter-spacing: -.015em; line-height: 1.05;
-    font-size: clamp(1.5rem, 3.5vw, 2.1rem); margin: .8rem 0 0; text-wrap: balance; }
-  .sub { font-size: .9rem; color: var(--ink-2); margin: .5rem 0 0; max-width: 48rem; text-wrap: pretty; }
+    font-size: 1.9rem; margin: .8rem 0 0; text-wrap: balance; }
 
   .chip { font-family: var(--mono); font-size: .66rem; letter-spacing: .05em; padding: .12rem .5rem;
     border-radius: 6px; white-space: nowrap; text-transform: uppercase; font-weight: 600; }
@@ -195,9 +456,23 @@
   .cmp-tbl .win { color: var(--pass); font-weight: 700; }
   .cmp-tbl .lose { color: var(--fail); font-weight: 700; }
   .cmp-actions { display: flex; align-items: center; gap: .7rem; margin-top: 1.1rem; flex-wrap: wrap; }
+  /* The promotion dialog is the last screen before an irreversible change, and its evidence grows
+     with the held-out set. Scroll the evidence under a pinned decision row rather than scrolling
+     the whole modal, which had already pushed Approve off the bottom edge at eight tasks. */
+  #cmp-overlay .cmp-modal { display: flex; flex-direction: column; overflow: hidden; }
+  #cmp-body { flex: 1 1 auto; overflow: auto; min-height: 0; }
+  #cmp-body > .margin { margin-bottom: 1.1rem; }
+  #cmp-overlay .cmp-actions { flex: none; margin-top: 0; padding-top: 1rem;
+    border-top: 1px solid var(--line); }
 
   /* Read-only skill and revision explorer */
   .skill-modal { width: min(900px, 96vw); }
+  .skill-tabs { display: flex; gap: .35rem; margin: -.2rem 0 1rem; border-bottom: 1px solid var(--line); }
+  .skill-tab { border: 0; border-bottom: 2px solid transparent; background: none; color: var(--ink-3);
+    cursor: pointer; padding: .45rem .65rem .6rem; font: 600 .68rem/1 var(--mono);
+    letter-spacing: .06em; text-transform: uppercase; }
+  .skill-tab[aria-selected="true"] { color: var(--rust); border-bottom-color: var(--rust); }
+  .skill-panel[hidden] { display: none; }
   .version-toolbar { display: grid; grid-template-columns: minmax(14rem, 1fr) minmax(12rem, 1fr);
     gap: .8rem; margin-bottom: 1rem; }
   .version-field { display: flex; flex-direction: column; gap: .35rem; }
@@ -210,6 +485,34 @@
   .version-pre { font-family: var(--mono); font-size: .74rem; line-height: 1.55; margin: 0;
     background: var(--paper); border: 1px solid var(--line); border-radius: 12px; padding: .85rem 1rem;
     overflow: auto; min-height: 16rem; max-height: 56vh; white-space: pre; color: var(--ink); }
+  .eval-head { display: flex; align-items: flex-start; justify-content: space-between; gap: .8rem;
+    flex-wrap: wrap; margin-bottom: .8rem; }
+  .eval-summary { display: flex; flex-wrap: wrap; gap: .4rem; }
+  .eval-groups { display: grid; gap: .65rem; }
+  .eval-group { border: 1px solid var(--line); border-radius: 11px; background: var(--paper); }
+  .eval-group > summary { cursor: pointer; padding: .7rem .8rem; color: var(--ink);
+    font: 600 .72rem/1.4 var(--mono); letter-spacing: .03em; }
+  .eval-group > summary .count { color: var(--ink-3); font-weight: 400; margin-left: .35rem; }
+  .eval-items { border-top: 1px solid var(--line); }
+  .eval-item { padding: .78rem .85rem; }
+  .eval-item + .eval-item { border-top: 1px solid var(--line); }
+  .eval-task { margin: 0; color: var(--ink); font-size: .82rem; line-height: 1.55; white-space: pre-wrap; }
+  .eval-meta { margin: .45rem 0 0; color: var(--ink-2); font: .71rem/1.55 var(--mono);
+    white-space: pre-wrap; }
+  .eval-checks { list-style: none; margin: .55rem 0 0; padding: 0; display: grid; gap: .3rem; }
+  .eval-checks li { color: var(--ink-2); font: .7rem/1.5 var(--mono); padding-left: .8rem;
+    border-left: 2px solid var(--line-2); }
+  .review-result { margin-top: 1rem; border-top: 1px solid var(--line); padding-top: 1rem; }
+  .review-result:empty { display: none; }
+  .review-result h3 { margin: 0 0 .65rem; font: 600 .76rem/1.3 var(--mono);
+    letter-spacing: .05em; text-transform: uppercase; }
+  .review-score { display: flex; align-items: baseline; gap: .6rem; margin-bottom: .75rem; }
+  .review-score strong { font: 600 1.7rem/1 var(--mono); color: var(--ink); }
+  .review-score span { color: var(--ink-3); font: .7rem/1.5 var(--mono); }
+  .finding { padding: .65rem .75rem; border-left: 3px solid var(--warn); background: var(--warn-bg);
+    border-radius: 0 9px 9px 0; margin-top: .45rem; }
+  .finding b { font: 600 .72rem/1.4 var(--mono); color: var(--ink); }
+  .finding p { margin: .25rem 0 0; color: var(--ink-2); font-size: .76rem; line-height: 1.5; }
   @media (max-width: 620px) { .version-toolbar { grid-template-columns: 1fr; } }
 
   /* ---- skills list ---- */
@@ -221,6 +524,13 @@
     background: var(--paper-2); color: var(--ink); }
   .filter-count { font: .68rem/1.4 var(--mono); color: var(--ink-3); align-self: center; }
   .skilllist { margin-top: 1.1rem; border-top: 1px solid var(--line); }
+  /* Provenance folders: which of these skills did we write, and which came from elsewhere. */
+  .skill-folder + .skill-folder { margin-top: 1.4rem; }
+  .skill-folder-head { display: flex; flex-wrap: wrap; align-items: baseline; gap: .45rem .7rem;
+    padding: .55rem .45rem; border-bottom: 1px solid var(--line-2); background: var(--paper-2);
+    position: sticky; top: 0; z-index: 1; }
+  .skill-folder-title { font-weight: 600; color: var(--ink); letter-spacing: .01em; }
+  .skill-folder-note { color: var(--ink-3); font-size: .82rem; flex: 1 1 14rem; min-width: 0; }
   .srow { display: flex; flex-wrap: wrap; align-items: baseline; gap: .5rem 1rem;
     padding: .9rem .45rem; border-bottom: 1px solid var(--line); transition: background .15s ease-out; }
   .srow.pend { background: var(--rust-bg); }
@@ -292,6 +602,14 @@
     font-variant-numeric: tabular-nums; }
   .metaline b { color: var(--ink-2); }
   .metaline a { color: var(--rust); text-decoration: none; } .metaline a:hover { text-decoration: underline; }
+  .retro-evidence { margin-top: .9rem; border: 1px solid var(--line); border-radius: 12px;
+    background: var(--paper); padding: .8rem .9rem; }
+  .retro-evidence h4 { margin: 0 0 .55rem; font: 600 .68rem/1.3 var(--mono);
+    letter-spacing: .06em; text-transform: uppercase; color: var(--ink-2); }
+  .retro-evidence p { margin: .35rem 0; color: var(--ink-2); font-size: .8rem; line-height: 1.5; }
+  .retro-evidence ul { margin: .45rem 0 .65rem; padding-left: 1.15rem; color: var(--ink-2);
+    font-size: .76rem; line-height: 1.55; }
+  .retro-evidence code { font: .72rem/1.45 var(--mono); overflow-wrap: anywhere; }
   .tokline { font-family: var(--mono); font-size: .78rem; color: var(--ink-2); margin-top: .5rem;
     font-variant-numeric: tabular-nums; }
   .tokline b { color: var(--ink); } .tokline .reg { color: var(--fail); font-weight: 600; }
@@ -303,6 +621,13 @@
   .gate.ok { color: var(--pass); background: var(--pass-bg); }
   .gate.block { color: var(--fail); background: var(--fail-bg); font-weight: 600; }
   .gate.warn { color: var(--warn); background: var(--warn-bg); }
+  /* margin-vs-resolution sits directly under the two scores, because that pair of big numbers is
+     what a reviewer reads first and it is the part that overstates a thin result */
+  .margin { font-family: var(--mono); font-size: .74rem; line-height: 1.65; color: var(--ink-2);
+    margin-top: .7rem; font-variant-numeric: tabular-nums; text-wrap: pretty; }
+  .margin b { color: var(--ink); }
+  .margin.thin { color: var(--warn); border-left: 2px solid var(--warn); padding-left: .6rem; }
+  .margin.thin b { color: var(--warn); }
   .metaline b.win { color: var(--pass); } .metaline b.lose { color: var(--fail); }
   .review-actions { display: flex; align-items: center; gap: .7rem; margin-top: 1.2rem; flex-wrap: wrap; }
   .review-actions .msg { font-family: var(--mono); font-size: .74rem; color: var(--pass); }
@@ -318,6 +643,20 @@
   .risk-warning { grid-column: 1 / -1; font: 600 .74rem/1.5 var(--mono); color: var(--warn); }
   .difflabel { font-family: var(--mono); font-size: .66rem; letter-spacing: .09em; text-transform: uppercase;
     color: var(--rust); margin: 1.4rem 0 .4rem; }
+  .lane { margin: 0 0 1.6rem; }
+  .lane-row { display: grid; grid-template-columns: 1fr auto auto; gap: .6rem 1rem; align-items: baseline;
+    padding: .55rem .8rem; border: 1px solid var(--line); border-radius: 12px; background: var(--paper-2);
+    margin-bottom: .4rem; }
+  .lane-row.live { border-color: var(--warn); }
+  .lane-name { font: 600 .8rem/1.4 var(--mono); color: var(--ink-1); }
+  .lane-name .act { color: var(--ink-3); font-weight: 400; }
+  .lane-state { font: .64rem/1.3 var(--mono); letter-spacing: .06em; text-transform: uppercase;
+    color: var(--ink-3); }
+  .lane-row.live .lane-state { color: var(--warn); }
+  .lane-row.done .lane-state { color: var(--pass); }
+  .lane-row.stuck .lane-state { color: var(--fail); }
+  .lane-note { grid-column: 1 / -1; font: .7rem/1.5 var(--mono); color: var(--ink-3); }
+  .lane-empty { font: .72rem/1.5 var(--mono); color: var(--ink-3); }
   pre.diff { font-family: var(--mono); font-size: .72rem; line-height: 1.55; margin: 0;
     background: var(--paper-2); border: 1px solid var(--line); border-radius: 14px; padding: .8rem .95rem;
     overflow: auto; max-height: 28rem; white-space: pre; color: var(--ink-2); }
@@ -350,8 +689,14 @@
   .footer .k { color: var(--rust); }
   .footer a { color: var(--ink-3); text-decoration: none; } .footer a:hover { color: var(--rust); }
 
-  .js .reveal { opacity: 0; transform: translateY(12px); }
-  .js .reveal.in { opacity: 1; transform: none; transition: opacity .6s ease-out, transform .6s cubic-bezier(.16,1,.3,1); }
+  /* No entrance on the sections themselves. This is a console an operator opens to decide
+     something, not a page that introduces itself, and the four bands are the four objects the
+     product has rather than a narrative to reveal. The scroll-reveal it replaces also gated
+     visibility on a transition: a transition does not run in a background tab or a headless
+     renderer, so the Skills section — every record the product holds — rendered at opacity 0
+     with its 8,600px of content still in the layout. Content is visible by default now, and
+     the only entrances left are the ones that carry state (the stagger over a list that just
+     arrived, the beam over a change that needs a human). */
 
   /* staggered entrance for alert lines + skill rows, first paint only (structure: Magic UI animated-list) */
   .js .list-in { animation: list-in .5s cubic-bezier(.16,1,.3,1) both; animation-delay: calc(var(--i, 0) * 70ms); }
@@ -359,12 +704,13 @@
 
   /* review card: the decision surface. While a challenger waits, a slow terracotta beam
      circles the border (structure: Magic UI border-beam, gradient square on an offset-path
-     rect, masked to the 1px ring). Falls back to the plain border where unsupported. */
+     rect, masked to the 1px ring). Its layer is clipped because the offset square otherwise
+     widens the document at the 640px breakpoint. Falls back to the plain border where unsupported. */
   .review-card { position: relative; border: 1px solid var(--line); border-radius: 16px;
     padding: 1.15rem 1.25rem 1.25rem; margin-top: 1.1rem; background: var(--paper-2);
     box-shadow: var(--shadow); }
   .beam { display: none; pointer-events: none; position: absolute; inset: 0; border-radius: inherit;
-    border: 1px solid transparent;
+    border: 1px solid transparent; overflow: hidden;
     mask-image: linear-gradient(transparent, transparent), linear-gradient(#000, #000);
     mask-clip: padding-box, border-box; mask-composite: intersect; }
   .beam::before { content: ""; position: absolute; aspect-ratio: 1; width: 90px;
@@ -381,15 +727,157 @@
     outline: 2px solid var(--rust); outline-offset: 2px; border-radius: 2px; }
   @media (prefers-reduced-motion: reduce) {
     html { scroll-behavior: auto; } * { transition: none !important; animation: none !important; }
-    .js .reveal { opacity: 1; transform: none; }
     .beam { display: none !important; }
+  }
+
+  /* ---- evidence cockpit visual system ---- */
+  body {
+    background:
+      radial-gradient(circle at 72% -18%, color-mix(in srgb, var(--rust) 11%, transparent), transparent 34rem),
+      var(--paper);
+  }
+  .cockpit-command {
+    min-height: 4rem; padding: .75rem 1.5rem; color: #E8EEF8;
+    background: color-mix(in srgb, #08111F 94%, transparent);
+    border-bottom-color: #1E2C42; box-shadow: 0 12px 32px rgb(3 8 18 / 24%);
+    backdrop-filter: saturate(1.3) blur(16px);
+  }
+  .cockpit-command .brand { align-items: center; gap: .7rem; }
+  .cockpit-command .brand .mark { width: 23px; height: 23px; color: #69A7FF; }
+  .cockpit-command .brand .wm { color: #FFFFFF; font-size: 1.2rem; font-weight: 700; }
+  .cockpit-command .brand .tag { color: #8190A8; }
+  .cockpit-command .lnk { color: #9AA8BC; }
+  .cockpit-command .pill { border: 1px solid #2B405F; background: #101D2F; }
+
+  .cockpit-shell { grid-template-columns: 17rem minmax(0, 1fr); max-width: none; min-height: calc(100vh - 4rem); }
+  .cockpit-rail {
+    top: 4rem; height: calc(100vh - 4rem); padding: 1.7rem 1rem 2rem;
+    color: #B8C4D6; background: linear-gradient(180deg, #0B1422 0%, #0A111C 100%);
+    border-right-color: #1C2A3D; box-shadow: inset -1px 0 rgb(255 255 255 / 2%);
+  }
+  .cockpit-rail .navgroup { margin-bottom: 1.75rem; }
+  .cockpit-rail .navgroup h3 { margin: 0 0 .65rem .75rem; color: #66758C; font-size: .59rem; }
+  .cockpit-rail .navlink {
+    position: relative; min-height: 2.55rem; margin: .16rem 0; padding: .58rem .72rem;
+    border: 1px solid transparent; border-radius: 10px; color: #9EACC0;
+  }
+  .cockpit-rail .navlink:hover { color: #F5F8FC; background: #111F32; border-color: #20314A; }
+  .cockpit-rail .navlink.active {
+    color: #FFFFFF; background: linear-gradient(90deg, #17345A, #122843);
+    border-color: #27507E; box-shadow: 0 8px 20px rgb(0 0 0 / 18%);
+  }
+  .cockpit-rail .navlink.active::before {
+    content: ""; position: absolute; left: -.35rem; top: .55rem; bottom: .55rem; width: 3px;
+    border-radius: 999px; background: #65A8FF; box-shadow: 0 0 14px #65A8FF;
+  }
+  .cockpit-rail .navlink .ico { color: #6F829E; }
+  .cockpit-rail .navlink.active .ico { color: #78B2FF; }
+  .cockpit-rail .navcount { color: #6F7F96; }
+  .cockpit-rail .navlink.active .navcount { color: #C9DFFF; }
+  .cockpit-rail .navfoot { margin: 1.4rem .55rem 0; padding-top: 1rem; border-color: #213047; color: #66758C; }
+  .cockpit-rail .navfoot b { color: #AEBBD0; }
+
+  .cockpit-workspace { width: 100%; max-width: 104rem; padding: 2rem clamp(1.5rem, 3vw, 3.5rem) 4rem; }
+  .cockpit-workspace > .view:not([hidden]) {
+    padding: clamp(1.25rem, 2.2vw, 2rem);
+    border: 1px solid var(--line); border-radius: 20px; background: color-mix(in srgb, var(--paper-2) 96%, transparent);
+    box-shadow: 0 1px 1px rgb(16 24 40 / 3%), 0 22px 60px rgb(22 38 67 / 9%);
+  }
+  .cockpit-workspace > .board-head {
+    margin: 0 0 1rem; padding: clamp(1.4rem, 2.2vw, 2rem); border: 1px solid var(--line);
+    border-radius: 20px; overflow: hidden;
+    background: linear-gradient(135deg, var(--paper-2), color-mix(in srgb, var(--rust-bg) 58%, var(--paper-2)));
+    box-shadow: 0 1px 1px rgb(16 24 40 / 3%), 0 22px 60px rgb(22 38 67 / 8%);
+  }
+  .cockpit-workspace .band { padding-top: 0; }
+  .cockpit-workspace .board-title, .cockpit-workspace h2.head {
+    font-family: var(--sans); font-weight: 720; letter-spacing: -.035em;
+  }
+  .cockpit-workspace h2.head { margin: 0 0 .3rem; font-size: clamp(1.65rem, 2.3vw, 2.25rem); }
+  .cockpit-workspace .crumbs { margin-bottom: .75rem; }
+  .cockpit-workspace .trace-note { max-width: 72rem; font-family: var(--sans); font-size: .84rem; }
+
+  .cockpit-workspace .kpis { gap: .7rem; margin-top: 1.5rem; border: 0; background: transparent; box-shadow: none; }
+  .cockpit-workspace .kpi {
+    min-height: 7rem; padding: 1rem 1.1rem; border: 1px solid var(--line) !important;
+    border-radius: 14px; background: color-mix(in srgb, var(--paper-2) 92%, transparent);
+  }
+  .cockpit-workspace .kpi.act { background: linear-gradient(145deg, var(--rust-bg), var(--paper-2)); }
+  .cockpit-workspace .attention { margin-top: .75rem; padding: .2rem .8rem; border: 1px solid var(--line);
+    border-radius: 14px; background: color-mix(in srgb, var(--paper-2) 80%, transparent); }
+
+  .cockpit-workspace .review-card, .cockpit-workspace .trace-list,
+  .cockpit-workspace .trace-skills, .cockpit-workspace .cluster-plot,
+  .cockpit-workspace .cluster-side, .cockpit-workspace .mx-wrap,
+  .cockpit-workspace .mx-chart, .cockpit-workspace .empty,
+  .cockpit-workspace .skill-run-log {
+    border-radius: 16px; border-color: var(--line-2); background: var(--paper-2);
+    box-shadow: 0 1px 2px rgb(16 24 40 / 4%), 0 12px 32px rgb(23 38 65 / 7%);
+  }
+  .cockpit-workspace .review-card { padding: 1.5rem; }
+  .cockpit-workspace .trace-stats { gap: .6rem; border: 0; background: transparent; box-shadow: none; }
+  .cockpit-workspace .trace-stat { border: 1px solid var(--line) !important; border-radius: 12px;
+    background: var(--paper-2); }
+  .cockpit-workspace .trace-row, .cockpit-workspace .srow, .cockpit-workspace .hrow {
+    padding: .9rem 1rem; transition: background .12s, border-color .12s;
+  }
+  .cockpit-workspace .trace-row:hover, .cockpit-workspace .srow:hover,
+  .cockpit-workspace .hrow:hover { background: var(--paper-3); }
+  .cockpit-workspace .skilllist, .cockpit-workspace .hlist { overflow: hidden; border: 1px solid var(--line);
+    border-radius: 16px; background: var(--paper-2); }
+  .cockpit-workspace .skill-folder-head { padding: .8rem 1rem; background: var(--paper-3); }
+
+  .cockpit-workspace .version-field label { font-size: .61rem; color: var(--ink-3); }
+  .cockpit-workspace input, .cockpit-workspace select, .cockpit-workspace textarea {
+    min-height: 2.7rem; border-radius: 10px !important; background: var(--paper-2) !important;
+    box-shadow: inset 0 1px 2px rgb(16 24 40 / 4%);
+  }
+  .cockpit-workspace .btn { min-height: 2.55rem; padding: .65rem 1rem; border-radius: 10px; }
+  .cockpit-workspace .btn.primary { box-shadow: 0 7px 18px color-mix(in srgb, var(--rust) 25%, transparent); }
+
+  .cockpit-workspace .mx-wrap { border-radius: 16px; }
+  .cockpit-workspace .mx th { background: var(--paper-3); }
+  .cockpit-workspace .mx td { height: 4.5rem; }
+  .cockpit-workspace .mx tr:hover td { background: color-mix(in srgb, var(--rust-bg) 35%, var(--paper-2)); }
+  .cockpit-workspace .mx-sticky { background: var(--paper-2) !important; }
+  .cockpit-workspace .mx tr:hover .mx-sticky { background: color-mix(in srgb, var(--rust-bg) 35%, var(--paper-2)) !important; }
+  .cockpit-workspace .mx-chart { padding: 1.25rem; }
+  .cockpit-workspace .mx-chart-detail { border: 1px solid var(--line); }
+  .cockpit-workspace .lane-row { padding: .75rem 1rem; border-radius: 12px; }
+
+  .cmp-overlay { backdrop-filter: blur(8px); }
+  .cmp-modal { border-radius: 20px; box-shadow: 0 32px 90px rgb(0 0 0 / 35%); }
+
+  @media (prefers-color-scheme: dark) {
+    .cockpit-workspace > .view:not([hidden]), .cockpit-workspace > .board-head {
+      box-shadow: 0 1px 0 rgb(255 255 255 / 2%) inset, 0 26px 80px rgb(0 0 0 / 28%);
+    }
+  }
+  @media (max-width: 900px) {
+    .cockpit-shell { grid-template-columns: 1fr; }
+    .cockpit-rail { position: static; height: auto; padding: .75rem 1rem; border-right: 0;
+      border-bottom: 1px solid #203049; }
+    .cockpit-rail .navgroup { display: flex; gap: .35rem; margin: 0 0 .35rem; overflow-x: auto; }
+    .cockpit-rail .navgroup h3, .cockpit-rail .navfoot { display: none; }
+    .cockpit-rail #nav-folders { display: contents; }
+    .cockpit-rail .navlink { flex: 0 0 auto; min-height: 2.35rem; padding: .48rem .72rem; }
+    .cockpit-rail .navlink.active::before { left: .7rem; right: .7rem; top: auto; bottom: -.2rem;
+      width: auto; height: 3px; }
+    .cockpit-workspace { padding: 1rem; }
+  }
+  @media (max-width: 640px) {
+    .cockpit-command { min-height: 3.5rem; padding: .65rem 1rem; }
+    .cockpit-command .brand .tag { display: none; }
+    .cockpit-workspace > .view:not([hidden]), .cockpit-workspace > .board-head { padding: 1rem;
+      border-radius: 15px; }
+    .cockpit-workspace .review-card, .cockpit-workspace .mx-chart { padding: .9rem; }
   }
 </style>
 </head>
 <body>
 <script>document.documentElement.classList.add("js");</script>
 
-<nav class="topbar">
+<nav class="topbar cockpit-command">
   <a class="brand" href="/">
     <svg class="mark" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"
          stroke-linecap="round" aria-hidden="true">
@@ -400,9 +888,6 @@
     <span class="wm">ingot</span><span class="tag">change control</span>
   </a>
   <div class="topnav">
-    <a class="lnk" href="#review-section">Review</a>
-    <a class="lnk" href="#history-section">History</a>
-    <a class="lnk" href="#skills">Skills</a>
     <a class="lnk ext" id="lf" href="#" target="_blank" rel="noopener">Langfuse</a>
     <span class="pill idle" id="status-pill">…</span>
     <span class="who" id="who" hidden><span id="who-email"></span>
@@ -420,25 +905,52 @@
   }).catch(() => {});
 </script>
 
-<div class="page">
+<div class="shell cockpit-shell">
+  <aside class="sidebar cockpit-rail">
+    <nav class="navgroup" aria-label="Sections">
+      <h3>Change control</h3>
+      <a class="navlink" data-route="review" href="#/review">
+        <span class="ico" aria-hidden="true">◆</span><span class="txt">Review</span>
+        <span class="navcount" id="nav-review"></span></a>
+      <a class="navlink" data-route="history" href="#/history">
+        <span class="ico" aria-hidden="true">⟲</span><span class="txt">History</span>
+        <span class="navcount" id="nav-history"></span></a>
+      <a class="navlink" data-route="traces" href="#/traces">
+        <span class="ico" aria-hidden="true">⌁</span><span class="txt">Traces</span>
+        <span class="navcount" id="nav-traces"></span></a>
+    </nav>
+    <nav class="navgroup" aria-label="Skill folders">
+      <h3>Skills</h3>
+      <a class="navlink" data-route="skills" href="#/skills">
+        <span class="ico" aria-hidden="true">▤</span><span class="txt">All skills</span>
+        <span class="navcount" id="nav-skills"></span></a>
+      <a class="navlink" data-route="clusters" href="#/clusters">
+        <span class="ico" aria-hidden="true">◍</span><span class="txt">Categories</span>
+        <span class="navcount" id="nav-clusters"></span></a>
+      <a class="navlink" data-route="harnesses" href="#/harnesses">
+        <span class="ico" aria-hidden="true">▦</span><span class="txt">Harnesses</span>
+        <span class="navcount" id="nav-harnesses"></span></a>
+      <div id="nav-folders"></div>
+    </nav>
+    <div class="navfoot" id="nav-foot"></div>
+  </aside>
+
+  <main class="main cockpit-workspace">
   <div class="sr-only" id="board-announcer" aria-live="polite" aria-atomic="true"></div>
-  <header class="board-head reveal">
+  <header class="board-head">
     <div class="eyebrow"><span><span class="n">/</span> CHANGE CONTROL</span>
       <span class="side" id="head-side">ingot</span></div>
-    <h1 class="board-title">Evidence-gated change control</h1>
-    <p class="board-sub">Every change to a skill's instructions is quarantined until you approve it here.
-      Approval re-checks the evidence against the on-disk revision, snapshots what it replaces, and swaps
-      the skill directory atomically. Any snapshot can be restored from History.
-      Deep traces in <a id="lf2" href="#" target="_blank" rel="noopener">Langfuse ↗</a>.</p>
+    <h1 class="board-title">Release control for agent skills</h1>
     <div class="kpis" id="kpis"><div class="kpi"><span class="n">…</span><span class="l">loading</span></div></div>
     <div class="attention" id="attention"></div>
   </header>
 
-  <section class="band reveal" id="review-section">
-    <div class="band-head"><span><span class="n">/</span> REVIEW</span>
-      <span class="side">evidence and decision</span></div>
+  <section class="band view" id="review-section" data-route="review">
+    <div class="lane" id="lane">
+      <div class="difflabel">Publishing · approved changes travelling to the vault</div>
+      <div id="lane-body"></div>
+    </div>
     <h2 class="head" id="pending-heading" tabindex="-1">Pending change</h2>
-    <p class="sub" id="pending-copy">Inspect every changed instruction before approval.</p>
     <div class="review-card" id="pending-card" hidden>
       <div class="beam" aria-hidden="true"></div>
       <div id="pending-detail"></div>
@@ -468,7 +980,7 @@
 
   <div class="cmp-overlay" id="cmp-overlay" hidden>
     <div class="cmp-modal" role="dialog" aria-modal="true" aria-labelledby="cmp-title">
-      <div class="cmp-head"><span id="cmp-title">Confirm promotion, <b id="cmp-skill"></b></span>
+      <div class="cmp-head"><span id="cmp-title"><span id="cmp-action-title">Confirm promotion, </span><b id="cmp-skill"></b></span>
         <button class="cmp-x" id="cmp-cancel" aria-label="Close">×</button></div>
       <div class="cmp-body" id="cmp-body"></div>
       <div class="cmp-actions">
@@ -483,16 +995,35 @@
     <div class="cmp-modal skill-modal" role="dialog" aria-modal="true" aria-labelledby="skill-title">
       <div class="cmp-head"><span id="skill-title">Skill, <b id="skill-detail-name"></b></span>
         <button class="cmp-x" id="skill-close" aria-label="Close">×</button></div>
-      <div class="version-toolbar">
-        <div class="version-field"><label for="skill-version">Version</label>
-          <select id="skill-version"></select></div>
-        <div class="version-field"><label for="skill-file">File</label>
-          <select id="skill-file"></select></div>
+      <div class="skill-tabs" role="tablist" aria-label="Skill detail">
+        <button type="button" class="skill-tab" id="skill-tab-instructions" role="tab"
+          aria-selected="true" aria-controls="skill-instructions">Instructions</button>
+        <button type="button" class="skill-tab" id="skill-tab-evals" role="tab"
+          aria-selected="false" aria-controls="skill-evals" tabindex="-1">Evaluations</button>
       </div>
-      <div class="version-meta" id="skill-version-meta"></div>
-      <p class="version-desc" id="skill-version-desc"></p>
-      <pre class="version-pre" id="skill-version-content"></pre>
-      <div class="review-actions"><span class="msg" id="skill-version-msg"></span></div>
+      <div class="skill-panel" id="skill-instructions" role="tabpanel"
+           aria-labelledby="skill-tab-instructions">
+        <div class="version-toolbar">
+          <div class="version-field"><label for="skill-version">Version</label>
+            <select id="skill-version"></select></div>
+          <div class="version-field"><label for="skill-file">File</label>
+            <select id="skill-file"></select></div>
+        </div>
+        <div class="version-meta" id="skill-version-meta"></div>
+        <p class="version-desc" id="skill-version-desc"></p>
+        <pre class="version-pre" id="skill-version-content"></pre>
+        <div class="review-actions"><span class="msg" id="skill-version-msg"></span></div>
+      </div>
+      <div class="skill-panel" id="skill-evals" role="tabpanel"
+           aria-labelledby="skill-tab-evals" hidden>
+        <div class="eval-head">
+          <div class="eval-summary" id="skill-eval-summary"></div>
+          <button type="button" class="btn primary" id="skill-review-run">Run review</button>
+        </div>
+        <div class="eval-groups" id="skill-eval-groups"></div>
+        <div class="review-result" id="skill-review"></div>
+        <div class="review-actions"><span class="msg" id="skill-eval-msg"></span></div>
+      </div>
     </div>
   </div>
 
@@ -513,25 +1044,66 @@
     </div>
   </div>
 
-  <section class="band reveal" id="history-section">
-    <div class="band-head"><span><span class="n">/</span> HISTORY</span>
-      <span class="side">snapshots and audit trail</span></div>
+  <section class="band view" id="history-section" data-route="history" hidden>
     <h2 class="head">Revisions and audit trail</h2>
-    <p class="sub">Every promotion snapshots the revision it displaced, so a change is reversible.
-      Restoring one is atomic and is itself recorded. The trail holds metadata only (action, skill,
-      revision, actor, timestamp, and an optional rejection reason), never skill text.</p>
     <div id="history"></div>
     <div class="review-actions"><span class="msg" id="history-msg"></span></div>
   </section>
 
-  <section class="band reveal" id="skills">
-    <div class="band-head"><span><span class="n">/</span> SKILLS</span>
-      <span class="side" id="skills-side"></span></div>
-    <h2 class="head">Skills under control</h2>
-    <p class="sub">Every skill the router serves, with the revision it is serving. SkillOpt trains
-      bounded instruction edits, measures them on train and held-out tasks, and leaves each result
-      quarantined for review. Skills without an eval task set can't be measured yet: a CLI run
-      auto-drafts one.</p>
+  <section class="band view" id="traces-section" data-route="traces" hidden>
+    <h2 class="head">Agent traces</h2>
+    <div class="trace-note" id="trace-summary"></div>
+    <div class="trace-controls" aria-label="Filter agent traces">
+      <div class="version-field"><label for="trace-project">Project</label>
+        <select id="trace-project"><option value="">All projects</option></select></div>
+      <div class="version-field"><label for="trace-harness">Agent</label>
+        <select id="trace-harness"><option value="">All agents</option></select></div>
+      <div class="version-field"><label for="trace-skill">Skill</label>
+        <select id="trace-skill"><option value="">All skills</option></select></div>
+      <div class="version-field"><label for="trace-since">From</label>
+        <input id="trace-since" type="date"></div>
+      <div class="version-field"><label for="trace-until">Through</label>
+        <input id="trace-until" type="date"></div>
+      <label class="trace-preview-toggle" for="trace-task-previews">
+        <input id="trace-task-previews" type="checkbox">Show task previews</label>
+    </div>
+    <div class="trace-stats" id="trace-stats"></div>
+    <div class="trace-split">
+      <div class="trace-list" id="trace-list"></div>
+      <aside class="trace-skills" id="trace-skills"></aside>
+    </div>
+    <div class="review-actions"><span class="msg" id="traces-msg"></span></div>
+  </section>
+
+  <section class="band view" id="clusters-section" data-route="clusters" hidden>
+    <h2 class="head">Categories</h2>
+    <div class="cluster-meta" id="cluster-meta"></div>
+    <div class="cluster-chips" id="cluster-chips" role="tablist"
+         aria-label="Filter atlas by skill family"></div>
+    <div class="cluster-split">
+      <div class="cluster-plot">
+        <svg id="cluster-scatter" viewBox="0 0 640 440" preserveAspectRatio="xMidYMid meet"
+             role="img" aria-label="Skill categories, laid out by what they are about"></svg>
+      </div>
+      <aside class="cluster-side" id="cluster-side"></aside>
+    </div>
+    <div class="review-actions"><span class="msg" id="clusters-msg"></span></div>
+  </section>
+
+  <section class="band view" id="harnesses-section" data-route="harnesses" hidden>
+    <h2 class="head">Harness and model</h2>
+    <div class="trace-note" id="mx-intro"></div>
+    <div class="mx-controls" aria-label="Choose a skill">
+      <div class="version-field"><label for="mx-skill">Skill</label>
+        <select id="mx-skill"></select></div>
+    </div>
+    <div id="mx-body"></div>
+    <div class="review-actions"><span class="msg" id="harnesses-msg"></span></div>
+  </section>
+
+  <section class="band view" id="skills" data-route="skills" hidden>
+    <div class="crumbs" id="skill-crumbs"></div>
+    <h2 class="head" id="skills-head" tabindex="-1">Skills under control</h2>
     <div class="skill-controls">
       <div class="version-field"><label for="skill-search">Search skills</label>
         <input id="skill-search" type="search" placeholder="Name or description"></div>
@@ -541,6 +1113,15 @@
           <option value="pending">Awaiting review</option>
           <option value="evals">Has evals</option>
           <option value="no-evals">Needs evals</option>
+          <option value="authored">Authored here</option>
+          <option value="vendored">Vendored in</option>
+          <option value="fetched">Fetched</option>
+          <!-- the list groups into an "External root" folder, so the filter has to reach it too -->
+          <option value="external">External root</option>
+        </select></div>
+      <div class="version-field filter-field"><label for="skill-family-filter">Family</label>
+        <select id="skill-family-filter" disabled>
+          <option value="">All families</option>
         </select></div>
       <span class="filter-count" id="skill-filter-count"></span>
     </div>
@@ -552,6 +1133,7 @@
     <span><span class="k">ingot</span> · evidence-gated change control · atomic promotion, revisioned rollback</span>
     <span>hot-reload on approve</span>
   </div>
+  </main>
 </div>
 
 <script>
@@ -560,6 +1142,7 @@ let langfuseUrl = "#", currentPending = null, currentPendingData = null;
 let booted = false;  // entrance animations run on first paint only; 3s refreshes stay still
 let boardSignature = null, skillInventory = [], runInventory = {}, revisionInventory = {};
 let revisionInventoryReady = false;
+let traceInventory = null, traceSignature = null;
 const REDUCED = matchMedia("(prefers-reduced-motion: reduce)").matches;
 
 // count-up on KPI values (structure: Magic UI number-ticker, vanilla rAF instead of a spring)
@@ -586,6 +1169,7 @@ const staggerIn = sel => document.querySelectorAll(sel).forEach((el, i) => {
 });
 // skill descriptions come from third-party skill packs, escape before innerHTML
 const esc = t => { const d = document.createElement("div"); d.textContent = t; return d.innerHTML; };
+const attr = t => esc(t).replaceAll('"', "&quot;").replaceAll("'", "&#39;");
 
 // Surface the API's own explanation (FastAPI puts it in `detail`) rather than a raw response body:
 // a refused promotion, a stale-evidence 409, or an unknown revision has to be readable in the UI.
@@ -594,7 +1178,11 @@ async function j(url, opts) {
   const text = await r.text();
   let data = null;
   try { data = text ? JSON.parse(text) : null; } catch (_) { /* not JSON: fall back to the text */ }
-  if (!r.ok) throw new Error((data && data.detail) || text || `request failed (${r.status})`);
+  if (!r.ok) {
+    const error = new Error((data && data.detail) || text || `request failed (${r.status})`);
+    error.status = r.status;
+    throw error;
+  }
   return data;
 }
 
@@ -621,6 +1209,43 @@ async function act(sel, run) {
   refresh();
 }
 
+// Opening a dialog has to move focus into it, and closing has to put focus back where it came
+// from. The skill browser opens from a row inside a list of a hundred: a keyboard reviewer who
+// closed it was returned to the top of the document with their place gone. Tab is held inside the
+// open dialog too, so `aria-modal="true"` describes what the page actually does.
+const FOCUSABLE = 'a[href], button:not([disabled]), input, select, textarea, [tabindex]:not([tabindex="-1"])';
+const dialogReturn = new WeakMap();
+
+function openDialog(overlaySel, firstSel) {
+  const overlay = $(overlaySel);
+  dialogReturn.set(overlay, document.activeElement);
+  overlay.hidden = false;
+  const target = (firstSel && $(firstSel)) || overlay.querySelector(FOCUSABLE);
+  if (target) target.focus();
+}
+
+function closeDialog(overlaySel) {
+  const overlay = $(overlaySel);
+  overlay.hidden = true;
+  const back = dialogReturn.get(overlay);
+  dialogReturn.delete(overlay);
+  // `body` is what activeElement reports when the dialog was opened by something other than a
+  // click, and focusing it is a silent no-op, which would strand focus inside the hidden dialog.
+  const target = back && back !== document.body && document.contains(back) ? back : $("#pending-heading");
+  if (target) target.focus({preventScroll: true});
+}
+
+document.addEventListener("keydown", e => {
+  if (e.key !== "Tab") return;
+  const overlay = [...document.querySelectorAll(".cmp-overlay")].find(o => !o.hidden);
+  if (!overlay) return;
+  const items = [...overlay.querySelectorAll(FOCUSABLE)].filter(el => el.offsetParent !== null);
+  if (!items.length) return;
+  const first = items[0], last = items[items.length - 1];
+  if (e.shiftKey && document.activeElement === first) { e.preventDefault(); last.focus(); }
+  else if (!e.shiftKey && document.activeElement === last) { e.preventDefault(); first.focus(); }
+});
+
 const kpi = (cls, n, l, d) =>
   `<div class="kpi ${cls}"><span class="n">${n}</span><span class="l">${l}</span>${d ? `<span class="d">${d}</span>` : ""}</div>`;
 const alert = (cls, tag, txt) =>
@@ -628,10 +1253,53 @@ const alert = (cls, tag, txt) =>
 // String(): the audit trail is a plain JSONL file an operator can edit, so a non-string
 // revision must shorten to nonsense rather than throw and blank the history section
 const shortRev = r => String(r || "").slice(0, 12);
-const statusChip = s => s.pending ? `<span class="chip rust">change awaiting review</span>`
-  : s.status === "running" ? `<span class="chip warn">SkillOpt running</span>`
+const statusChip = (s, run) => s.publishing ? `<span class="chip warn">publishing to the vault</span>`
+  : s.active === false ? `<span class="chip rust">to be added</span>`
+  : s.pending ? `<span class="chip rust">change awaiting review</span>`
+  : run?.status === "running" && run.action === "eval" ? `<span class="chip warn">drafting evals</span>`
+  : run?.status === "running" && run.action === "review" ? `<span class="chip warn">review running</span>`
+  : run?.status === "running" ? `<span class="chip warn">SkillOpt running</span>`
   : !s.has_tasks ? `<span class="chip mute">no evals</span>`
   : `<span class="chip pass">evals</span>`;
+
+// The judge answers on a small ladder of discrete scores, not a continuum. Its rungs are the
+// resolution of the whole comparison: a mean that moves less than one rung is carried by which
+// side of a rung two or three tasks happened to land on, and re-running an unchanged arm has
+// moved a mean by exactly that much. A reviewer reading "+0.037" as a win cannot see any of
+// that, so measure the margin in rungs and say which it is.
+function judgeStep(...arms) {
+  const seen = [...new Set(arms.flat().map(Number).filter(Number.isFinite))].sort((a, b) => a - b);
+  const gaps = seen.slice(1).map((v, i) => v - seen[i]).filter(g => g > 1e-9);
+  return gaps.length ? Math.min(...gaps) : 0;
+}
+
+function marginNote(champion, challenger) {
+  const step = judgeStep(champion.scores || [], challenger.scores || []);
+  const n = (challenger.scores || []).length;
+  if (!step || !n) return "";   // one distinct score, or no held-out set: nothing to compare against
+  const d = challenger.mean - champion.mean, steps = Math.abs(d) / step;
+  const thin = steps < 1;
+  return `<div class="margin${thin ? " thin" : ""}">Margin <b>${d >= 0 ? "+" : ""}${d.toFixed(3)}</b>` +
+    ` over ${n} held-out task${n === 1 ? "" : "s"} = <b>${steps.toFixed(1)}×</b> the judge's smallest` +
+    ` step (${step.toFixed(3)}).` +
+    (thin ? " Below one step, the result turns on how few tasks crossed a boundary." : "") + `</div>`;
+}
+
+// Every reason to hesitate, in one block. The review card and the promotion dialog both render
+// this: the dialog is where the irreversible click lives, and it used to show the score tables
+// alone, so a change carrying a gate warning read there as an unqualified win.
+function cautions(p) {
+  const gate = p.gate && !p.gate.promotable
+    ? `<div class="gate block">⛔ Evidence gate: ${esc(p.gate.blocked.join("; "))}. Approval is refused.</div>`
+    : (p.gate ? `<div class="gate ok">✓ ${p.creation
+        ? "Submission requirements met; evidence is operator-supplied"
+        : "Passes the evidence gate"}</div>` : "");
+  const warn = (p.gate && p.gate.warnings && p.gate.warnings.length)
+    ? `<div class="gate warn">⚠ ${esc(p.gate.warnings.join("; "))}</div>` : "";
+  const stale = p.stale
+    ? `<div class="gate block">⛔ Stale evidence: ${esc(p.stale)}. Approval is refused.</div>` : "";
+  return gate + warn + stale;
+}
 
 // History is a separate endpoint, and it can fail on its own. The two numbers it feeds report
 // that instead of reading as zero, and the rest of the board still renders from the skills
@@ -650,32 +1318,50 @@ function historyKpis(history) {
 }
 
 function renderBoard(skills, withTasks, history) {
-  const pending = skills.filter(s => s.pending).length;
-  const running = skills.filter(s => s.status === "running").length;
+  const activeSkills = skills.filter(skill => skill.active !== false);
+  // An approved change keeps its pending record until the vault commit lands. Counting it as
+  // awaiting review asks the reviewer for a decision they already made.
+  const pending = skills.filter(s => s.pending && !s.publishing).length;
+  const publishing = skills.filter(s => s.publishing).length;
+  const activeRuns = Object.values(runInventory).filter(run => run.status === "running");
+  const running = activeRuns.length;
+  const drafting = activeRuns.some(run => run.action === "eval");
+  const reviewing = activeRuns.some(run => run.action === "review");
   $("#kpis").innerHTML =
     kpi(pending ? "act" : "", pending, "awaiting review",
-        pending ? "human decision required" : "none quarantined") +
+        pending ? "human decision required"
+                : (publishing ? `${publishing} publishing to the vault` : "none quarantined")) +
     kpi("", skills.length, "skills tracked", `${withTasks.length} with evals`) +
     historyKpis(history);
   tickKpis();
-  $("#skills-side").textContent = `${withTasks.length} of ${skills.length}`;
   $("#head-side").textContent = pending ? `${pending} to review` : "ingot";
 
   const alerts = [];
   if (pending) alerts.push(alert("act", "REVIEW",
     `${pending} change${pending > 1 ? "s" : ""} quarantined and awaiting your decision.`));
-  if (running) alerts.push(alert("info", "OPTIMIZING",
-    "a SkillOpt run is in progress; follow it under the skill."));
+  if (running) alerts.push(alert("info", drafting ? "DRAFTING EVALS" : reviewing ? "REVIEWING" : "OPTIMIZING",
+    drafting ? "an eval set is being drafted; follow it under the skill."
+             : reviewing ? "a current-skill review is running; follow it under the skill."
+             : "a SkillOpt run is in progress; follow it under the skill."));
   if (!pending && !running) alerts.push(alert("ok", "CLEAR",
     "nothing quarantined; every skill is serving its approved revision."));
-  if (!withTasks.length) alerts.push(alert("info", "NO EVALS",
-    `${skills.length} skill${skills.length === 1 ? "" : "s"} tracked, none with an eval task set, which SkillOpt optimization needs.`));
+  // A single eval used to suppress the only warning even when the rest of the library remained
+  // unmeasurable. Report the missing set, because "CLEAR" describes quarantine state, not evidence
+  // coverage, and the operator needs both truths at once.
+  if (withTasks.length < activeSkills.length) {
+    const missing = activeSkills.length - withTasks.length;
+    alerts.push(alert("info", "EVAL COVERAGE",
+      `${missing} skill${missing === 1 ? " is" : "s are"} without an eval task set.` +
+      (withTasks.length ? "" : " The library has no evals yet.") +
+      ` Open a skill folder and choose <b>Create eval set</b> on the next skill to measure.`));
+  }
   $("#attention").innerHTML = alerts.join("");
 
   const pill = $("#status-pill");
   if (pending) { pill.className = "pill act"; pill.textContent = `${pending} to review`; }
   else if (running) { pill.className = "pill run"; pill.textContent = "generating"; }
   else { pill.className = "pill idle"; pill.textContent = "idle"; }
+  renderNav(skills, history, pending);
 
   const snapshots = history
     ? Object.values(history.revisions).reduce((n, revisions) => n + revisions.length, 0) : null;
@@ -690,12 +1376,617 @@ function renderBoard(skills, withTasks, history) {
   }
 }
 
+// Folder identity lives here rather than inside the render, because the sidebar, the crumbs, the
+// folder tiles, and the router all have to agree on the same names.
+const FOLDERS = [
+  ["proposed", "To be added", "Vetted packages awaiting a human admission decision."],
+  ["authored", "Authored here", "Written in this library."],
+  ["vendored", "Vendored in", "Copied from an upstream repo and recorded in VENDORED.md."],
+  ["fetched", "Fetched", "Pulled by scripts/fetch_skills.sh."],
+  ["external", "External root", "Served from another configured root."],
+];
+const folderOf = s => (s.provenance || "external");
+const folderTitle = key => (FOLDERS.find(f => f[0] === key) || [null, key])[1];
+
+function renderNav(skills, history, pending) {
+  const count = (sel, value, act) => {
+    const el = $(sel);
+    el.textContent = value === 0 && !act ? "" : value;
+    el.className = act ? "navcount act" : "navcount";
+  };
+  count("#nav-review", pending, pending > 0);
+  const snapshots = history
+    ? Object.values(history.revisions).reduce((n, r) => n + r.length, 0) : 0;
+  count("#nav-history", snapshots, false);
+  count("#nav-traces", traceInventory?.total || 0, false);
+  count("#nav-skills", skills.length, false);
+
+  const counts = {};
+  skills.forEach(s => { counts[folderOf(s)] = (counts[folderOf(s)] || 0) + 1; });
+  const folders = FOLDERS.filter(([key]) => counts[key]);
+  const markup = folders.map(([key, title]) => `
+    <a class="navlink sub" data-route="skills/${key}" href="#/skills/${key}">
+      <span class="ico" aria-hidden="true">▸</span><span class="txt">${esc(title)}</span>
+      <span class="navcount">${counts[key]}</span></a>`).join("");
+  if ($("#nav-folders").innerHTML !== markup) $("#nav-folders").innerHTML = markup;
+
+  const evals = skills.filter(s => s.has_tasks).length;
+  $("#nav-foot").innerHTML =
+    `<b>${skills.length}</b> skills · <b>${evals}</b> with evals<br>` +
+    `<b>${history ? history.audit.total : "–"}</b> recorded decisions`;
+  markActive();
+}
+
+// Hash routing. One view is mounted at a time: the alternative was four sections stacked into
+// 8,600px, where reaching the skill list meant scrolling past the decision surface every time.
+// Routes are written "#/skills/authored", not "#skills". A bare "#skills" is also a valid element
+// reference, and the browser honours that first: landing on it scrolled the page to the section
+// rather than routing to it, cutting off everything above.
+function currentRoute() {
+  const hash = (location.hash || "").replace(/^#\/?/, "");
+  if (hash.startsWith("skills")) return hash;          // may carry a folder: skills/authored
+  return ["history", "traces", "clusters", "harnesses"].includes(hash) ? hash : "review";
+}
+
+function markActive() {
+  const route = currentRoute();
+  document.querySelectorAll(".navlink").forEach(el => {
+    // "skills" stays lit while a folder under it is open, the way a tree root does
+    const own = el.dataset.route;
+    el.classList.toggle("active", own === route || (own === "skills" && route.startsWith("skills")));
+  });
+}
+
+function route() {
+  const current = currentRoute(), base = current.split("/")[0];
+  document.querySelectorAll(".view").forEach(v => { v.hidden = v.dataset.route !== base; });
+  document.querySelector(".board-head").hidden = base !== "review";
+  markActive();
+  if (base === "skills") { renderSkillRows(); loadClusters(); }
+  if (base === "clusters") loadClusters();
+  if (base === "traces") loadTraces();
+  if (base === "harnesses") loadHarbor();
+}
+
+function renderTraces(data) {
+  const signature = JSON.stringify(data);
+  if (signature === traceSignature) return;
+  traceSignature = signature;
+  traceInventory = data;
+  $("#nav-traces").textContent = data.available_total || data.total || "";
+  const project = $("#trace-project"), harness = $("#trace-harness"), skill = $("#trace-skill");
+  const projectValue = project.value, harnessValue = harness.value, skillValue = skill.value;
+  const projectOptions = `<option value="">All projects</option>` +
+    Object.entries(data.available_projects || {}).map(([name, count]) =>
+      `<option value="${attr(name)}">${esc(name)} · ${count}</option>`).join("");
+  const harnessOptions = `<option value="">All agents</option>` +
+    Object.entries(data.available_harnesses || {}).map(([name, count]) =>
+      `<option value="${attr(name)}">${esc(name)} · ${count}</option>`).join("");
+  // available_skills is counted over every turn, not the filtered set, so selecting a skill does
+  // not empty the picker that selected it.
+  const skillOptions = `<option value="">All skills</option>` +
+    Object.entries(data.available_skills || {}).map(([name, count]) =>
+      `<option value="${attr(name)}">${esc(name)} · ${count}</option>`).join("");
+  if (project.innerHTML !== projectOptions) project.innerHTML = projectOptions;
+  if (harness.innerHTML !== harnessOptions) harness.innerHTML = harnessOptions;
+  if (skill.innerHTML !== skillOptions) skill.innerHTML = skillOptions;
+  project.value = projectValue;
+  harness.value = harnessValue;
+  skill.value = skillValue;
+  if (!data.configured) {
+    $("#trace-summary").innerHTML =
+      (data.status === "unreadable"
+        ? `The normalized transcript snapshot is unreadable. Run ` +
+          `<code>python -m ingot.optimize.local_traces --force</code> to rebuild it.`
+        : `No normalized transcript snapshot is present. Run ` +
+          `<code>python -m ingot.optimize.local_traces</code> on the machine that owns the logs, ` +
+          `then copy the resulting store into <code>runs/</code>.`);
+    $("#trace-stats").innerHTML = "";
+    $("#trace-list").innerHTML =
+      `<div class="empty"><div class="et">No local traces imported.</div>
+       <div class="ed">Scanning is local-only. It excludes reasoning, attachments, and tool payloads.</div></div>`;
+    $("#trace-skills").innerHTML = "<h3>Observed skills</h3><p class=\"trace-note\">No evidence yet.</p>";
+    return;
+  }
+  const input = data.usage.input_tokens || 0, output = data.usage.output_tokens || 0;
+  const cached = data.usage.cached_input_tokens || 0;
+  const compact = new Intl.NumberFormat(undefined, {
+    notation: "compact", maximumFractionDigits: 1,
+  });
+  $("#trace-summary").innerHTML =
+    `<b>Local transcript snapshot</b> · generated ${esc(stamp(data.generated_at))}. ` +
+    `Answers remain in the server-side evidence store. The console never starts judging; ` +
+    `<code>--allow-external-judge</code> is the explicit paid boundary.`;
+  $("#trace-stats").innerHTML = [
+    [data.total, "completed turns"],
+    [Object.values(data.harnesses).length, "agent harnesses"],
+    [data.revision_pinned, "revision-pinned uses"],
+    [data.unattributed, "unattributed turns"],
+    [`${compact.format(input)} / ${compact.format(output)}`, "input / output tokens"],
+    [compact.format(cached), "cached input tokens"],
+    [data.tool_errors, "tool errors"],
+  ].map(([n, label]) => `<div class="trace-stat"><span class="n">${esc(String(n))}</span>
+    <span class="l">${esc(label)}</span></div>`).join("");
+  $("#trace-list").innerHTML = data.recent.length ? data.recent.map(trace => {
+    const skills = (trace.skills || []).map(skill =>
+      `${skill.name}${skill.revision ? `@${shortRev(skill.revision)}` : "@unknown"}`).join(", ");
+    const tokens = (trace.usage?.input_tokens || 0) + (trace.usage?.output_tokens || 0);
+    const recorded = new Date(trace.timestamp);
+    const recordedLabel = Number.isNaN(recorded.getTime()) ? "time unrecorded"
+      : recorded.toLocaleString();
+    const task = trace.task
+      ? esc(trace.task)
+      : `<span class="mute">Turn ${esc((trace.id || "").slice(0, 10))}</span>`;
+    return `<div class="trace-row"><div class="trace-task">${task}</div>
+      <div class="trace-meta"><span>${esc(trace.harness || "unknown")}</span>
+        <span>${esc(trace.project || "no project")}</span>
+        <span>${esc(recordedLabel)}</span>
+        <span>${esc(skills || "no observed skill")}</span>
+        <span>${tokens.toLocaleString()} tokens</span>
+        ${trace.tool_errors ? `<span>${trace.tool_errors} tool error${trace.tool_errors === 1 ? "" : "s"}</span>` : ""}
+      </div></div>`;
+  }).join("") : `<div class="empty"><div class="et">No completed turns match these filters.</div>
+    <div class="ed">Change the project, agent, or date range.</div></div>`;
+  const skills = Object.entries(data.skill_uses || {}).slice(0, 20);
+  $("#trace-skills").innerHTML = `<h3>Observed skills</h3>` +
+    (skills.length ? `<ol>${skills.map(([name, count]) =>
+      `<li><span>${esc(name)}</span><span>${count}</span></li>`).join("")}</ol>`
+      : `<p class="trace-note">No skill identity was observed.</p>`);
+}
+
+function traceUrl() {
+  const query = new URLSearchParams();
+  [["project", "#trace-project"], ["harness", "#trace-harness"], ["skill", "#trace-skill"],
+   ["since", "#trace-since"], ["until", "#trace-until"]].forEach(([name, selector]) => {
+    const value = $(selector).value;
+    if (value) query.set(name, value);
+  });
+  if ($("#trace-task-previews").checked) query.set("include_tasks", "true");
+  const suffix = query.toString();
+  return `/api/traces${suffix ? `?${suffix}` : ""}`;
+}
+
+async function loadTraces() {
+  try {
+    renderTraces(await j(traceUrl()));
+    clearLoadError("#traces-msg");
+  } catch (error) {
+    say("#traces-msg", `⛔ ${error.message}`, true);
+  }
+}
+
+// ---- harness x model --------------------------------------------------------------------------
+// Does this skill help this combination of harness and model? Every held-out task is run twice in a
+// sandbox, once with the skill and once without, and lift is the difference between the two arms as
+// graded by the same fixed judge.
+//
+// The rule this view exists to enforce: a combination that never ran is not a zero. Sparse input
+// is intentional: its empty intersections stay empty, while an attempted run that produced no
+// measurement says so and can reveal its error. That distinction prevents a killed control arm
+// from masquerading as "+0.750".
+let harborSkills = null, harborSkill = "", harborSignature = null, harborSelected = "", harborLoading = false;
+
+function matrixCell(row) {
+  if (!row) {
+    return `<td class="mx-cell mx-blank"><span aria-hidden="true">—</span><span class="sr-only" aria-label="never run">never run</span></td>`;
+  }
+  const key = attr(row.combination);
+  if (!("lift" in row)) {
+    return `<td class="mx-cell"><button type="button" class="mx-plate mx-error" data-mx-cell="${key}" ` +
+      `aria-label="not measured for ${attr(row.harness)} on ${attr(row.model)}">not measured</button></td>`;
+  }
+  const lift = Number(row.lift);
+  const klass = lift > 0.05 ? "up" : lift < -0.05 ? "down" : "flat";
+  return `<td class="mx-cell"><button type="button" class="mx-plate mx-measured ${klass}" ` +
+    `data-mx-cell="${key}" aria-label="lift ${attr((lift >= 0 ? "+" : "") + lift.toFixed(3))} for ` +
+    `${attr(row.harness)} on ${attr(row.model)}">${lift >= 0 ? "+" : ""}${lift.toFixed(3)}</button></td>`;
+}
+
+function harborDetail(row) {
+  const value = (label, item) => `<div><span>${label}</span><b>${esc(item == null || item === "" ? "not recorded" : String(item))}</b></div>`;
+  const measured = "lift" in row;
+  const lift = measured ? `${Number(row.lift) >= 0 ? "+" : ""}${Number(row.lift).toFixed(3)}` : "not measured";
+  const dropped = Array.isArray(row.dropped) ? row.dropped.length : 0;
+  return `<p><b>${esc(row.harness)}</b> on <b>${esc(row.model)}</b> · ${lift}</p>` +
+    `<div class="mx-provenance">${value("skill mean", measured && row.skill_mean != null ? Number(row.skill_mean).toFixed(3) : null)}` +
+    `${value("control mean", measured && row.control_mean != null ? Number(row.control_mean).toFixed(3) : null)}` +
+    `${value("n", measured ? row.n : null)}${value("attempts", measured ? row.attempts : null)}` +
+    `${value("dropped", measured ? dropped : null)}${value("target alias", row.target_alias)}` +
+    `${value("protocol", row.protocol)}${value("parameters", row.parameter_billions == null ? null : row.parameter_billions + "B")}` +
+    `${value("family", row.family)}${value("quantization", row.quantization)}` +
+    `${value("tool parser", row.tool_parser)}${value("error", row.error)}</div>`;
+}
+
+function harborChartDetail(row) {
+  const lift = Number(row.lift), klass = lift > .05 ? "" : lift < -.05 ? "down" : "flat";
+  return `<strong>${esc(row.harness)}</strong><span>${esc(row.model)}</span>` +
+    `<span>${esc(row.parameter_billions)}B</span>` +
+    `<span class="lift ${klass}">${lift >= 0 ? "+" : ""}${lift.toFixed(3)}</span>` +
+    `<span>skill ${Number(row.skill_mean).toFixed(3)} · control ${Number(row.control_mean).toFixed(3)} · ` +
+    `n ${row.n == null ? "not recorded" : esc(row.n)}</span>`;
+}
+
+function generationShape(row) {
+  const family = String(row.family || "");
+  return family.includes("Qwen3.5") ? "circle" :
+    family.includes("Qwen3.6") ? "square" : "diamond";
+}
+
+function harnessCode(name) {
+  const words = String(name || "").split(/[-_\s]+/).filter(Boolean);
+  return (words.length > 1 ? words.map(word => word[0]).join("") : words[0]?.slice(0, 2) || "?")
+    .slice(0, 2).toUpperCase();
+}
+
+function sizeLiftChart(rows) {
+  const points = rows.map(row => ({row, size: Number(row.parameter_billions)}))
+    .filter(({row, size}) => Number.isFinite(size) && size > 0 && "lift" in row &&
+      Number.isFinite(Number(row.lift)));
+  if (!points.length) {
+    return `<div class="mx-chart-empty">Model size chart appears when measured rows carry parameter-count provenance.</div>`;
+  }
+  const sizes = [...new Set(points.map(point => point.size))].sort((a, b) => a - b);
+  const width = 760, height = 310, left = 66, right = 22, top = 18, bottom = 58;
+  const plotRight = width - right, plotBottom = height - bottom;
+  let xMin = Math.log10(sizes[0]), xMax = Math.log10(sizes[sizes.length - 1]);
+  if (xMin === xMax) { xMin -= .2; xMax += .2; }
+  const lifts = points.map(({row}) => Number(row.lift));
+  let yMin = Math.min(0, ...lifts), yMax = Math.max(0, ...lifts);
+  const yPad = Math.max((yMax - yMin) * .12, .025);
+  yMin -= yPad; yMax += yPad;
+  const swarmInset = Math.max(...sizes.map(size =>
+    (points.filter(point => point.size === size).length - 1) * 9)) + 20;
+  const x = size => left + swarmInset + (Math.log10(size) - xMin) / (xMax - xMin) *
+    (plotRight - swarmInset - (left + swarmInset));
+  const y = lift => top + (yMax - lift) / (yMax - yMin) * (plotBottom - top);
+  const harnesses = [...new Set(points.map(({row}) => row.harness))].sort();
+  const colors = ["var(--rust)", "var(--pass)", "var(--warn)", "var(--fail)", "var(--ink-2)"];
+  const color = harness => colors[harnesses.indexOf(harness) % colors.length];
+  const pointOffset = (row, size) => {
+    const peers = points.filter(point => point.size === size)
+      .map(point => point.row.harness).sort();
+    return (peers.indexOf(row.harness) - (peers.length - 1) / 2) * 18;
+  };
+  const yTicks = Array.from({length: 5}, (_, index) => yMin + (yMax - yMin) * index / 4);
+  const grid = yTicks.map(value => {
+    const rounded = Number(value.toFixed(2));
+    const shown = Object.is(rounded, -0) ? 0 : rounded;
+    return `<line class="mx-grid" x1="${left}" y1="${y(value)}" x2="${plotRight}" y2="${y(value)}"/>` +
+      `<text class="mx-tick" x="${left - 9}" y="${y(value) + 3}" text-anchor="end">${shown > 0 ? "+" : ""}${shown.toFixed(2)}</text>`;
+  }).join("");
+  const xTicks = sizes.map(size => `<line class="mx-model-rail" x1="${x(size)}" y1="${top}" x2="${x(size)}" y2="${plotBottom}"/>` +
+    `<text class="mx-tick" x="${x(size)}" y="${plotBottom + 19}" text-anchor="middle">${size}B</text>`).join("");
+  const marks = points.map(({row, size}) => {
+    const lift = Number(row.lift), cy = y(lift), fill = color(row.harness);
+    const label = `${lift >= 0 ? "+" : ""}${lift.toFixed(3)} lift`;
+    const title = `${row.harness} · ${row.model} · ${size}B · ${label} · ${row.family || "generation not recorded"} · ${row.quantization || "quantization not recorded"} · ${row.tool_parser || "tool parser not recorded"}`;
+    const shape = generationShape(row);
+    const visible = shape === "square"
+      ? `<rect class="visible" x="-8" y="-8" width="16" height="16" rx="2" fill="${fill}" stroke="${color(row.harness)}"/>`
+      : shape === "diamond"
+        ? `<path class="visible" d="M 0 -9 L 9 0 L 0 9 L -9 0 Z" fill="${fill}" stroke="${color(row.harness)}"/>`
+        : `<circle class="visible" r="8" fill="${fill}" stroke="${color(row.harness)}"/>`;
+    return `<g class="mx-size-mark" transform="translate(${x(size) + pointOffset(row, size)} ${cy})" ` +
+      `tabindex="0" role="button" data-size-point="${attr(row.combination)}" aria-label="${attr(title)}">` +
+      `<title>${esc(title)}</title><circle class="hit" r="20"/>${visible}` +
+      `<text class="mx-mark-code" y=".5">${esc(harnessCode(row.harness))}</text></g>`;
+  }).join("");
+  const legend = harnesses.map(harness => {
+    const count = points.filter(point => point.row.harness === harness).length;
+    return `<span style="color:${color(harness)}"><i aria-hidden="true"></i>` +
+      `<span>${esc(harness)} <b>${count} point${count === 1 ? "" : "s"}</b></span></span>`;
+  }).join("");
+  const zeroY = y(0);
+  return `<section class="mx-chart" aria-labelledby="mx-chart-title"><div class="mx-chart-head">` +
+    `<div><h3 id="mx-chart-title">Model size vs lift</h3>` +
+    `<span class="mx-chart-kicker">Measured evidence only · select a mark for its exact result</span></div>` +
+    `<div class="mx-chart-stats"><div class="mx-chart-stat"><b>${points.length}</b><span>measured points</span></div>` +
+    `<div class="mx-chart-stat"><b>${sizes.length}</b><span>deployments</span></div>` +
+    `<div class="mx-chart-stat"><b>${harnesses.length}</b><span>harnesses</span></div></div></div>` +
+    `<div class="mx-chart-legend" aria-label="Harness legend">${legend}</div>` +
+    `<div class="mx-chart-plot"><svg viewBox="0 0 ${width} ${height}" role="img" aria-label="Measured lift by Qwen parameter count and harness">` +
+    `<rect class="mx-zone-positive" x="${left}" y="${top}" width="${plotRight - left}" height="${Math.max(0, zeroY - top)}"/>` +
+    `<rect class="mx-zone-negative" x="${left}" y="${zeroY}" width="${plotRight - left}" height="${Math.max(0, plotBottom - zeroY)}"/>` +
+    `${grid}${xTicks}<line class="mx-zero" x1="${left}" y1="${zeroY}" x2="${plotRight}" y2="${zeroY}"/>` +
+    `<text class="mx-axis-title" x="${(left + plotRight) / 2}" y="${height - 22}" text-anchor="middle">Parameters (billions, log scale)</text>` +
+    `<text class="mx-axis-title" transform="translate(16 ${(top + plotBottom) / 2}) rotate(-90)" text-anchor="middle">Lift</text>` +
+    `${marks}</svg></div>` +
+    `<div class="mx-chart-detail" id="mx-chart-detail" aria-live="polite">` +
+    `<span><strong>Select a mark</strong><br>Exact lift, model, and harness appear here.</span></div>` +
+    `<div class="mx-chart-note">Marks at the same model size are offset to stay legible. Circle = Qwen3.5; square = Qwen3.6; diamond = other model families. Failed and never-run cells remain in the evidence ledger below.</div></section>`;
+}
+
+function renderHarbor(data) {
+  const signature = JSON.stringify(data);
+  if (signature === harborSignature) return;
+  const focused = document.activeElement?.dataset?.mxCell || document.activeElement?.dataset?.sizePoint || "";
+  harborSignature = signature;
+  const rows = data.rows || [];
+  const byHarness = new Map();
+  rows.forEach(row => {
+    if (!byHarness.has(row.harness)) byHarness.set(row.harness, new Map());
+    byHarness.get(row.harness).set(row.model, row);
+  });
+  const byModel = new Map(Object.entries(data.model_summaries || {}));
+  const harnesses = data.harnesses || [];
+  const models = data.models || [];
+  const matrixWidth = (models.length + 1) * 12.5;
+  const when = data.generated ? new Date(data.generated * 1000).toLocaleString() : "unknown";
+  const head = `<tr><th class="mx-sticky mx-corner" scope="col">Harness</th>${models.map(model => {
+    const summary = byModel.get(model) || {};
+    const count = `${summary.measured || 0} measured · ${summary.unmeasured || 0} not measured`;
+    return `<th scope="col"><span class="mx-model">${esc(model)}</span><span class="mx-count">${count}</span>` +
+      `${summary.warning ? `<span class="mx-column-warn">${esc(summary.warning)}</span>` : ""}</th>`;
+  }).join("")}</tr>`;
+  const body = harnesses.map(harness => `<tr><th class="mx-sticky mx-harness" scope="row">${esc(harness)}</th>` +
+    models.map(model => matrixCell(byHarness.get(harness)?.get(model))).join("") + `</tr>`).join("");
+
+  const warning = data.warning
+    ? `<div class="mx-warn"><b>Not readable as a ranking</b>${esc(data.warning)}</div>` : "";
+
+  $("#mx-body").innerHTML = warning +
+    sizeLiftChart(rows) +
+    `<div class="mx-wrap"><table class="mx" style="--mx-width:${matrixWidth}rem"><thead>${head}</thead><tbody>${body}</tbody></table></div>` +
+    `<div class="mx-details" id="mx-details" aria-live="polite"><p>Select a measured or failed cell for its recorded evidence.</p></div>` +
+    `<div class="mx-foot">${data.measured} measured, ${data.unmeasured} not measured. ` +
+    `Mean lift ${data.mean_lift == null ? "—" : (data.mean_lift >= 0 ? "+" : "") + data.mean_lift.toFixed(3)}. ` +
+    `Source <b>${esc(data.source)}</b>${data.rescored ? " (rescored from saved runs)" : ""}, ` +
+    `judged by ${esc(data.judge || "the configured judge")}, ${esc(when)}.</div>`;
+  const activate = element => {
+    const key = element.dataset.mxCell || element.dataset.sizePoint;
+    const row = rows.find(item => item.combination === key);
+    harborSelected = row ? key : "";
+    $("#mx-details").innerHTML = row ? harborDetail(row) : "<p>Recorded evidence is unavailable.</p>";
+    const chartDetail = $("#mx-chart-detail");
+    if (chartDetail && row && "lift" in row) chartDetail.innerHTML = harborChartDetail(row);
+    $("#mx-body").querySelectorAll("[data-size-point]").forEach(point =>
+      point.classList.toggle("selected", point.dataset.sizePoint === harborSelected));
+  };
+  $("#mx-body").querySelectorAll("[data-mx-cell], [data-size-point]").forEach(element => {
+    element.onclick = () => activate(element);
+    element.onkeydown = event => {
+      if (event.key === "Enter" || event.key === " ") { event.preventDefault(); activate(element); }
+    };
+  });
+  if (harborSelected) {
+    const selected = rows.find(item => item.combination === harborSelected);
+    if (selected) {
+      $("#mx-details").innerHTML = harborDetail(selected);
+      if ($("#mx-chart-detail") && "lift" in selected) $("#mx-chart-detail").innerHTML = harborChartDetail(selected);
+      $("#mx-body").querySelector(`[data-size-point="${CSS.escape(harborSelected)}"]`)?.classList.add("selected");
+    }
+  }
+  if (focused) $("#mx-body").querySelector(`[data-mx-cell="${CSS.escape(focused)}"], [data-size-point="${CSS.escape(focused)}"]`)?.focus();
+  $("#nav-harnesses").textContent = data.measured || "";
+}
+
+async function loadHarbor() {
+  if (harborLoading) return;
+  harborLoading = true;
+  try {
+    const available = (await j("/api/harbor")).skills || [];
+    const selected = harborSkill;
+    if (JSON.stringify(available) !== JSON.stringify(harborSkills)) {
+      harborSkills = available;
+      $("#mx-skill").innerHTML = harborSkills.map(s =>
+        `<option value="${attr(s)}">${esc(s)}</option>`).join("");
+      harborSkill = harborSkills.includes(selected) ? selected : (harborSkills[0] || "");
+      $("#mx-skill").value = harborSkill;
+    }
+    $("#mx-intro").innerHTML =
+      "Every held-out task runs in matched container arms, with the skill in front of the agent and " +
+      "without it. <b>Lift</b> is the difference between the two arms, graded by the same fixed " +
+      "judge, so a harness cannot flatter itself. A combination that failed to run shows " +
+      "<b>not measured</b> — it is not a zero.";
+    if (!harborSkill) {
+      $("#mx-body").innerHTML = `<div class="mx-foot">No skill has been run across harnesses yet. ` +
+        `Run <b>python -m ingot.optimize.harbor_eval &lt;skill&gt; --agent &lt;harness&gt;</b>.</div>`;
+      clearLoadError("#harnesses-msg");
+      return;
+    }
+    renderHarbor(await j(`/api/harbor/${encodeURIComponent(harborSkill)}`));
+    clearLoadError("#harnesses-msg");
+  } catch (error) {
+    say("#harnesses-msg", `⛔ ${error.message}`, true);
+  } finally {
+    harborLoading = false;
+  }
+}
+
+// ---- categories -------------------------------------------------------------------------------
+// Provenance folders say where a skill came from, which is a fact about its origin: "authored here"
+// holds finance skills next to testing skills. This groups by what a skill is about, from the same
+// embeddings the router matches on, so the two views answer different questions on purpose.
+let clusterData = null, familySelected = null, clustersLoading = false, clustersAttempted = false;
+const CLUSTER_HUES = [206, 168, 32, 286, 8, 130, 248, 52, 320, 96, 186, 268];
+
+function familyMatches(skillName) {
+  if (familySelected === null || !clusterData) return true;
+  return clusterData.clusters[familySelected]?.members.some(m => m.name === skillName) || false;
+}
+
+function syncFamilyFilter() {
+  const select = $("#skill-family-filter");
+  const options = `<option value="">All families</option>` + (clusterData?.clusters || [])
+    .map((c, i) => `<option value="${i}">${esc(c.label)} · ${c.size}</option>`).join("");
+  if (select.innerHTML !== options) select.innerHTML = options;
+  select.disabled = !clusterData?.clusters?.length;
+  select.value = familySelected === null ? "" : String(familySelected);
+}
+
+function selectFamily(index) {
+  familySelected = index === null || index === "" ? null : Number(index);
+  syncFamilyFilter();
+  renderClusters();
+  renderSkillRows();
+}
+
+async function loadClusters() {
+  if (clusterData) {
+    if (currentRoute() === "clusters") renderClusters();
+    else syncFamilyFilter();
+    return;
+  }
+  if (clustersLoading || clustersAttempted) return;
+  clustersAttempted = true;
+  clustersLoading = true;
+  try {
+    clusterData = await j("/api/clusters");
+    say("#clusters-msg", "", false);
+  } catch (e) {
+    // The 404 carries the command that produces the file; showing it is the whole recovery path.
+    say("#clusters-msg", `⛔ ${e.message}`, true, "load");
+  } finally {
+    clustersLoading = false;
+    if (currentRoute() === "clusters") renderClusters();
+    else if (clusterData) {
+      syncFamilyFilter();
+      // Skills rendered before this asynchronous taxonomy arrived; render once more with it.
+      renderSkillRows();
+    }
+  }
+}
+
+function renderClusters() {
+  const svg = $("#cluster-scatter"), side = $("#cluster-side");
+  if (!clusterData) {
+    svg.innerHTML = ""; side.innerHTML = "";
+    $("#cluster-meta").textContent = "";
+    return;
+  }
+  const d = clusterData, W = 640, H = 440, PAD = 34;
+  const pts = d.clusters.flatMap(c => c.members.map(m => m.xy));
+  if (!pts.length) {
+    svg.innerHTML = ""; side.innerHTML = "";
+    $("#cluster-chips").innerHTML = "";
+    $("#cluster-meta").textContent = "No skill families were produced.";
+    $("#nav-clusters").textContent = "0";
+    syncFamilyFilter();
+    return;
+  }
+  const xs = pts.map(p => p[0]), ys = pts.map(p => p[1]);
+  const spanX = Math.max(...xs) - Math.min(...xs) || 1, spanY = Math.max(...ys) - Math.min(...ys) || 1;
+  const mapX = x => PAD + (W - 2 * PAD) * (x - Math.min(...xs)) / spanX;
+  const mapY = y => PAD + (H - 2 * PAD) * (y - Math.min(...ys)) / spanY;
+
+  // No halos. Membership is decided over 10 components and drawn on 2, so a bucket's members can
+  // land far apart here — a circle enclosing them would draw a boundary the data does not have.
+  // Colour carries membership; position carries only rough similarity.
+  const visibleClusters = d.clusters.map((cluster, index) => ({cluster, index}))
+    .filter(({index}) => familySelected === null || index === familySelected);
+  svg.innerHTML = visibleClusters.map(({cluster: c, index: i}) => {
+    const hue = CLUSTER_HUES[i % CLUSTER_HUES.length];
+    const dots = c.members.map(m =>
+      `<circle class="cdot" cx="${mapX(m.xy[0]).toFixed(1)}" cy="${mapY(m.xy[1]).toFixed(1)}"
+        r="4.6" fill="hsl(${hue} 64% 58%)"
+        ${m.missing ? 'stroke="currentColor" stroke-width="1" stroke-dasharray="1.5 1.5"' : ""}>
+        <title>${esc(m.name)}</title></circle>`).join("");
+    const cx = mapX(c.centroid_2d[0]), cy = mapY(c.centroid_2d[1]);
+    return `<g class="cbub" data-cluster="${i}" role="button" tabindex="0"
+        aria-label="${esc(c.label)}, ${c.size} skills">
+      ${dots}
+      <circle cx="${cx.toFixed(1)}" cy="${cy.toFixed(1)}" r="15" fill="transparent"></circle>
+      <text class="clabel on" x="${cx.toFixed(1)}" y="${(cy - 11).toFixed(1)}"
+        text-anchor="middle">${esc(c.top_terms[0] || "cluster")} · ${c.size}</text>
+    </g>`;
+  }).join("");
+
+  svg.querySelectorAll(".cbub").forEach(g => {
+    const pick = () => selectFamily(Number(g.dataset.cluster));
+    g.onclick = pick;
+    g.onkeydown = e => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); pick(); } };
+  });
+
+  $("#cluster-chips").innerHTML =
+    `<button class="cchip" role="tab" aria-selected="${familySelected === null}"
+      data-cluster="">All families<span class="n">${d.n_skills}</span></button>` +
+    d.clusters.map((c, i) => {
+    const hue = CLUSTER_HUES[i % CLUSTER_HUES.length];
+    return `<button class="cchip" role="tab" aria-selected="${familySelected === i}"
+      data-cluster="${i}" style="${familySelected === i ? `color:hsl(${hue} 64% 46%)` : ""}">
+      <span class="swatch" style="background:hsl(${hue} 64% 58%)"></span>
+      ${esc(c.label)}<span class="n">${c.size}</span></button>`;
+  }).join("");
+  $("#cluster-chips").querySelectorAll(".cchip").forEach(b => {
+    b.onclick = () => selectFamily(b.dataset.cluster);
+  });
+
+  const c = familySelected === null ? null : d.clusters[familySelected];
+  side.innerHTML = c ? `<h3>${esc(c.label)}</h3>
+      <div class="cterms">${c.size} skill${c.size === 1 ? "" : "s"} · ${esc(c.top_terms.join(", "))}</div>
+      <ul>${c.members.map(m => `<li><button onclick="openSkillVersions('${esc(m.name)}')">
+        ${esc(m.name)}${m.missing ? ` <span class="gone">no longer indexed</span>` : ""}</button></li>`).join("")}</ul>`
+    : `<h3>All skill families</h3>
+      <div class="cterms">${d.n_skills} skills · choose a family to isolate it</div>
+      <ul>${d.clusters.map((family, i) => `<li><button onclick="selectFamily(${i})">
+        ${esc(family.label)} · ${family.size}</button></li>`).join("")}</ul>`;
+
+  $("#cluster-meta").innerHTML =
+    `<b>${d.k}</b> categories over <b>${d.n_skills}</b> skills · silhouette <b>${d.silhouette}</b> · ` +
+    `${esc(d.clusterer)} on ${esc(d.embedder)}` +
+    // A map drawn before the library changed is not wrong, but saying so is the difference between
+    // a stale view and a lie.
+    (d.unclustered > 0 ? `<br><b>${d.unclustered}</b> skill(s) added since this ran; re-run optimize.cluster` : "") +
+    (d.stale_members > 0 ? `<br><b>${d.stale_members}</b> clustered skill(s) no longer indexed` : "");
+  $("#nav-clusters").textContent = d.k;
+  syncFamilyFilter();
+}
+
+window.addEventListener("hashchange", () => { route(); scrollTo(0, 0); });
+
 // The board re-polls every 3s. Rebuilding the history rows on every poll reset each revision
 // picker to its first option, so a reviewer who chose an older snapshot lost that choice roughly
 // as fast as they could reach the button. Skip the rebuild when nothing changed, and carry any
 // selection across the rebuilds that do happen.
 let historySignature = null;
 const stamp = seconds => seconds ? new Date(seconds * 1000).toLocaleString() : "time unrecorded";
+
+// Approved and served are different states, and the gap between them is a vault merge. Without
+// this the console shows an approved change vanishing from review and reappearing minutes later,
+// which reads as a hang. `note`/`last_error` carry git and gh output, so escape them.
+let laneSignature = null;
+function renderLane(data) {
+  const signature = JSON.stringify(data);
+  if (signature === laneSignature) return;
+  laneSignature = signature;
+  const body = $("#lane-body");
+  // A quarantined change this process cannot read is skipped by the review queue, so the board
+  // says CLEAR over it. That warning has to appear even when the lane itself is fine.
+  const blocked = data?.pending_blocked
+    ? `<div class="lane-empty">⛔ ${esc(data.pending_blocked)}</div>` : "";
+  if (data?.unreadable) {
+    body.innerHTML = blocked + `<div class="lane-empty">⛔ ${esc(data.unreadable)}</div>`;
+    return;
+  }
+  const records = data?.publications || [];
+  const live = new Set(data?.live_states || []);
+  const travelling = records.filter(r => live.has(r.state));
+  const finished = records.filter(r => !live.has(r.state)).slice(0, 3);
+  if (!travelling.length && !finished.length) {
+    body.innerHTML = blocked + `<div class="lane-empty">Nothing publishing. An approved change
+      appears here until its vault commit lands.</div>`;
+    return;
+  }
+  // Finished rows sit under their own heading. Listing them beneath "travelling to the vault" made
+  // a merged change read as still in transit — the first question a reader asked of this panel.
+  const heading = finished.length && !travelling.length
+    ? `<div class="lane-empty">Nothing in transit. Recently published:</div>` : "";
+  body.innerHTML = blocked + heading + travelling.concat(finished).map(r => {
+    const cls = live.has(r.state) ? "live" : (r.state === "active" ? "done" : "stuck");
+    const pr = r.pr_url
+      ? `<a href="${attr(r.pr_url)}" target="_blank" rel="noopener">PR #${esc(String(r.pr))}</a>`
+      : "";
+    // `note` records what the receipt was waiting on and is never cleared, so a finished row
+    // would keep claiming it waits on a merge that already happened.
+    const detail = cls === "done" ? "" : (r.last_error || r.note || "");
+    return `<div class="lane-row ${cls}">
+      <span class="lane-name">${esc(r.skill)} <span class="act">${esc(r.action || "")}</span></span>
+      <span class="lane-state">${esc(String(r.state || "").replaceAll("_", " "))}</span>
+      <span class="lane-state">${pr}</span>
+      ${detail ? `<span class="lane-note">${esc(detail)}</span>` : ""}
+    </div>`;
+  }).join("");
+}
 
 function renderHistory(h) {
   const signature = JSON.stringify(h);
@@ -756,95 +2047,194 @@ function renderSkills(skills, runs = {}, history = null) {
   renderSkillRows();
 }
 
+function skillCard(s) {
+  const run = runInventory[s.name];
+  const lines = run?.log || [];
+  const paidRunActive = Object.values(runInventory).some(item => item.status === "running");
+  const drafting = run?.action === "eval";
+  const reviewing = run?.action === "review";
+  const optimizing = run?.action === "optimize";
+  const runLabel = drafting ? "Eval draft" : reviewing ? "Current-skill review" : "SkillOpt";
+  const versionCount = (s.active === false ? 0 : 1) + (s.pending ? 1 : 0) +
+    (revisionInventory[s.name] || []).length;
+  const versionChip = revisionInventoryReady
+    ? `<span class="chip mute" title="active, pending, and snapshotted versions">${versionCount} version${versionCount === 1 ? "" : "s"}</span>`
+    : `<span class="chip mute" title="revision history is still loading">versions …</span>`;
+  const runLog = run && (run.status === "running" || lines.length) ? `
+    <div class="skill-run${run.status === "error" ? " error" : ""}" role="log"
+      aria-live="polite" aria-relevant="additions text"
+      aria-label="${runLabel} log for ${esc(s.name)}">
+      <div class="skill-run-head"><span>${runLabel} ${esc(run.status || "running")}</span>
+        <span class="count">${lines.length} log line${lines.length === 1 ? "" : "s"}</span></div>
+      ${run.status === "running" ? `<p class="skill-run-note">${drafting
+        ? "Drafting eight train/holdout tasks can take a minute."
+        : reviewing ? "Review can take a minute."
+        : "Optimization can take a few minutes."} This log updates automatically.</p>` : ""}
+      <pre class="skill-run-log">${esc(lines.length ? lines.join("\n") : "Waiting for the first log entry…")}</pre>
+    </div>` : "";
+  return `
+  <div class="scard${s.pending ? " pend" : ""}" data-skill="${esc(s.name)}">
+    <button class="open" ${s.active === false ? "disabled" : `onclick="openSkillVersions('${esc(s.name)}')"`}
+      aria-label="View ${esc(s.name)} versions and contents">
+      <div class="sname">${esc(s.name)}</div>
+      <div class="chips">${statusChip(s, run)}
+        ${s.revision ? `<span class="chip mute">rev ${esc(shortRev(s.revision))}</span>` : ""}
+        ${versionChip}
+        ${s.uses ? `<span class="chip mute" title="times this skill's instructions were served">${s.uses} use${s.uses === 1 ? "" : "s"}</span>` : ""}</div>
+      <p class="sdesc">${esc(s.description)}</p>
+    </button>
+    <div class="foot">
+      ${s.pending ? `<button class="btn primary" onclick="showPending('${esc(s.name)}', {scroll: true})">${s.active === false ? "Review addition" : "Review change"}</button>` : ""}
+      ${s.active === false ? "" : s.has_tasks
+        ? `<button class="btn" onclick="generateCandidate('${esc(s.name)}')"
+             title="${paidRunActive ? "another paid model run is in progress" : "Run SkillOpt"}"
+             ${paidRunActive ? "disabled" : ""}>
+             ${run?.status === "running" && optimizing ? "optimizing…" : "Optimize with SkillOpt"}</button>`
+        : `<button class="btn primary" onclick="createEvalSet('${esc(s.name)}')"
+             title="${paidRunActive ? "another paid model run is in progress" : "Draft eight train and holdout tasks"}"
+             ${paidRunActive ? "disabled" : ""}>
+             ${run?.status === "running" && drafting ? "drafting evals…" : "Create eval set"}</button>`}
+    </div>
+    ${runLog}
+  </div>`;
+}
+
+// Folder tiles stand in for the skill grid at the root of the section, the way a repo shows
+// directories before files. 102 cards in one grid is the flat list again with rounder corners.
+function folderTiles(skills) {
+  const counts = {}, evals = {}, pend = {};
+  skills.forEach(s => {
+    const key = folderOf(s);
+    counts[key] = (counts[key] || 0) + 1;
+    if (s.has_tasks) evals[key] = (evals[key] || 0) + 1;
+    if (s.pending) pend[key] = (pend[key] || 0) + 1;
+  });
+  return `<div class="grid">` + FOLDERS.filter(([key]) => counts[key]).map(([key, title, note]) => `
+    <a class="fold" href="#/skills/${key}">
+      <span class="fname">▸ ${esc(title)}<span class="fcount">${counts[key]}</span></span>
+      <span class="fnote">${esc(note)}</span>
+      <span class="fbar">${evals[key] || 0} with evals${pend[key] ? ` · ${pend[key]} awaiting review` : ""}</span>
+    </a>`).join("") + `</div>`;
+}
+
 function renderSkillRows() {
+  const list = $("#skills-list");
   if (!skillInventory.length) {
-    $("#skills-list").innerHTML =
+    list.innerHTML =
       `<div class="empty"><div class="et">No skills registered.</div>
        <div class="ed">Fetch or create skills under <code>skills/&lt;name&gt;/SKILL.md</code>
        and they will appear here.</div></div>`;
     $("#skill-filter-count").textContent = "0 skills";
+    $("#skill-crumbs").innerHTML = "";
     return;
   }
+  const folder = currentRoute().split("/")[1] || "";
   const query = $("#skill-search").value.trim().toLowerCase();
   const filter = $("#skill-filter").value;
-  const visible = skillInventory.filter(s => {
-    const matchesText = !query || `${s.name} ${s.description}`.toLowerCase().includes(query);
-    const matchesFilter = filter === "all" || (filter === "pending" && s.pending) ||
-      (filter === "evals" && s.has_tasks) || (filter === "no-evals" && !s.has_tasks);
-    return matchesText && matchesFilter;
-  });
-  $("#skill-filter-count").textContent = `${visible.length} of ${skillInventory.length}`;
-  if (!visible.length) {
-    $("#skills-list").innerHTML =
-      `<div class="empty"><div class="et">No skills match.</div>
-       <div class="ed">Change the search text or filter to see more skills.</div></div>`;
+
+  $("#skill-crumbs").innerHTML = folder
+    ? `<a href="#/skills">Skills</a><span>/</span><span>${esc(folderTitle(folder))}</span>`
+    : `<span>Skills</span>`;
+  $("#skills-head").textContent = folder ? folderTitle(folder) : "Skills under control";
+
+  // The root shows folders, not skills — but only when nothing is narrowing the set. A search or a
+  // filter is a question about the whole library, so it has to answer across every folder.
+  if (!folder && !query && filter === "all" && familySelected === null) {
+    list.innerHTML = folderTiles(skillInventory);
+    $("#skill-filter-count").textContent = `${skillInventory.length} skills in ${FOLDERS.filter(f => skillInventory.some(s => folderOf(s) === f[0])).length} folders`;
     return;
   }
+
+  const visible = skillInventory.filter(s => {
+    if (folder && folderOf(s) !== folder) return false;
+    const matchesText = !query || `${s.name} ${s.description}`.toLowerCase().includes(query);
+    const matchesFilter = filter === "all" || (filter === "pending" && s.pending) ||
+      (filter === "evals" && s.has_tasks) || (filter === "no-evals" && !s.has_tasks) ||
+      filter === folderOf(s);
+    return matchesText && matchesFilter && familyMatches(s.name);
+  });
+  const scope = folder ? skillInventory.filter(s => folderOf(s) === folder).length : skillInventory.length;
+  $("#skill-filter-count").textContent = `${visible.length} of ${scope}`;
+
+  if (!visible.length) {
+    // "Change the search text" is the wrong advice when the filter names a state no skill is in
+    // yet: the library has none to find, and the reviewer needs the step that creates one instead.
+    const nothing = !query && {
+      evals: ["No skill has an eval task set yet.",
+              `SkillOpt measures a change against held-out tasks, so it needs one first. ` +
+              `Choose <b>Needs evals</b>, then <b>Create eval set</b> on a skill card.`],
+      "no-evals": ["Every skill has an eval task set.", "Nothing here needs one."],
+      pending: ["Nothing is quarantined.",
+                "Approved and rejected changes leave this filter; History keeps the record."],
+    }[filter];
+    list.innerHTML = nothing
+      ? `<div class="empty"><div class="et">${nothing[0]}</div><div class="ed">${nothing[1]}</div></div>`
+      : `<div class="empty"><div class="et">No skills match.</div>
+         <div class="ed">Change the search text or filter to see more skills.</div></div>`;
+    return;
+  }
+
   const ordered = [...visible].sort((a, b) => (b.pending - a.pending) || (b.has_tasks - a.has_tasks));
-  $("#skills-list").innerHTML = ordered.map(s => {
-    const run = runInventory[s.name];
-    const lines = run?.log || [];
-    const versionCount = 1 + (s.pending ? 1 : 0) + (revisionInventory[s.name] || []).length;
-    const versionChip = revisionInventoryReady
-      ? `<span class="chip mute" title="active, pending, and snapshotted versions">${versionCount} version${versionCount === 1 ? "" : "s"}</span>`
-      : `<span class="chip mute" title="revision history is still loading">versions …</span>`;
-    const runLog = run && (run.status === "running" || lines.length) ? `
-      <div class="skill-run${run.status === "error" ? " error" : ""}" role="log"
-        aria-live="polite" aria-relevant="additions text"
-        aria-label="SkillOpt log for ${esc(s.name)}">
-        <div class="skill-run-head"><span>SkillOpt ${esc(run.status || "running")}</span>
-          <span class="count">${lines.length} log line${lines.length === 1 ? "" : "s"}</span></div>
-        ${run.status === "running" ? `<p class="skill-run-note">Optimization can take a few minutes. This log updates automatically.</p>` : ""}
-        <pre class="skill-run-log">${esc(lines.length ? lines.join("\n") : "Waiting for the first log entry…")}</pre>
-      </div>` : "";
-    return `
-    <div class="srow${s.pending ? " pend" : ""}${s.has_tasks ? "" : " noev"}" data-skill="${esc(s.name)}">
-      <button class="main skill-open" onclick="openSkillVersions('${esc(s.name)}')"
-        aria-label="View ${esc(s.name)} versions and contents">
-        <div class="nameline"><span class="sname">${esc(s.name)}</span>${statusChip(s)}
-          ${s.revision ? `<span class="chip mute">rev ${esc(shortRev(s.revision))}</span>` : ""}
-          ${versionChip}
-          ${s.uses ? `<span class="chip mute" title="times this skill's instructions were served">${s.uses} use${s.uses === 1 ? "" : "s"}</span>` : ""}</div>
-        <p class="sdesc">${esc(s.description)}</p>
-      </button>
-      <div class="sactions">
-        ${s.pending ? `<button class="btn primary" onclick="showPending('${esc(s.name)}', {scroll: true})">Review change</button>` : ""}
-        <button class="btn" onclick="generateCandidate('${esc(s.name)}')"
-          ${s.status === "running" || !s.has_tasks ? "disabled" : ""}
-          ${s.has_tasks ? "" : `title="no eval task set; docker compose run --rm optimize ${esc(s.name)} auto-drafts one"`}>
-          ${s.status === "running" ? "optimizing…" : "Optimize with SkillOpt"}</button>
-      </div>
-      ${runLog}
-    </div>`;
-  }).join("");
+  // A search crossing folders labels each card's folder; inside one folder that would repeat the
+  // breadcrumb on every card.
+  const groups = folder || query || filter !== "all" || familySelected !== null
+    ? [["", ordered]]
+    : FOLDERS.map(([key]) => [key, ordered.filter(s => folderOf(s) === key)]).filter(([, i]) => i.length);
+  list.innerHTML = groups.map(([key, items]) =>
+    (key ? `<div class="difflabel">${esc(folderTitle(key))}</div>` : "") +
+    `<div class="grid">${items.map(skillCard).join("")}</div>`).join("");
   document.querySelectorAll(".skill-run-log").forEach(log => { log.scrollTop = log.scrollHeight; });
 }
 
 $("#skill-search").oninput = renderSkillRows;
 $("#skill-filter").onchange = renderSkillRows;
+$("#skill-family-filter").onchange = e => selectFamily(e.target.value);
 
-let skillVersionFiles = [];
+let skillVersionFiles = [], skillEvalData = null, skillReviewData = null;
+let skillDetailRunSignature = null;
+let skillDetailRequest = 0, skillReviewSubmitting = null;
 const versionLabel = v => v.kind === "active" ? `Active · ${shortRev(v.revision)}`
   : v.kind === "pending" ? `Pending challenger · ${shortRev(v.revision) || "unversioned"}`
   : `Snapshot · ${shortRev(v.revision)} · ${stamp(v.created)}`;
 
+function selectSkillTab(tab) {
+  const evals = tab === "evals";
+  $("#skill-tab-instructions").setAttribute("aria-selected", String(!evals));
+  $("#skill-tab-evals").setAttribute("aria-selected", String(evals));
+  $("#skill-tab-instructions").tabIndex = evals ? -1 : 0;
+  $("#skill-tab-evals").tabIndex = evals ? 0 : -1;
+  $("#skill-instructions").hidden = evals;
+  $("#skill-evals").hidden = !evals;
+}
+
 async function openSkillVersions(skill) {
+  const request = ++skillDetailRequest;
   $("#skill-detail-name").textContent = skill;
   $("#skill-version").innerHTML = "";
   $("#skill-file").innerHTML = "";
   $("#skill-version-content").textContent = "";
   $("#skill-version-desc").textContent = "";
   $("#skill-version-meta").innerHTML = "";
+  skillEvalData = null;
+  skillReviewData = null;
+  skillDetailRunSignature = JSON.stringify(runInventory[skill] || null);
+  selectSkillTab("instructions");
   say("#skill-version-msg", "Loading versions…", false);
-  $("#skill-overlay").hidden = false;
-  try {
-    const summary = await j(`/api/skills/${encodeURIComponent(skill)}/versions`);
-    $("#skill-version").innerHTML = summary.versions.map(v =>
-      `<option value="${esc(v.key)}">${esc(versionLabel(v))}</option>`).join("");
-    await loadSkillVersion();
-  } catch (e) {
-    say("#skill-version-msg", `⛔ ${e.message}`, true);
-  }
+  say("#skill-eval-msg", "Loading evaluation inputs…", false);
+  openDialog("#skill-overlay");
+  await Promise.allSettled([
+    (async () => {
+      try {
+        const summary = await j(`/api/skills/${encodeURIComponent(skill)}/versions`);
+        $("#skill-version").innerHTML = summary.versions.map(v =>
+          `<option value="${esc(v.key)}">${esc(versionLabel(v))}</option>`).join("");
+        await loadSkillVersion();
+      } catch (e) {
+        say("#skill-version-msg", `⛔ ${e.message}`, true);
+      }
+    })(),
+    loadSkillEvaluation(skill, request),
+  ]);
 }
 
 async function loadSkillVersion() {
@@ -875,11 +2265,183 @@ function renderSkillVersionFile() {
   $("#skill-version-content").textContent = file ? file.content : "";
 }
 
-function closeSkillVersions() { $("#skill-overlay").hidden = true; }
+const evalGroup = (title, items, render, open = false) => `
+  <details class="eval-group"${open ? " open" : ""}>
+    <summary>${esc(title)}<span class="count">${items.length}</span></summary>
+    <div class="eval-items">${items.length
+      ? items.map((item, index) => render(item || {}, index)).join("")
+      : `<div class="eval-item"><p class="eval-meta">None recorded.</p></div>`}</div>
+  </details>`;
+
+function renderEvalTask(task, index) {
+  const meta = [
+    task.rubric ? `Rubric: ${task.rubric}` : "",
+    task.check ? `Execution check: ${task.check}` : "",
+    task.deliverable ? `Deliverable: ${task.deliverable}` : "",
+  ].filter(Boolean);
+  const checks = (task.checklist || []).map(check =>
+    `<li><b>${esc(check.id || "check")}</b> · weight ${esc(check.weight ?? 1)} · ` +
+    `${esc(check.dimension || "correctness")}<br>${esc(check.criterion || "")}</li>`).join("");
+  return `<article class="eval-item">
+    <p class="eval-task"><b>${index + 1}.</b> ${esc(task.task || "(task text missing)")}</p>
+    ${meta.length ? `<p class="eval-meta">${esc(meta.join("\n"))}</p>` : ""}
+    ${checks ? `<ul class="eval-checks">${checks}</ul>` : ""}
+  </article>`;
+}
+
+function renderRoutingCase(item, index) {
+  const expected = item.expected == null ? "No route" : item.expected;
+  return `<article class="eval-item">
+    <p class="eval-task"><b>${index + 1}.</b> ${esc(item.task || "(task text missing)")}</p>
+    <p class="eval-meta">Expected: ${esc(expected)}${item.harness ? ` · Harness: ${esc(item.harness)}` : ""}${item.parity ? " · Cross-harness parity" : ""}</p>
+  </article>`;
+}
+
+function renderAcceptance(item) {
+  return `<article class="eval-item">
+    <p class="eval-task"><b>${esc(item.id || "rule")}</b>${item.description ? ` · ${esc(item.description)}` : ""}</p>
+    <p class="eval-meta">Forbidden pattern: ${esc(item.forbid || "(missing)")}</p>
+  </article>`;
+}
+
+function renderSkillReview(review, run) {
+  const reviewing = run?.status === "running" && run.action === "review";
+  const runLog = run?.action === "review" && (run.status === "running" || run.log?.length) ? `
+    <div class="skill-run${run.status === "error" ? " error" : ""}" role="log"
+      aria-live="polite" aria-label="Current-skill review log">
+      <div class="skill-run-head"><span>Current-skill review ${esc(run.status)}</span>
+        <span class="count">${(run.log || []).length} log line${(run.log || []).length === 1 ? "" : "s"}</span></div>
+      ${reviewing ? `<p class="skill-run-note">Review can take a minute. This log updates automatically.</p>` : ""}
+      <pre class="skill-run-log">${esc((run.log || []).join("\n") || "Waiting for the first log entry…")}</pre>
+    </div>` : "";
+  if (!review) {
+    return `<h3>Current-skill review</h3>${runLog}
+      ${reviewing ? "" : `<div class="empty"><div class="et">No review recorded.</div>
+        <div class="ed">Run review to score the active instructions against every train and held-out task. It measures only; it cannot create or activate a revision.</div></div>`}`;
+  }
+  const dimensions = Object.entries(review.by_dimension || {}).map(([name, loss]) =>
+    `<span class="chip warn">${esc(name)} loss ${esc(loss)}</span>`).join("");
+  const findings = (review.findings || []).map(f => `
+    <div class="finding"><b>${esc(f.check || "failed check")} · weight ${esc(f.weight ?? 1)} · value ${esc(f.value ?? 0)}</b>
+      <p>${esc(f.note || f.criterion || "No grader note.")}</p>
+      <p>${esc(f.task || "")}</p></div>`).join("");
+  const perTask = (review.per_task || []).map((task, index) =>
+    `<tr><td>${index + 1}. ${esc(task.task || "")}</td><td>${Number(task.score || 0).toFixed(3)}</td></tr>`).join("");
+  return `<h3>Current-skill review</h3>
+    ${runLog}
+    ${review.stale ? `<div class="gate block">⛔ Stale review: ${esc(review.stale)}.</div>`
+                   : `<div class="eval-summary"><span class="chip pass">active revision ${esc(shortRev(review.revision))}</span></div>`}
+    <div class="review-score"><strong>${Number(review.score || 0).toFixed(3)}</strong>
+      <span>${esc(review.failed_checks || 0)} failed checks of ${esc(review.checks || 0)} ·
+      ${esc(review.tasks || 0)} tasks · ${esc(stamp(review.created))}</span></div>
+    ${dimensions ? `<div class="eval-summary">${dimensions}</div>` : ""}
+    ${findings ? `<div class="difflabel">Failed checks</div>${findings}`
+               : `<div class="gate ok">✓ Every graded check passed cleanly</div>`}
+    ${perTask ? `<details class="eval-group"><summary>Per-task scores<span class="count">${review.per_task.length}</span></summary>
+      <div class="eval-items"><table class="cmp-tbl"><thead><tr><th>Task</th><th>Score</th></tr></thead>
+      <tbody>${perTask}</tbody></table></div></details>` : ""}`;
+}
+
+function renderSkillEvaluation() {
+  const skill = $("#skill-detail-name").textContent;
+  const run = runInventory[skill];
+  const paidRunActive = Object.values(runInventory).some(item => item.status === "running");
+  const reviewing = run?.status === "running" && run.action === "review";
+  const button = $("#skill-review-run");
+  button.disabled = !skillEvalData || paidRunActive || skillReviewSubmitting !== null;
+  button.title = !skillEvalData ? "Create an eval set before running review"
+    : paidRunActive ? "another paid model run is in progress"
+    : "Score the active instructions against every eval task";
+  button.textContent = reviewing ? "reviewing…" : "Run review";
+  if (!skillEvalData) {
+    $("#skill-eval-summary").innerHTML = "";
+    $("#skill-eval-groups").innerHTML =
+      `<div class="empty"><div class="et">No eval set.</div>
+       <div class="ed">Create one from the skill card, then return here to inspect what SkillOpt measures.</div></div>`;
+    $("#skill-review").innerHTML = renderSkillReview(skillReviewData, run);
+    return;
+  }
+  const c = skillEvalData.counts;
+  $("#skill-eval-summary").innerHTML =
+    `<span class="chip mute">${c.train} train</span><span class="chip mute">${c.holdout} held out</span>` +
+    `<span class="chip mute">${c.checks} checks</span>` +
+    `<span class="chip mute">${c.routing} routing</span><span class="chip mute">${c.acceptance} acceptance</span>` +
+    (skillEvalData.leakage ? `<span class="chip fail">train reused as holdout</span>` : `<span class="chip pass">held-out split</span>`);
+  $("#skill-eval-groups").innerHTML =
+    evalGroup("Train tasks", skillEvalData.train, renderEvalTask, true) +
+    evalGroup("Held-out tasks", skillEvalData.holdout, renderEvalTask, true) +
+    evalGroup("Routing cases", skillEvalData.routing, renderRoutingCase) +
+    evalGroup("Acceptance rules", skillEvalData.acceptance, renderAcceptance);
+  const oldLog = $("#skill-review .skill-run-log");
+  const oldScroll = oldLog?.scrollTop || 0;
+  const followedTail = !oldLog || oldLog.scrollHeight - oldLog.clientHeight - oldScroll < 20;
+  $("#skill-review").innerHTML = renderSkillReview(skillReviewData, run);
+  const newLog = $("#skill-review .skill-run-log");
+  if (newLog) newLog.scrollTop = followedTail ? newLog.scrollHeight : oldScroll;
+}
+
+async function loadSkillEvaluation(skill = $("#skill-detail-name").textContent,
+                                   request = skillDetailRequest) {
+  if (!skill) return;
+  const [evalResult, reviewResult] = await Promise.allSettled([
+    j(`/api/evals/${encodeURIComponent(skill)}`),
+    j(`/api/reviews/${encodeURIComponent(skill)}`),
+  ]);
+  if (request !== skillDetailRequest || skill !== $("#skill-detail-name").textContent) return;
+  skillEvalData = evalResult.status === "fulfilled" ? evalResult.value : null;
+  if (reviewResult.status === "fulfilled") skillReviewData = reviewResult.value;
+  else if (reviewResult.reason?.status === 404) skillReviewData = null;
+  renderSkillEvaluation();
+  const errors = [evalResult, reviewResult]
+    .filter(result => result.status === "rejected" && result.reason?.status !== 404)
+    .map(result => result.reason?.message || "request failed");
+  say("#skill-eval-msg", errors.length ? `⛔ ${errors.join(" · ")}` : "", Boolean(errors.length));
+}
+
+async function runSkillReview() {
+  const skill = $("#skill-detail-name").textContent;
+  const request = skillDetailRequest;
+  if (skillReviewSubmitting !== null) return;
+  skillReviewSubmitting = request;
+  renderSkillEvaluation();
+  try {
+    const started = await j(`/api/reviews/${encodeURIComponent(skill)}`, {method: "POST"});
+    if (request === skillDetailRequest)
+      say("#skill-eval-msg", `started review for '${started.started}'; review can take a minute`, false);
+    await refresh();
+    await loadSkillEvaluation(skill, request);
+  } catch (e) {
+    if (request === skillDetailRequest) say("#skill-eval-msg", `⛔ ${e.message}`, true);
+  } finally {
+    if (skillReviewSubmitting === request) skillReviewSubmitting = null;
+    if (request === skillDetailRequest) renderSkillEvaluation();
+  }
+}
+
+function closeSkillVersions() {
+  skillDetailRequest++;
+  skillDetailRunSignature = null;
+  closeDialog("#skill-overlay");
+}
 $("#skill-close").onclick = closeSkillVersions;
 $("#skill-overlay").onclick = e => { if (e.target === $("#skill-overlay")) closeSkillVersions(); };
 $("#skill-version").onchange = loadSkillVersion;
 $("#skill-file").onchange = renderSkillVersionFile;
+$("#skill-tab-instructions").onclick = () => selectSkillTab("instructions");
+$("#skill-tab-evals").onclick = () => selectSkillTab("evals");
+$(".skill-tabs").onkeydown = e => {
+  if (!["ArrowLeft", "ArrowRight", "Home", "End"].includes(e.key)) return;
+  e.preventDefault();
+  const evals = e.key === "ArrowRight" || e.key === "End";
+  selectSkillTab(evals ? "evals" : "instructions");
+  $(evals ? "#skill-tab-evals" : "#skill-tab-instructions").focus();
+};
+$("#skill-review-run").onclick = runSkillReview;
+["#trace-project", "#trace-harness", "#trace-skill", "#trace-since", "#trace-until",
+ "#trace-task-previews"].forEach(selector => {
+  $(selector).onchange = loadTraces;
+});
+$("#mx-skill").onchange = () => { harborSkill = $("#mx-skill").value; harborSignature = null; loadHarbor(); };
 
 // One failing endpoint must not blank the board: each section renders from what it got, and says
 // so when its own data is missing, instead of the whole poll rejecting and leaving stale or empty
@@ -889,10 +2451,14 @@ async function refresh() {
   if (document.hidden || refreshing) return;
   refreshing = true;
   try {
-    const [skills, runs, hist] = (await Promise.allSettled(
-      [j("/api/skills"), j("/api/runs"), j("/api/history")]))
+    const [skills, runs, hist, traces, lane] = (await Promise.allSettled(
+      [j("/api/skills"), j("/api/runs"), j("/api/history"), j(traceUrl()), j("/api/publications")]))
       .map(r => r.status === "fulfilled" ? r.value : null);
 
+    if (lane) renderLane(lane);
+
+    if (traces) { renderTraces(traces); clearLoadError("#traces-msg"); }
+    else { say("#traces-msg", "⛔ could not load traces; retrying every 3s", true, "load"); }
     if (skills) {
       renderSkills(skills, runs || runInventory, hist);
       renderBoard(skills, skills.filter(s => s.has_tasks), hist);
@@ -905,6 +2471,17 @@ async function refresh() {
     if (!booted && skills) { staggerIn("#attention .alert"); staggerIn("#skills-list .srow"); booted = true; }
 
     if (skills) syncReviewCard(skills);
+    if (runs && !$("#skill-overlay").hidden) {
+      const skill = $("#skill-detail-name").textContent;
+      const signature = JSON.stringify(runs[skill] || null);
+      if (signature !== skillDetailRunSignature) {
+        skillDetailRunSignature = signature;
+        const run = runs[skill];
+        if (run?.action === "review" && run.status !== "running") await loadSkillEvaluation(skill);
+        else renderSkillEvaluation();
+      }
+    }
+    if (currentRoute() === "harnesses") await loadHarbor();
   } finally {
     refreshing = false;
   }
@@ -918,7 +2495,10 @@ function syncReviewCard(skills) {
   const quarantined = skills.filter(s => s.pending).map(s => s.name);
   if (!quarantined.length) { showNoPending(); return; }
   if (!currentPending || !quarantined.includes(currentPending)) {
-    showPending(quarantined[0], {keepMessage: true});
+    // Approval holds the pending record until the vault commit lands, so an approved change is
+    // still "quarantined". Offer an undecided one first rather than reopening a settled card.
+    const undecided = skills.filter(s => s.pending && !s.publishing).map(s => s.name);
+    showPending((undecided[0] ?? quarantined[0]), {keepMessage: true});
   }
 }
 
@@ -926,6 +2506,11 @@ function syncReviewCard(skills) {
 async function generateCandidate(skill) {
   await act("#skills-msg", async () =>
     `started SkillOpt for '${(await j(`/api/optimize/${skill}`, {method: "POST"})).started}'; optimization can take a few minutes`);
+}
+
+async function createEvalSet(skill) {
+  await act("#skills-msg", async () =>
+    `started eval-set draft for '${(await j(`/api/evals/${skill}`, {method: "POST"})).started}'`);
 }
 
 function colorizeDiff(diff) {
@@ -946,8 +2531,6 @@ function showNoPending() {
   $("#pending-card").hidden = true;
   $("#review-empty").hidden = false;
   $("#pending-heading").textContent = "No pending changes";
-  $("#pending-copy").textContent =
-    "Quarantined changes land here with their evidence. Nothing serves traffic until you approve it.";
 }
 
 // The recorded bundle, read back through the API's own containment check. It is advisory
@@ -971,8 +2554,9 @@ function renderRisk(risk) {
   const el = $("#risk-summary");
   el.classList.toggle("high", Boolean(r.high_risk));
   el.innerHTML =
-    `<div class="risk-stat"><b>+${r.added_lines}</b><span>lines added</span></div>` +
-    `<div class="risk-stat"><b>−${r.removed_lines}</b><span>lines removed</span></div>` +
+    // a pure-addition edit is the common SkillOpt result, and it used to report "−0 lines removed"
+    `<div class="risk-stat"><b>${r.added_lines ? "+" : ""}${r.added_lines}</b><span>lines added</span></div>` +
+    `<div class="risk-stat"><b>${r.removed_lines ? "−" : ""}${r.removed_lines}</b><span>lines removed</span></div>` +
     `<div class="risk-stat"><b>${Number(r.changed_pct).toFixed(1)}%</b><span>body changed</span></div>` +
     `<div class="risk-stat"><b>${signed(r.size_delta_pct)}</b><span>body size</span></div>` + warning;
 }
@@ -986,6 +2570,46 @@ function renderSideDiff(comparison) {
   $("#side-diff-body").innerHTML = rows ||
     `<div class="empty"><div class="ed">No component comparison is available.</div></div>`;
   $("#side-diff").open = false;
+}
+
+function retrospectiveEvidence(retrospective, compare = false) {
+  if (!retrospective) return "";
+  const verification = retrospective.verification || {};
+  const evidence = (retrospective.evidence || []).map(item => `<li>${esc(item)}</li>`).join("");
+  return `<section class="${compare ? "cmp-sec " : ""}retro-evidence">
+    <h4>Retrospective evidence</h4>
+    <p><b>${esc(retrospective.summary || "Proposed reusable improvement")}</b></p>
+    <p><b>Trigger:</b> ${esc(retrospective.trigger || "—")}</p>
+    <p><b>Minimal change:</b> ${esc(retrospective.minimal_content || "—")}</p>
+    ${evidence ? `<ul>${evidence}</ul>` : ""}
+    <p><b>Pressure scenario:</b> ${esc(retrospective.pressure_scenario || "—")}</p>
+    <p><b>Verification:</b> ${esc(verification.status || "unavailable")} ·
+      <code>${esc(verification.command || "no command recorded")}</code> ·
+      ${esc(verification.result || "no result recorded")}</p>
+    <p><b>Producer / caller:</b> ${esc(retrospective.producer || "unknown")} ·
+      ${esc(retrospective.caller || "unknown")}</p>
+    <p><b>Risk:</b> ${esc(retrospective.risk || "not recorded")}</p>
+  </section>`;
+}
+
+function creationEvidence(creation, compare = false) {
+  if (!creation) return "";
+  const verification = creation.verification || {};
+  const evidence = (creation.evidence || []).map(item => `<li>${esc(item)}</li>`).join("");
+  return `<section class="${compare ? "cmp-sec " : ""}retro-evidence">
+    <h4>New skill admission</h4>
+    <p><b>${esc(creation.summary || "Add a vetted skill package")}</b></p>
+    <p><b>Source:</b> <code>${esc(creation.source || "not recorded")}</code></p>
+    <p><b>Frontmatter:</b> <code>${esc(JSON.stringify(creation.frontmatter || {}))}</code></p>
+    ${evidence ? `<ul>${evidence}</ul>` : ""}
+    <p><b>Pressure scenario:</b> ${esc(creation.pressure_scenario || "—")}</p>
+    <p><b>Verification:</b> ${esc(verification.status || "unavailable")} ·
+      <code>${esc(verification.command || "no command recorded")}</code> ·
+      ${esc(verification.result || "no result recorded")}</p>
+    <p><b>Producer / caller:</b> ${esc(creation.producer || "unknown")} ·
+      ${esc(creation.caller || "unknown")}</p>
+    <p><b>Risk:</b> ${esc(creation.risk || "not recorded")}</p>
+  </section>`;
 }
 
 // `keepMessage` is set when the poll switched cards by itself: a reviewer who just approved a
@@ -1002,17 +2626,31 @@ async function showPending(skill, {keepMessage = false, scroll = false} = {}) {
   currentPendingData = p;
   $("#pending-card").hidden = false;
   $("#review-empty").hidden = true;
-  $("#pending-heading").textContent = "Pending change: " + skill;
-  $("#pending-copy").textContent =
-    "Held-out evidence for this change is below. Approval snapshots the current revision and swaps atomically, so promote only a clear, gate-passing win.";
-  $("#approve").textContent = "Approve & promote";
+  const publishing = p.publication && p.publication.state !== "failed";
+  // The record stays quarantined until the vault commit lands, so the card outlives the decision.
+  // Calling it "pending" then asks for a decision the reviewer already made.
+  $("#pending-heading").textContent = publishing
+    ? `Approved, publishing: ${skill}`
+    : (p.creation ? "Skill to be added: " : "Pending change: ") + skill;
+  // A publication waiting on a person has to say so on the button, with the pull request to merge.
+  // Otherwise it reads as "in progress" forever and nobody knows they are the thing it waits for.
+  const waiting = publishing && p.publication.state === "awaiting_merge" &&
+    p.publication.auto_merge === false;
+  $("#approve").textContent = waiting
+    ? `Approved · merge vault PR #${p.publication.pr} to publish`
+    : (publishing ? "Approved · publishing to vault"
+                  : (p.creation ? "Approve & add" : "Approve & promote"));
   // stale evidence describes a champion that has since moved on disk: promotion would refuse it,
   // so the review card refuses it first rather than after the click
-  $("#approve").disabled = Boolean((p.gate && !p.gate.promotable) || p.stale);
+  $("#approve").disabled = Boolean(publishing || (p.gate && !p.gate.promotable) || p.stale);
   // A record without candidate-search scores simply renders without the line.
   const search = p.inner_loop;
   let detail;
-  if (p.ab) {  // quality pass: judge scores + token shift through the full agent
+  if (p.creation) {
+    detail = creationEvidence(p.creation);
+  } else if (p.retrospective) {
+    detail = retrospectiveEvidence(p.retrospective);
+  } else if (p.ab) {  // quality pass: judge scores + token shift through the full agent
     const c = p.ab.champion, ch = p.ab.challenger, chalWins = ch.mean > c.mean;
 
     const cand = (role, o, win) =>
@@ -1020,7 +2658,7 @@ async function showPending(skill, {keepMessage = false, scroll = false} = {}) {
        <span class="score">${o.mean.toFixed(3)}</span>
        <span class="foot">judge score · ${o.scores.length} tasks</span></div>`;
     const duel = `<div class="duel">${cand("champion", c, !chalWins)}
-      <span class="versus">vs</span>${cand("challenger", ch, chalWins)}</div>`;
+      <span class="versus">vs</span>${cand("challenger", ch, chalWins)}</div>` + marginNote(c, ch);
 
     const meta = `<div class="metaline">${search
         ? `candidate search <b>${search.seed_score.toFixed(2)} → ${search.best_score.toFixed(2)}</b> · ` : ""}
@@ -1055,19 +2693,7 @@ async function showPending(skill, {keepMessage = false, scroll = false} = {}) {
       p.changed.map(x => `<span class="chip rust">${esc(x)}</span>`).join("") + `</div>`
     : "";
 
-  const gate = p.gate && !p.gate.promotable
-    ? `<div class="gate block">⛔ Evidence gate: ${esc(p.gate.blocked.join("; "))}. Approval is refused.</div>`
-    : (p.gate ? `<div class="gate ok">✓ Passes the evidence gate</div>` : "");
-
-  const warn = (p.gate && p.gate.warnings && p.gate.warnings.length)
-    ? `<div class="gate warn">⚠ ${esc(p.gate.warnings.join("; "))}</div>`
-    : "";
-
-  const stale = p.stale
-    ? `<div class="gate block">⛔ Stale evidence: ${esc(p.stale)}. Approval is refused.</div>`
-    : "";
-
-  $("#pending-detail").innerHTML = detail + changed + gate + warn + stale;
+  $("#pending-detail").innerHTML = detail + changed + cautions(p);
   renderRisk(p.risk);
   $("#diff").innerHTML = colorizeDiff(p.diff);
   renderSideDiff(p.comparison);
@@ -1075,7 +2701,7 @@ async function showPending(skill, {keepMessage = false, scroll = false} = {}) {
   $("#evidence-label").hidden = $("#evidence").hidden = false;
   showEvidence(skill);
   if (scroll) {
-    $("#review-section").scrollIntoView({behavior: REDUCED ? "auto" : "smooth", block: "start"});
+    if (currentRoute() !== "review") location.hash = "#/review";
     $("#pending-heading").focus({preventScroll: true});
   }
 }
@@ -1091,6 +2717,8 @@ function delta(before, after, lowerBetter) {
   return `<span class="${cls}">${d >= 0 ? "+" : ""}${v}</span>`;
 }
 function buildCompare(p) {
+  if (p.creation) return cautions(p) + creationEvidence(p.creation, true);
+  if (p.retrospective) return cautions(p) + retrospectiveEvidence(p.retrospective, true);
   const ab = p.ab || {}, c = ab.champion || {}, ch = ab.challenger || {};
   const ct = c.tokens || {}, cht = ch.tokens || {};
   const beforeScores = c.scores || [], afterScores = ch.scores || [];
@@ -1110,17 +2738,20 @@ function buildCompare(p) {
       <tr><td>input</td><td>${num(ct.mean_input)}</td><td>${num(cht.mean_input)}</td><td>${delta(ct.mean_input, cht.mean_input, true)}</td></tr>
       <tr><td>output</td><td>${num(ct.mean_output)}</td><td>${num(cht.mean_output)}</td><td>${delta(ct.mean_output, cht.mean_output, true)}</td></tr>
     </table></div>`;
-  return models + scores + tokens;
+  return cautions(p) + marginNote(c, ch) + models + scores + tokens;
 }
 function openCompare() {
   const p = currentPendingData;
   if (!p) return;
+  $("#cmp-action-title").textContent = p.creation ? "Confirm addition, " : "Confirm promotion, ";
+  $("#cmp-approve").textContent = p.creation ? "Approve & add" : "Approve & promote";
+  $("#cmp-approve").disabled = Boolean(p.publication && p.publication.state !== "failed");
   $("#cmp-skill").textContent = currentPending;
   $("#cmp-body").innerHTML = buildCompare(p);
   say("#cmp-msg", "", false);
-  $("#cmp-overlay").hidden = false;
+  openDialog("#cmp-overlay");
 }
-function closeCompare() { $("#cmp-overlay").hidden = true; }
+function closeCompare() { closeDialog("#cmp-overlay"); }
 $("#approve").onclick = openCompare;
 $("#cmp-cancel").onclick = closeCompare;
 $("#cmp-cancel2").onclick = closeCompare;
@@ -1136,10 +2767,9 @@ function openReject() {
   $("#reject-skill").textContent = currentPending;
   $("#reject-reason").value = "";
   say("#reject-msg", "", false);
-  $("#reject-overlay").hidden = false;
-  $("#reject-reason").focus();
+  openDialog("#reject-overlay", "#reject-reason");
 }
-function closeReject() { $("#reject-overlay").hidden = true; }
+function closeReject() { closeDialog("#reject-overlay"); }
 $("#reject").onclick = openReject;
 $("#reject-close").onclick = closeReject;
 $("#reject-cancel").onclick = closeReject;
@@ -1164,22 +2794,15 @@ document.addEventListener("keydown", e => {
 
 j("/api/config").then(c => {
   langfuseUrl = c.langfuse_url;
-  $("#lf").href = c.langfuse_url; $("#lf2").href = c.langfuse_url;
+  $("#lf").href = c.langfuse_url;
 });
+route();                       // mount the routed view before the first payload lands
 refresh(); setInterval(refresh, 3000);
 document.addEventListener("visibilitychange", () => {
   if (!document.hidden) refresh();
 });
 
-// scroll-reveal: enhance already-visible scaffold only (reduced-motion honored via CSS)
-if (!matchMedia("(prefers-reduced-motion: reduce)").matches) {
-  const io = new IntersectionObserver((es, o) => es.forEach(e => {
-    if (e.isIntersecting) { e.target.classList.add("in"); o.unobserve(e.target); }
-  }), {rootMargin: "0px 0px -8% 0px"});
-  document.querySelectorAll(".reveal").forEach(el => io.observe(el));
-} else {
-  document.querySelectorAll(".reveal").forEach(el => el.classList.add("in"));
-}
+
 </script>
 </body>
 </html>

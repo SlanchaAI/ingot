@@ -1,0 +1,33 @@
+[Unit]
+# The one writer of the served skill library. It publishes approved receipts into the vault and
+# activates only the revision the receipt names.
+#
+# Running it on the host rather than in Docker sidesteps the uid mismatch the compose file warns
+# about — the receipts it reads are written at mode 0700 by the console — and, in `forge` mode, it
+# reuses the host's already authenticated git and gh so no GitHub credential has to live in a
+# container or in .env. The compose stack ships an equivalent `publisher` service for the
+# all-in-one case. Whichever you run, exactly one must run.
+#
+# Install (as the user who owns the vault):
+#   mkdir -p ~/.config/ingot && cp ops/systemd/publisher.env.example ~/.config/ingot/publisher.env
+#   $EDITOR ~/.config/ingot/publisher.env      # at minimum INGOT_VAULT_PATH
+#   systemctl --user enable --now ingot-publisher
+Description=Ingot skill vault publisher
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+# Where this checkout lives. Override with a drop-in rather than editing this unit:
+#   systemctl --user edit ingot-publisher
+WorkingDirectory=%h/Source/ingot
+Environment=PYTHONUNBUFFERED=1
+# Backend, vault path, and any forge settings. The publisher refuses to start without a vault
+# rather than falling back to a writable default, so this file is required.
+EnvironmentFile=%h/.config/ingot/publisher.env
+ExecStart=/usr/bin/python3 -m ingot.optimize.publisher --watch
+Restart=always
+RestartSec=10
+
+[Install]
+WantedBy=default.target

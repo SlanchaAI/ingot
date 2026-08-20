@@ -25,8 +25,9 @@ import secrets
 from pathlib import Path
 
 from fastapi import HTTPException, Request
+from ingot import paths
 
-AUTH_FILE = Path(os.environ.get("AUTH_FILE") or Path(__file__).resolve().parent.parent / "runs" / "auth.json")
+AUTH_FILE = Path(os.environ.get("AUTH_FILE") or paths.runs() / "auth.json")
 _ITERATIONS = 200_000
 _ANON = "local-operator"   # actor when auth is disabled, matches the pre-auth default
 # The compose default (docker-compose.yml sets AUTH_PASSWORD=${AUTH_PASSWORD:-ingot}); we warn while

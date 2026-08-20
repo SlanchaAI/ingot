@@ -56,6 +56,10 @@ cases:
     expected: null
     harness: claude
     min_score: 0.99
+  - task: Diagnose a Kubernetes pod stuck in CrashLoopBackOff.
+    expected: kubernetes-runbook
+    harness: codex
+    parity: true
   - task: Thanks, that answers my question.
     expected: null
     harness: codex

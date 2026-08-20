@@ -20,8 +20,8 @@ MCP_URL = os.environ.get("MCP_URL", "http://mcp:8000/mcp")
 # Endpoint + ZDR handling is shared with the optimizer (single source of truth): OpenRouter
 # endpoints get the hardcoded zero-data-retention provider preference; MODEL_BASE_URL points this
 # serving role at a local vLLM/Ollama server instead (README: Privacy).
-from optimize import (ZDR_PROVIDER, agent_model, api_key, client_kwargs, model_api_key,  # noqa: E402,F401
-                      model_base_url, skillopt_model, teacher_base_url)
+from ingot.optimize import (ZDR_PROVIDER, agent_model, api_key, client_kwargs, model_api_key,  # noqa: E402,F401
+                            model_base_url, skillopt_model, teacher_base_url)
 
 MODEL = agent_model()
 
@@ -276,7 +276,7 @@ async def main(task: str):
     routed = await _route(task, connected_tools, serving_tools)
     _print_route(routed)
 
-    from optimize import openrouter_key_missing
+    from ingot.optimize import openrouter_key_missing
     if openrouter_key_missing():
         print("\n[agent] OPENROUTER_API_KEY not set, showing router proposals only.")
         print("        Set OPENROUTER_API_KEY in .env to run the deep agent (or point")

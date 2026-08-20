@@ -5,8 +5,8 @@ import json
 
 import pytest
 
-from optimize import rollout as R
-from optimize import skillopt_loop as S
+from ingot.optimize import rollout as R
+from ingot.optimize import skillopt_loop as S
 
 
 def _fake_lm(reply_for):

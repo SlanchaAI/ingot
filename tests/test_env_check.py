@@ -6,7 +6,7 @@ from pathlib import Path
 
 import pytest
 
-from optimize import require_openrouter_key
+from ingot.optimize import require_openrouter_key
 
 
 ROOT = Path(__file__).resolve().parent.parent
@@ -35,7 +35,7 @@ def test_set_key_passes(monkeypatch):
 
 
 def test_fully_local_setup_needs_no_key(monkeypatch):
-    from optimize import openrouter_key_missing, require_openrouter_key
+    from ingot.optimize import openrouter_key_missing, require_openrouter_key
     monkeypatch.delenv("OPENROUTER_API_KEY", raising=False)
     monkeypatch.setenv("OPENROUTER_BASE_URL", "http://localhost:11434/v1")   # e.g. Ollama
     monkeypatch.delenv("MODEL_BASE_URL", raising=False)
@@ -45,7 +45,7 @@ def test_fully_local_setup_needs_no_key(monkeypatch):
 
 def test_local_model_but_openrouter_teacher_still_needs_key(monkeypatch):
     import pytest
-    from optimize import require_openrouter_key
+    from ingot.optimize import require_openrouter_key
     monkeypatch.delenv("OPENROUTER_API_KEY", raising=False)
     monkeypatch.delenv("OPENROUTER_BASE_URL", raising=False)                 # teacher on OpenRouter
     monkeypatch.setenv("MODEL_BASE_URL", "http://localhost:8000/v1")         # agent on local vLLM
@@ -54,7 +54,7 @@ def test_local_model_but_openrouter_teacher_still_needs_key(monkeypatch):
 
 
 def test_client_kwargs_openrouter_gets_zdr_local_does_not(monkeypatch):
-    from optimize import ZDR_PROVIDER, client_kwargs
+    from ingot.optimize import ZDR_PROVIDER, client_kwargs
     monkeypatch.setenv("OPENROUTER_API_KEY", "sk-or-test")
     kw = client_kwargs("https://openrouter.ai/api/v1")
     assert kw == {"base_url": "https://openrouter.ai/api/v1", "api_key": "sk-or-test",
@@ -66,7 +66,7 @@ def test_client_kwargs_openrouter_gets_zdr_local_does_not(monkeypatch):
 
 
 def test_model_base_url_overrides_only_the_serving_role(monkeypatch):
-    from optimize import model_base_url, teacher_base_url
+    from ingot.optimize import model_base_url, teacher_base_url
     monkeypatch.delenv("MODEL_BASE_URL", raising=False)
     monkeypatch.delenv("OPENROUTER_BASE_URL", raising=False)
     assert model_base_url() == teacher_base_url() == "https://openrouter.ai/api/v1"
@@ -76,7 +76,7 @@ def test_model_base_url_overrides_only_the_serving_role(monkeypatch):
 
 
 def test_provider_priority_composes_with_zdr(monkeypatch):
-    from optimize import ZDR_PROVIDER, client_kwargs, openrouter_extra_body
+    from ingot.optimize import ZDR_PROVIDER, client_kwargs, openrouter_extra_body
     monkeypatch.delenv("OPENROUTER_PROVIDERS", raising=False)
     assert openrouter_extra_body() == ZDR_PROVIDER                       # default: ZDR only, no pin
     monkeypatch.setenv("OPENROUTER_PROVIDERS", "groq, deepinfra")
@@ -106,7 +106,7 @@ class _FakeEndpoints:
 
 def test_provider_conflict_loose_name_matching(monkeypatch):
     import urllib.request
-    from optimize import provider_conflict
+    from ingot.optimize import provider_conflict
     monkeypatch.setattr(urllib.request, "urlopen",
                         lambda url, timeout=10: _FakeEndpoints(["DeepInfra", "Io Net"]))
     assert provider_conflict("qwen/x", ["deep-infra"]) is None         # display-name vs slug
@@ -118,7 +118,7 @@ def test_provider_conflict_loose_name_matching(monkeypatch):
 
 def test_provider_conflict_unknown_model_and_network_failure(monkeypatch):
     import urllib.request
-    from optimize import provider_conflict
+    from ingot.optimize import provider_conflict
     monkeypatch.setattr(urllib.request, "urlopen", lambda url, timeout=10: _FakeEndpoints([]))
     assert "no endpoints on OpenRouter" in provider_conflict("qwen/typo-27b", ["groq"])
     def boom(url, timeout=10):
@@ -129,7 +129,7 @@ def test_provider_conflict_unknown_model_and_network_failure(monkeypatch):
 
 def test_preflight_no_pins_makes_no_network_calls(monkeypatch):
     import urllib.request
-    from optimize import preflight_provider_pins
+    from ingot.optimize import preflight_provider_pins
     monkeypatch.delenv("OPENROUTER_PROVIDERS", raising=False)
     def forbidden(url, timeout=10):
         raise AssertionError("network call without pins")
@@ -138,7 +138,7 @@ def test_preflight_no_pins_makes_no_network_calls(monkeypatch):
 
 
 def test_preflight_warns_on_every_uncovered_role(monkeypatch):
-    import optimize
+    import ingot.optimize as optimize
     monkeypatch.setenv("OPENROUTER_PROVIDERS", "groq")
     monkeypatch.delenv("MODEL_BASE_URL", raising=False)
     monkeypatch.delenv("OPENROUTER_BASE_URL", raising=False)
@@ -150,7 +150,7 @@ def test_preflight_warns_on_every_uncovered_role(monkeypatch):
 
 def test_preflight_reports_agent_model_alias_value(monkeypatch):
     # the pin check must validate the model the agent will actually use, whichever alias set it
-    import optimize
+    import ingot.optimize as optimize
     monkeypatch.setenv("OPENROUTER_PROVIDERS", "groq")
     for var in ("MODEL_BASE_URL", "BASE_URL", "OPENROUTER_BASE_URL", "MODEL"):
         monkeypatch.delenv(var, raising=False)
@@ -162,7 +162,7 @@ def test_preflight_reports_agent_model_alias_value(monkeypatch):
 
 def test_agent_model_resolution(monkeypatch):
     # AGENT_MODEL wins; MODEL is the legacy alias; then the literal default
-    from optimize import agent_model
+    from ingot.optimize import agent_model
     monkeypatch.delenv("AGENT_MODEL", raising=False)
     monkeypatch.delenv("MODEL", raising=False)
     assert agent_model() == "qwen/qwen3-32b"
@@ -173,7 +173,7 @@ def test_agent_model_resolution(monkeypatch):
 
 
 def test_skillopt_model_resolution(monkeypatch):
-    from optimize import skillopt_model
+    from ingot.optimize import skillopt_model
     monkeypatch.delenv("SKILLOPT_MODEL", raising=False)
     assert skillopt_model() == "z-ai/glm-5.2"
     monkeypatch.setenv("SKILLOPT_MODEL", "author/model")
@@ -186,9 +186,9 @@ def test_skillopt_model_reaches_every_authoring_role():
     env = {**os.environ, "SKILLOPT_MODEL": "author/model",
            "JUDGE_MODEL": "different/judge"}
     code = """
-import optimize.draft as draft
-import optimize.rollout as rollout
-from optimize.usage import _role_models
+import ingot.optimize.draft as draft
+import ingot.optimize.rollout as rollout
+from ingot.optimize.usage import _role_models
 assert draft.MODEL == 'author/model'
 assert rollout.SKILLOPT_MODEL == 'author/model'
 assert _role_models()['reflection'] == 'author/model'
@@ -201,14 +201,37 @@ def test_judge_warns_when_skillopt_model_is_the_grader():
     env = {**os.environ, "SKILLOPT_MODEL": "same/model", "JUDGE_MODEL": "same/model"}
     env.pop("JUDGE_MODELS", None)
 
-    result = subprocess.run([sys.executable, "-c", "import optimize.judge"], env=env,
+    result = subprocess.run([sys.executable, "-c", "import ingot.optimize.judge"], env=env,
                             cwd=ROOT, text=True, capture_output=True, check=True)
 
     assert "author == grader" in result.stdout
 
 
+def test_duplicate_judge_models_fail_closed_before_spend():
+    env = {**os.environ, "JUDGE_MODELS": "alpha/model,alpha/model"}
+    result = subprocess.run([sys.executable, "-c", "import ingot.optimize.judge"], env=env,
+                            cwd=ROOT, text=True, capture_output=True)
+    assert result.returncode != 0
+    assert "JUDGE_MODELS contains duplicate model 'alpha/model'" in result.stderr
+
+
+def test_blank_judge_ensemble_falls_back_to_single_judge():
+    env = {**os.environ, "JUDGE_MODELS": " , ", "JUDGE_MODEL": "backup/model"}
+    result = subprocess.run(
+        [sys.executable, "-c", "import ingot.optimize.judge as j; print(j.MODELS)"], env=env,
+        cwd=ROOT, text=True, capture_output=True, check=True)
+    assert result.stdout.strip() == "['backup/model']"
+
+
+def test_duplicate_compat_models_fail_closed_before_spend(monkeypatch):
+    from ingot.optimize.compat import compat_models
+    monkeypatch.setenv("COMPAT_MODELS", "alpha/model,alpha/model")
+    with pytest.raises(SystemExit, match="COMPAT_MODELS contains duplicate model 'alpha/model'"):
+        compat_models()
+
+
 def test_preflight_checks_strong_model_only_when_explicitly_set(monkeypatch):
-    import optimize
+    import ingot.optimize as optimize
     monkeypatch.setenv("OPENROUTER_PROVIDERS", "groq")
     monkeypatch.delenv("MODEL_BASE_URL", raising=False)
     monkeypatch.delenv("OPENROUTER_BASE_URL", raising=False)
@@ -222,7 +245,7 @@ def test_preflight_checks_strong_model_only_when_explicitly_set(monkeypatch):
 
 
 def test_preflight_skips_roles_on_local_endpoints(monkeypatch):
-    import optimize
+    import ingot.optimize as optimize
     monkeypatch.setenv("OPENROUTER_PROVIDERS", "groq")
     monkeypatch.setenv("OPENROUTER_BASE_URL", "http://localhost:11434/v1")  # fully local
     monkeypatch.setattr(optimize, "provider_conflict",
@@ -233,7 +256,7 @@ def test_preflight_skips_roles_on_local_endpoints(monkeypatch):
 
 def test_invoke_retry_fails_fast_on_permanent_config_errors(monkeypatch):
     import pytest
-    from optimize import judge as judge_mod
+    from ingot.optimize import judge as judge_mod
     monkeypatch.setattr(judge_mod.time, "sleep", lambda s: (_ for _ in ()).throw(AssertionError("slept")))
 
     class Doomed:
@@ -252,7 +275,7 @@ def test_invoke_retry_fails_fast_on_permanent_config_errors(monkeypatch):
 
 
 def test_invoke_retry_still_retries_transient_errors(monkeypatch):
-    from optimize import judge as judge_mod
+    from ingot.optimize import judge as judge_mod
     monkeypatch.setattr(judge_mod.time, "sleep", lambda s: None)
 
     class Flaky:
@@ -267,7 +290,7 @@ def test_invoke_retry_still_retries_transient_errors(monkeypatch):
 
 
 def test_generic_base_url_and_api_key_win_with_legacy_fallback(monkeypatch):
-    from optimize import api_key, model_api_key, teacher_base_url
+    from ingot.optimize import api_key, model_api_key, teacher_base_url
     monkeypatch.delenv("BASE_URL", raising=False)
     monkeypatch.delenv("OPENROUTER_BASE_URL", raising=False)
     monkeypatch.setenv("OPENROUTER_API_KEY", "sk-or-legacy")
@@ -284,7 +307,7 @@ def test_generic_base_url_and_api_key_win_with_legacy_fallback(monkeypatch):
 
 
 def test_hosted_https_endpoint_requires_a_key(monkeypatch):
-    from optimize import openrouter_key_missing
+    from ingot.optimize import openrouter_key_missing
     for var in ("API_KEY", "OPENROUTER_API_KEY", "MODEL_API_KEY", "MODEL_BASE_URL"):
         monkeypatch.delenv(var, raising=False)
     monkeypatch.setenv("BASE_URL", "https://openrouter.ai/api/v1")
@@ -294,7 +317,7 @@ def test_hosted_https_endpoint_requires_a_key(monkeypatch):
 
 
 def test_local_endpoint_gets_clean_openai_request(monkeypatch):
-    from optimize import client_kwargs
+    from ingot.optimize import client_kwargs
     kw = client_kwargs("http://ollama:11434/v1")
     assert kw == {"base_url": "http://ollama:11434/v1", "api_key": "local",
                   "extra_body": {}}                          # no OpenRouter provider prefs

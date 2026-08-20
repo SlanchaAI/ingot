@@ -5,7 +5,7 @@ import json
 
 from fastapi.testclient import TestClient
 
-from optimize import promote as P
+from ingot.optimize import promote as P
 from ui import auth
 from ui.app import app
 
@@ -107,7 +107,6 @@ def _promotable(skill):
 
 def test_promote_endpoint_threads_the_authenticated_actor(tmp_path, monkeypatch):
     import ui.app as ui_app
-    monkeypatch.setattr(P, "PENDING_DIR", tmp_path / "pending")
     f = tmp_path / "auth.json"
     f.write_text(json.dumps({"alice": auth.hash_password("pw")}))
     monkeypatch.setattr(auth, "AUTH_FILE", f)

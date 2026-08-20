@@ -56,7 +56,7 @@ docker run --rm --add-host host.docker.internal:host-gateway -v "$PWD:/app" -w /
   -e LANGFUSE_SECRET_KEY="$LF_SK" \
   -e SMOKE_MARKER="$MARKER" ingot-mcp python -c '
 import os
-from optimize.mine import fetch_traces
+from ingot.optimize.mine import fetch_traces
 
 marker = os.environ["SMOKE_MARKER"]
 for trace in fetch_traces(50):

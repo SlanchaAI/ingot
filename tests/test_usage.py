@@ -1,7 +1,7 @@
-"""Unit tests for the per-run token ledger (optimize.usage), including thread-safety."""
+"""Unit tests for the per-run token ledger (ingot.optimize.usage), including thread-safety."""
 import threading
 
-from optimize import usage
+from ingot.optimize import usage
 
 
 def test_add_accumulates_per_role_and_totals():
@@ -51,3 +51,26 @@ def test_format_report_is_readable():
     usage.add("judge", {"input_tokens": 1234, "output_tokens": 56})
     out = usage.format_report()
     assert "judge" in out and "TOTAL" in out and "1,234" in out
+
+
+def test_subscription_usage_is_counted_without_cost_or_spend_cap(monkeypatch):
+    usage.reset()
+    monkeypatch.delenv("BASE_URL", raising=False)
+    monkeypatch.delenv("OPENROUTER_BASE_URL", raising=False)
+    monkeypatch.setenv("JUDGE_MODEL", "m/metered-judge")
+    monkeypatch.setenv("MAX_RUN_USD", "0.01")
+    monkeypatch.setattr(usage, "_PRICES", {"m/metered-judge": (1.0, 1.0)})
+
+    usage.add(
+        "judge",
+        {"input_tokens": 11, "output_tokens": 7},
+        billing_mode="subscription",
+    )
+
+    assert usage.report()["judge"] == {"input": 11, "output": 7, "calls": 1}
+    assert usage.estimated_cost() is None
+    assert usage.unpriced_roles() == []
+    report = usage.format_report()
+    assert "judge" in report and "subscription" in report
+    assert "$" not in report
+    usage.reset()

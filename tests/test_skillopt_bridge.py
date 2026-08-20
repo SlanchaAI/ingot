@@ -3,7 +3,7 @@ patch application + gate metric imported from the pinned package, and the prompt
 driven by a stub reflection LM."""
 import json
 
-from optimize import skillopt_bridge as sk
+from ingot.optimize import skillopt_bridge as sk
 
 
 def _lm(reply: str):

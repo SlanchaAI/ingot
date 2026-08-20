@@ -2,6 +2,13 @@ FROM python:3.12-slim-bookworm
 
 WORKDIR /app
 
+# The publisher's vault is a Git repository and every publication is a worktree, a commit and a
+# fast-forward. slim does not ship git, so without this the one service that owns the served
+# library cannot start.
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends git \
+    && rm -rf /var/lib/apt/lists/*
+
 COPY requirements.txt .
 RUN pip install --no-cache-dir pip==26.1.2 \
     && pip install --no-cache-dir -r requirements.txt
@@ -32,12 +39,19 @@ ARG FALLBACK_EMBED_MODEL=BAAI/bge-small-en-v1.5
 RUN python -c "from fastembed import TextEmbedding; TextEmbedding('${FALLBACK_EMBED_MODEL}')"
 ENV BAKED_FALLBACK_EMBED_MODEL=${FALLBACK_EMBED_MODEL}
 
-COPY mcp_server ./mcp_server
+# `mcp_server` and `optimize` live under `ingot/` and arrive with the COPY below.
 COPY agent ./agent
-COPY optimize ./optimize
 COPY ui ./ui
 COPY skills ./skills
 
+# The `ingot` console script. `--no-deps` keeps the installed set exactly the pinned
+# requirements.txt above instead of re-resolving it from pyproject.toml, and `-e` points the script
+# at the /app copies the services already run with `python -m`, so there is only ever one copy of
+# the code in the image.
+COPY pyproject.toml README.md ./
+COPY ingot ./ingot
+RUN pip install --no-cache-dir --no-deps -e .
+
 ENV PYTHONUNBUFFERED=1
 
-CMD ["python", "-m", "mcp_server.server"]
+CMD ["python", "-m", "ingot.mcp_server.server"]

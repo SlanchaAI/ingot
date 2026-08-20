@@ -1,11 +1,13 @@
 """Embedding backends: model selection, and the Qwen ONNX pooling/prefix contract with a stubbed
 session (no model download, no onnxruntime inference)."""
+import json
 import sys
 from types import SimpleNamespace
+from urllib.error import URLError
 
 import numpy as np
 
-from mcp_server import embedding as E
+from ingot.mcp_server import embedding as E
 
 
 def test_backend_selection_by_model_name():
@@ -144,3 +146,70 @@ def test_qwen_tolerates_empty_text():
 def test_fastembed_backend_has_no_query_prefix():
     # symmetric embedding is the pre-Qwen contract fastembed overrides rely on
     assert E.FastembedEmbedding.embed_query is E.FastembedEmbedding.embed
+
+
+class _Response:
+    def __init__(self, payload):
+        self._payload = json.dumps(payload).encode()
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *_args):
+        pass
+
+    def read(self):
+        return self._payload
+
+
+def test_remote_qwen_backend_batches_and_prefixes_only_queries(monkeypatch):
+    requests = []
+
+    def open_request(request, timeout):
+        requests.append((request, timeout))
+        body = json.loads(request.data)
+        return _Response({
+            "data": [
+                {"index": index, "embedding": [float(index), 1.0]}
+                for index, _ in reversed(list(enumerate(body["input"])))
+            ]
+        })
+
+    monkeypatch.setattr(E, "urlopen", open_request)
+    backend = E.RemoteQwenEmbedding(
+        "Qwen/Qwen3-Embedding-8B-GGUF", "http://embed-gpu:8080/v1", timeout=7)
+
+    documents = backend.embed(["first", "second"])
+    queries = backend.embed_query(["route this"])
+
+    assert [vector.tolist() for vector in documents] == [[0.0, 1.0], [1.0, 1.0]]
+    assert queries[0].tolist() == [0.0, 1.0]
+    assert requests[0][1] == 7
+    assert requests[0][0].full_url == "http://embed-gpu:8080/v1/embeddings"
+    assert json.loads(requests[0][0].data)["input"] == ["first", "second"]
+    assert json.loads(requests[1][0].data)["input"] == [E.QUERY_PREFIX + "route this"]
+    assert backend.identity == "remote:Qwen/Qwen3-Embedding-8B-GGUF@http://embed-gpu:8080/v1"
+
+
+def test_remote_backend_reports_unavailable_server(monkeypatch):
+    monkeypatch.setattr(E, "urlopen", lambda *_args, **_kwargs: (_ for _ in ()).throw(
+        URLError("connection refused")))
+    backend = E.RemoteQwenEmbedding("model", "http://embed-gpu:8080/v1")
+
+    with np.testing.assert_raises_regex(RuntimeError, "embedding server unavailable"):
+        backend.embed(["hello"])
+
+
+def test_build_embedding_requires_remote_url(monkeypatch):
+    monkeypatch.setenv("EMBED_BACKEND", "remote")
+    monkeypatch.delenv("EMBED_BASE_URL", raising=False)
+    with np.testing.assert_raises_regex(ValueError, "EMBED_BASE_URL"):
+        E.build_embedding()
+
+
+def test_build_embedding_requires_distinct_remote_model(monkeypatch):
+    monkeypatch.setenv("EMBED_BACKEND", "remote")
+    monkeypatch.setenv("EMBED_BASE_URL", "http://embed-gpu:8080/v1")
+    monkeypatch.delenv("EMBED_REMOTE_MODEL", raising=False)
+    with np.testing.assert_raises_regex(ValueError, "EMBED_REMOTE_MODEL"):
+        E.build_embedding()

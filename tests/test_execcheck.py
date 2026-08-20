@@ -1,9 +1,9 @@
-"""Unit tests for execution-based code validation (optimize.execcheck), static path (no EXEC_SANDBOX)."""
+"""Unit tests for execution-based code validation (ingot.optimize.execcheck), static path (no EXEC_SANDBOX)."""
 import os
 import subprocess
 import sys
 
-from optimize import execcheck as E
+from ingot.optimize import execcheck as E
 
 
 def test_expects_code_gates_on_task_shape():
@@ -79,7 +79,7 @@ def test_exec_sandbox_env_modes():
     # fresh-import subprocesses exercise the real env surface: the sandbox is the DEFAULT,
     # "1" is the legacy bare opt-in, anything else turns execution off entirely
     base = {k: v for k, v in os.environ.items() if k != "EXEC_SANDBOX"}
-    probe = "from optimize.execcheck import EXEC_MODE, EXEC_SANDBOX, check; "
+    probe = "from ingot.optimize.execcheck import EXEC_MODE, EXEC_SANDBOX, check; "
     default = subprocess.run([sys.executable, "-c", probe + "print(EXEC_MODE)"],
                              capture_output=True, text=True, env=base)
     assert default.stdout.strip() == "docker"
@@ -209,12 +209,13 @@ def test_judge_note_execution_verdicts(monkeypatch):
 def test_judge_threads_check_spec_into_the_prompt(monkeypatch):
     monkeypatch.setattr(E, "EXEC_MODE", "1")
     monkeypatch.setattr(E, "EXEC_SANDBOX", True)  # legacy bare path
-    from optimize import judge as judge_mod
+    from ingot.optimize import judge as judge_mod
     seen = {}
     monkeypatch.setattr(judge_mod, "MODELS", ["m"])
-    def capture(model, prompt):
+    def capture(model, prompt, checklist):
         seen["prompt"] = prompt
-        return {"score": 1.0, "feedback": "f", "dimensions": {d: "pass" for d in judge_mod.DIMENSIONS}}
+        return {"items": {i["id"]: {"value": 1.0, "note": ""} for i in checklist},
+                "feedback": "f", "unparseable": False}
     monkeypatch.setattr(judge_mod, "_judge_one", capture)
     judge_mod.judge("t", "r", ANSWER_OK, check=CHECK)
     assert "EXECUTION CHECK, PASSED" in seen["prompt"]
@@ -250,7 +251,7 @@ def test_docker_sandbox_container_is_actually_locked_down(monkeypatch):
         assert " ".join(flag) in joined, f"missing {flag} in {cmd}"
     assert "--pids-limit" in cmd and "--memory" in cmd
     assert "-v" not in cmd and "--volume" not in cmd            # nothing mounted in
-    assert cmd[-4:] == [E.SANDBOX_IMAGE, "python", "-m", "optimize.sandbox_driver"]
+    assert cmd[-4:] == [E.SANDBOX_IMAGE, "python", "-m", "ingot.optimize.sandbox_driver"]
 
 
 def test_docker_sandbox_runtime_flag_enables_gvisor(monkeypatch):
@@ -315,12 +316,12 @@ def test_sandbox_driver_end_to_end_without_docker(tmp_path):
     import json as _json
     spec = {"fixture": CHECK["fixture"], "code": 'text = open("input.txt").read()\n'
             'open("output.txt", "w").write(text.upper())', "assertion": CHECK["assert"]}
-    run = subprocess.run([sys.executable, "-m", "optimize.sandbox_driver"],
+    run = subprocess.run([sys.executable, "-m", "ingot.optimize.sandbox_driver"],
                          input=_json.dumps(spec), capture_output=True, text=True,
                          cwd=str(tmp_path), env={**os.environ, "PYTHONPATH": os.getcwd()})
     assert _json.loads(run.stdout) == {"ok": True}
     bad = {**spec, "code": spec["code"].replace(".upper()", ".lower()")}
-    run = subprocess.run([sys.executable, "-m", "optimize.sandbox_driver"],
+    run = subprocess.run([sys.executable, "-m", "ingot.optimize.sandbox_driver"],
                          input=_json.dumps(bad), capture_output=True, text=True,
                          cwd=str(tmp_path), env={**os.environ, "PYTHONPATH": os.getcwd()})
     verdict = _json.loads(run.stdout)

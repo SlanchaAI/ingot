@@ -1,9 +1,9 @@
-"""Unit tests for auto-drafted eval task sets (optimize.draft), LLM mocked."""
+"""Unit tests for auto-drafted eval task sets (ingot.optimize.draft), LLM mocked."""
 import json
 
 import pytest
 
-from optimize import draft as D
+from ingot.optimize import draft as D
 
 
 class _FakeMsg:
@@ -39,6 +39,54 @@ def test_draft_raises_if_too_few_usable_tasks(monkeypatch):
     _mock_llm(monkeypatch, [{"task": "only one", "rubric": "r"}])
     with pytest.raises(SystemExit):
         D.draft_tasks("pdf", "d", "b", n=8)
+
+
+def test_draft_carries_a_weighted_checklist_per_task(monkeypatch):
+    """The checklist is what gives a task more than one measurement, so a drafted set has to carry
+    it -- otherwise only hand-written tasks ever get graded finely."""
+    check = {"id": "handles_empty", "criterion": "Handles an empty input file without raising.",
+             "weight": 4, "dimension": "completeness"}
+    _mock_llm(monkeypatch, [{"task": f"t{i}", "rubric": "r", "checklist": [check]} for i in range(4)])
+    out = D.draft_tasks("pdf", "d", "b", n=4)
+    assert out["train"][0]["checklist"] == [check]
+
+
+@pytest.mark.parametrize("bad, why", [
+    ({"id": "Has Spaces", "criterion": "a valid criterion here"}, "id is not snake_case"),
+    ({"id": "ok_id", "criterion": "short"}, "criterion too short to grade"),
+    ("not a dict", "not an object"),
+])
+def test_draft_drops_ungradeable_checks(monkeypatch, bad, why):
+    good = {"id": "keeps_this", "criterion": "A criterion long enough to grade.", "weight": 2,
+            "dimension": "correctness"}
+    _mock_llm(monkeypatch, [{"task": f"t{i}", "rubric": "r", "checklist": [good, bad]}
+                            for i in range(4)])
+    out = D.draft_tasks("pdf", "d", "b", n=4)
+    assert [c["id"] for c in out["train"][0]["checklist"]] == ["keeps_this"], why
+
+
+def test_draft_deduplicates_check_ids(monkeypatch):
+    """Two checks with one id would collapse in the judge's JSON response, silently dropping a
+    check while its weight still counted against the total."""
+    dup = [{"id": "same", "criterion": "The first criterion text."},
+           {"id": "same", "criterion": "A different criterion, same id."}]
+    _mock_llm(monkeypatch, [{"task": f"t{i}", "rubric": "r", "checklist": dup} for i in range(4)])
+    assert len(D.draft_tasks("pdf", "d", "b", n=4)["train"][0]["checklist"]) == 1
+
+
+def test_draft_clamps_weights_and_defaults_unknown_dimensions(monkeypatch):
+    wild = {"id": "wild", "criterion": "A criterion long enough to grade.", "weight": 99,
+            "dimension": "vibes"}
+    _mock_llm(monkeypatch, [{"task": f"t{i}", "rubric": "r", "checklist": [wild]} for i in range(4)])
+    got = D.draft_tasks("pdf", "d", "b", n=4)["train"][0]["checklist"][0]
+    assert got["weight"] == 5 and got["dimension"] == "correctness"
+
+
+def test_draft_tolerates_a_task_with_no_checklist(monkeypatch):
+    """judge() falls back to its default checklist, so a missing one degrades to four dimensions
+    rather than failing the draft."""
+    _mock_llm(monkeypatch, [{"task": f"t{i}", "rubric": "r"} for i in range(4)])
+    assert D.draft_tasks("pdf", "d", "b", n=4)["train"][0]["checklist"] == []
 
 
 def _mock_routing_llm(monkeypatch, positive, negative):

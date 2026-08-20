@@ -136,6 +136,11 @@ returned skill_body while completing the request. If it returns novel, continue 
 Do not merely list or suggest the skill: load it and apply it before doing the task.
 ```
 
+When a loaded `skill-retrospective` produces a verified update for an existing skill, agents may
+call `ingot.propose_skill_update`. The tool only files a revision-bound challenger in Ingot's
+review queue. A `quarantined` response does not change the served revision: do not reload skills or
+claim the update is active. Human approval in the console remains a separate action.
+
 Use the same rule in organization-managed agent instructions if repositories should not carry local
 agent files. After enrollment, verify behavior with a harmless request and confirm both the
 `route_and_load` tool call and final answer appear in Langfuse. A successful `--doctor` result proves
@@ -206,13 +211,46 @@ unchanged. Two caveats: mining re-judges traffic with `JUDGE_MODEL` (on your API
 candidate rollouts still execute on the bundled scaffold, so set `AGENT_MODEL` to your production
 serving model.
 
+### Local coding-agent transcripts
+
+Existing Claude Code and Codex JSONL transcripts can feed the same miner without first uploading
+them to Langfuse:
+
+```bash
+python -m ingot.optimize.local_traces
+python -m ingot.optimize.mine <skill> --source local --allow-external-judge
+```
+
+The scan writes `runs/local_traces.json`. It keeps completed human turns, final answers, observed
+skill names, exact revisions returned by `ingot.route_and_load`, timing, token counts, and tool
+error counts. It excludes reasoning, attachments, tool arguments and results, injected agent
+instructions, hook output, compaction records, aborted turns, and subagent threads. A historical
+skill use without a served revision stays unpinned; the scanner never substitutes the current
+revision.
+
+Scanning is local and makes no model call. Repeated scans reuse unchanged transcript files. Bound
+the snapshot at import time with repeatable `--project <cwd-basename>`, `--since YYYY-MM-DD`, and
+`--until YYYY-MM-DD`; use `--force` after a same-size transcript rewrite whose mtime was preserved.
+The console also filters the imported snapshot by project, agent, and date.
+
+Local mining fails closed unless `--allow-external-judge` is present. That flag is the explicit
+paid/data-egress boundary: selected task/answer pairs go to `JUDGE_MODEL` under the normal usage
+cap. Langfuse and local snapshots are separate sources rather than an implicitly merged corpus.
+The console's Traces view reads a safe projection of the normalized store and never returns answer
+text. Task previews are also hidden until the reviewer enables **Show task previews**; previews
+are capped at 280 characters.
+
+When the console runs on another host, transfer the normalized file through the deployment's
+existing trusted channel into that checkout's `runs/local_traces.json`. Do not mount or copy raw
+home-directory transcripts into the UI container.
+
 
 ## Using your own evals platform
 
-Langfuse is the **default and required** evals backend: it comes up with `docker compose up`, and
-trace mining has no local fallback (`optimize-mine` fails loudly if no Langfuse-compatible endpoint
-is reachable, rather than returning an empty result that would read as "nothing failing"). You have
-three options:
+Langfuse is the **default online** evals backend: it comes up with `docker compose up`, and the
+default trace source fails loudly if no Langfuse-compatible endpoint is reachable, rather than
+returning an empty result that would read as "nothing failing". The local transcript source above
+is an explicit historical backfill path, not an online backend. You have three online options:
 
 1. **Bundled Langfuse** (default): self-hosted in the compose stack, nothing to configure. Secure
    its demo credentials before exposing it: [Securing the Langfuse deployment](security.md#securing-the-langfuse-deployment).

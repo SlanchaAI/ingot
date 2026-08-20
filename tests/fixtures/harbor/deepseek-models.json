@@ -1,0 +1,28 @@
+{
+  "object": "list",
+  "data": [
+    {
+      "id": "deepseek-v4-flash",
+      "object": "model",
+      "owned_by": "vllm",
+      "root": "deepseek-ai/DeepSeek-V4-Flash-0731",
+      "parent": null,
+      "max_model_len": 1048576,
+      "permission": [
+        {
+          "id": "modelperm-a8f876e158347e2a",
+          "object": "model_permission",
+          "allow_create_engine": false,
+          "allow_sampling": true,
+          "allow_logprobs": true,
+          "allow_search_indices": false,
+          "allow_view": true,
+          "allow_fine_tuning": false,
+          "organization": "*",
+          "group": null,
+          "is_blocking": false
+        }
+      ]
+    }
+  ]
+}

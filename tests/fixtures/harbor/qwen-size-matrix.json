@@ -1,0 +1,15 @@
+{
+  "judge": "agy/gemini-3.6-flash-medium",
+  "exploratory": true,
+  "rankable": false,
+  "harnesses": {
+    "aider@qwen35-0.8b": {"harness":"aider","model":"qwen35-0.8b","family":"Qwen3.5","parameter_billions":0.8,"quantization":"fp8-load","tool_parser":"qwen3_coder","lift":-0.04,"skill_mean":0.42,"control_mean":0.46,"tasks_scored":4,"attempts":1,"exploratory":true,"rankable":false},
+    "pi@qwen35-0.8b": {"harness":"pi","model":"qwen35-0.8b","family":"Qwen3.5","parameter_billions":0.8,"quantization":"fp8-load","tool_parser":"qwen3_coder","error":"canary failed","exploratory":true,"rankable":false},
+    "terminus-2@qwen35-2b": {"harness":"terminus-2","model":"qwen35-2b","family":"Qwen3.5","parameter_billions":2.0,"quantization":"fp8-load","tool_parser":"qwen3_coder","lift":0.03,"skill_mean":0.51,"control_mean":0.48,"tasks_scored":4,"attempts":1,"exploratory":true,"rankable":false},
+    "aider@qwen35-4b": {"harness":"aider","model":"qwen35-4b","family":"Qwen3.5","parameter_billions":4.0,"quantization":"fp8-load","tool_parser":"qwen3_coder","lift":0.08,"skill_mean":0.57,"control_mean":0.49,"tasks_scored":4,"attempts":1,"exploratory":true,"rankable":false},
+    "pi@qwen35-4b": {"harness":"pi","model":"qwen35-4b","family":"Qwen3.5","parameter_billions":4.0,"quantization":"fp8-load","tool_parser":"qwen3_coder","lift":0.05,"skill_mean":0.55,"control_mean":0.50,"tasks_scored":4,"attempts":1,"exploratory":true,"rankable":false},
+    "terminus-2@qwen35-9b": {"harness":"terminus-2","model":"qwen35-9b","family":"Qwen3.5","parameter_billions":9.0,"quantization":"fp8-load","tool_parser":"qwen3_coder","lift":0.12,"skill_mean":0.63,"control_mean":0.51,"tasks_scored":4,"attempts":1,"exploratory":true,"rankable":false},
+    "aider@dot-backbone": {"harness":"aider","model":"dot-backbone","family":"Qwen3.6","parameter_billions":27.0,"quantization":"fp8-published","tool_parser":"qwen3_xml","lift":0.16,"skill_mean":0.68,"control_mean":0.52,"tasks_scored":4,"attempts":1,"exploratory":true,"rankable":false},
+    "pi@dot-backbone": {"harness":"pi","model":"dot-backbone","family":"Qwen3.6","parameter_billions":27.0,"quantization":"fp8-published","tool_parser":"qwen3_xml","lift":0.14,"skill_mean":0.66,"control_mean":0.52,"tasks_scored":4,"attempts":1,"exploratory":true,"rankable":false}
+  }
+}

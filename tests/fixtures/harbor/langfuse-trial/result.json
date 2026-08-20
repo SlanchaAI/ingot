@@ -1,0 +1,124 @@
+{
+  "id": "00000000-0000-0000-0000-000000000001",
+  "task_name": "ingot/fixture-h0",
+  "trial_name": "fixture-h0__attempt-1",
+  "trial_uri": "file:///fixtures/harbor/langfuse-trial",
+  "task_id": {
+    "path": "/fixtures/tasks/fixture-h0"
+  },
+  "source": "fixture",
+  "task_checksum": "fixture-task-checksum",
+  "config": {
+    "task": {
+      "path": "/fixtures/tasks/fixture-h0",
+      "git_url": null,
+      "git_commit_id": null,
+      "name": null,
+      "ref": null,
+      "overwrite": false,
+      "download_dir": null,
+      "source": "fixture"
+    },
+    "trial_name": "fixture-h0__attempt-1",
+    "trials_dir": "/fixtures/trials",
+    "install_only": false,
+    "timeout_multiplier": 1.0,
+    "agent_timeout_multiplier": null,
+    "verifier_timeout_multiplier": null,
+    "agent_setup_timeout_multiplier": 3.0,
+    "environment_build_timeout_multiplier": 4.0,
+    "agent": {
+      "name": "codex",
+      "import_path": null,
+      "model_name": "fixture-model",
+      "n_concurrent": null,
+      "concurrency_group": null,
+      "skills": [
+        "/fixtures/skills/private-skill/SKILL.md"
+      ],
+      "override_timeout_sec": null,
+      "override_setup_timeout_sec": null,
+      "max_timeout_sec": null,
+      "resume_trajectory": false,
+      "load_trajectory": null,
+      "extra_allowed_hosts": [],
+      "kwargs": {},
+      "env": {
+        "OPENAI_API_KEY": "fixture-secret-must-not-export",
+        "OPENAI_BASE_URL": "https://fixture-endpoint.invalid/v1"
+      },
+      "mcp_servers": []
+    },
+    "environment": {
+      "type": "docker",
+      "import_path": null,
+      "force_build": false,
+      "delete": true,
+      "cpu_enforcement_policy": "none",
+      "memory_enforcement_policy": "none",
+      "override_cpus": null,
+      "override_memory_mb": null,
+      "override_storage_mb": null,
+      "override_gpus": null,
+      "override_tpu": null,
+      "mounts": null,
+      "extra_docker_compose": [],
+      "kwargs": {},
+      "extra_allowed_hosts": []
+    },
+    "verifier": {
+      "override_timeout_sec": null,
+      "max_timeout_sec": null,
+      "disable": false
+    },
+    "artifacts": [],
+    "extra_instruction_paths": [],
+    "job_id": "fixture-job"
+  },
+  "agent_info": {
+    "name": "codex",
+    "version": "fixture-version",
+    "model_info": {
+      "name": "fixture-model",
+      "provider": null
+    }
+  },
+  "agent_result": {
+    "n_input_tokens": 120,
+    "n_cache_tokens": 40,
+    "n_output_tokens": 30,
+    "cost_usd": 0.01,
+    "rollout_details": null,
+    "metadata": null
+  },
+  "verifier_result": {
+    "rewards": {
+      "reward": 1.0
+    }
+  },
+  "exception_info": {
+    "exception_type": "AgentSetupTimeoutError",
+    "exception_message": "sanitized fixture failure",
+    "exception_traceback": "sanitized fixture traceback",
+    "occurred_at": "2000-01-01T00:00:00Z"
+  },
+  "started_at": "2000-01-01T00:00:00Z",
+  "finished_at": "2000-01-01T00:00:01Z",
+  "environment_setup": {
+    "started_at": "2000-01-01T00:00:00Z",
+    "finished_at": "2000-01-01T00:00:00Z"
+  },
+  "agent_setup": {
+    "started_at": "2000-01-01T00:00:00Z",
+    "finished_at": "2000-01-01T00:00:01Z"
+  },
+  "agent_execution": {
+    "started_at": null,
+    "finished_at": null
+  },
+  "verifier": {
+    "started_at": "2000-01-01T00:00:01Z",
+    "finished_at": "2000-01-01T00:00:01Z"
+  },
+  "step_results": null
+}

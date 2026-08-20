@@ -1,11 +1,11 @@
-"""Unit tests for success/failure mining (optimize.mine), Langfuse HTTP and the judge are mocked."""
+"""Unit tests for success/failure mining (ingot.optimize.mine), Langfuse HTTP and the judge are mocked."""
 import json
 from urllib.parse import parse_qs, urlparse
 
 import pytest
 
-from optimize import mine
-from optimize.judge import DIMENSIONS
+from ingot.optimize import mine
+from ingot.optimize.judge import DIMENSIONS
 
 
 class _Resp:
@@ -34,6 +34,51 @@ def test_fetch_traces_keeps_only_usable_task_output_pairs(monkeypatch):
     out = mine.fetch_traces(50)
     assert [(trace["task"], trace["rubric"]) for trace in out] == [
         ("do X", "r"), ("a bare string", "")]
+
+
+def test_fetch_local_traces_requires_normalized_store_and_honors_newest_limit(tmp_path, monkeypatch):
+    path = tmp_path / "local-traces.json"
+    path.write_text(json.dumps({
+        "schema_version": "ingot/local-traces/v1",
+        "traces": [
+            {"id": "old", "timestamp": "2026-07-27T10:00:00Z", "task": "old task",
+             "answer": "old answer", "tags": ["skill:pdf"]},
+            {"id": "new", "timestamp": "2026-07-28T10:00:00Z", "task": "new task",
+             "answer": "new answer", "tags": ["skill:pdf"]},
+        ],
+    }))
+    monkeypatch.setattr(mine, "LOCAL_TRACE_FILE", path)
+
+    assert mine.fetch_local_traces(1) == [{
+        "task": "new task", "rubric": "", "answer": "new answer", "tags": ["skill:pdf"],
+    }]
+
+    path.write_text(json.dumps({"schema_version": "wrong", "traces": []}))
+    with pytest.raises(SystemExit, match="unsupported local trace store"):
+        mine.fetch_local_traces()
+
+
+def test_mine_local_source_requires_consent_and_never_reads_langfuse(monkeypatch):
+    traces = [{"task": "t", "rubric": "", "answer": "a", "tags": ["pdf"]}]
+    monkeypatch.setattr(mine, "fetch_local_traces", lambda limit: traces)
+    monkeypatch.setattr(mine, "fetch_traces",
+                        lambda limit: pytest.fail("local mining must not contact Langfuse"))
+    monkeypatch.setattr(mine, "relevant_traces", lambda items, skill, k=5: items)
+    monkeypatch.setattr(mine, "_cluster_traces", lambda items, embed: [[0]])
+    monkeypatch.setattr(mine, "_normalized_embedder", lambda: object())
+    monkeypatch.setattr(mine, "_judge_trace_clusters",
+                        lambda items, clusters, log, cache_path: ([
+                            (0, {"score": 1.0, "dimensions": {d: "pass" for d in DIMENSIONS}}, 1),
+                        ], 0, 0))
+    monkeypatch.setattr(mine, "_select_candidates", lambda *args, **kwargs: [])
+
+    with pytest.raises(SystemExit, match="allow-external-judge"):
+        mine.mine("pdf", source="local", log=lambda *_args: None)
+
+    result = mine.mine(
+        "pdf", source="local", allow_external_judge=True, log=lambda *_args: None)
+
+    assert result["traces"] == 1
 
 
 def test_fetch_traces_parses_langgraph_agent_traces(monkeypatch):
@@ -175,14 +220,41 @@ def test_relevant_traces_keeps_tagged_or_embedding_ranked(monkeypatch):
         def suggest(self, task, k=5, min_score=0.0):
             return [{"name": "excel"}] if "spreadsheet" in task else [{"name": "other"}]
 
-    monkeypatch.setattr("mcp_server.router.Router", FakeRouter)
-    monkeypatch.setattr("mcp_server.registry.load_skills", lambda: [])
+    monkeypatch.setattr("ingot.mcp_server.router.Router", FakeRouter)
+    monkeypatch.setattr("ingot.mcp_server.registry.load_skills", lambda: [])
     traces = [
         {"task": "spreadsheet lookup with discounts", "tags": []},   # ranked -> keep (misrouted traffic)
         {"task": "rotate a pdf", "tags": ["excel"]},                 # tagged -> keep
         {"task": "rotate a pdf", "tags": ["pdf"]},                   # neither -> drop
     ]
     assert mine.relevant_traces(traces, "excel") == traces[:2]
+
+
+def test_relevant_traces_matches_every_harness_tag_spelling(monkeypatch):
+    """Real traffic is tagged by whichever harness produced it, not by us. Claude Code writes
+    `skill:<name>`, namespaced by plugin when the skill came from one; our own agent writes the
+    bare name plus a `revision=<name>@<hash>` pin. Matching the bare form alone drops every
+    externally-produced trace, and mining then reports a heavily-used skill as never used."""
+    class FakeRouter:
+        def __init__(self, skills):
+            pass
+
+        def suggest(self, task, k=5, min_score=0.0):
+            return [{"name": "other"}]      # never ranks, so the tag check alone decides
+
+    monkeypatch.setattr("ingot.mcp_server.router.Router", FakeRouter)
+    monkeypatch.setattr("ingot.mcp_server.registry.load_skills", lambda: [])
+    traces = [
+        {"task": "t", "tags": ["pdf"]},                                   # bare, our agent
+        {"task": "t", "tags": ["claude-code", "skill:pdf"]},              # Claude Code
+        {"task": "t", "tags": ["skill:superpowers:pdf"]},                 # plugin-namespaced
+        {"task": "t", "tags": ["demo", "revision=pdf@83a75cf1f9b5ada5"]},  # revision pin
+        {"task": "t", "tags": ["skill:pdf-tools"]},                       # neighbour -> drop
+        {"task": "t", "tags": ["revision=excel@abc123"]},                 # other skill -> drop
+        {"task": "t", "tags": []},                                        # untagged -> drop
+        {"task": "t"},                                                    # no tags key -> drop
+    ]
+    assert mine.relevant_traces(traces, "pdf") == traces[:4]
 
 
 def test_mine_exits_when_no_traces_are_relevant(monkeypatch):

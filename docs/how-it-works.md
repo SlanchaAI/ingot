@@ -4,7 +4,7 @@
   <img src="ingot.jpg" alt="Ingot, the mascot, handing skills out to AI agents" width="720">
 </p>
 
-- **`mcp_server/`**: [FastMCP](https://github.com/jlowin/fastmcp) v3 server (HTTP transport), five tools:
+- **`mcp_server/`**: [FastMCP](https://github.com/jlowin/fastmcp) v3 server (HTTP transport), six tools:
   - `suggest_skills(task, k)`: routable matches by embedding similarity (Qwen3-Embedding-0.6B
     q4 on CPU ONNX Runtime, no GPU; any fastembed model via `EMBED_MODEL`); near-misses come back flagged
     `related`; empty = truly novel
@@ -14,6 +14,8 @@
   - `route_and_load(task, harness, cwd, available_tools, available_mcps)`: one-round-trip
     selection and loading for direct or related compatible routes (see
     [Bring your own agent](mcp-integration.md#bring-your-own-agent-mcp-only))
+  - `propose_skill_update(...)`: revision-bound `skill-retrospective` update submission; creates
+    one inert pending challenger and never activates or displaces instructions
 - **`agent/run.py`**: [deepagents](https://github.com/langchain-ai/deepagents) LangGraph agent
   wired to those tools, traced to Langfuse. Serves routed tasks on the weak `AGENT_MODEL` and
   escalates truly novel tasks to `STRONG_MODEL`.
@@ -21,12 +23,15 @@
   loads. Its folder's content hash is its revision.
 - **`optimize/promote.py`**: the change-control core, and the only module that writes under
   `skills/`: the pending queue, the evidence check, revision snapshots, the atomic promotion and
-  rollback swaps, and the approval-audit append.
+  rollback swaps, and the approval-audit append. When the serving revision comes from a read-only
+  mounted library, approval snapshots that source and atomically installs the challenger in the
+  first-precedence writable `skills/` root; the source mount remains unchanged.
 - **`optimize/`**: the SkillOpt integration and evaluation pipeline: trace mining (`mine.py`),
   multi-dimensional LLM judge
   (`judge.py`), the SkillOpt candidate search (`skillopt_loop.py` + `skillopt_bridge.py`) and its
   rollout/teacher plumbing (`rollout.py`),
-  held-out A/B (`ab.py`), the portable evidence bundle (`evidence.py`), the routing pass
+  held-out A/B (`ab.py`), the portable evidence bundle (`evidence.py`), retrospective proposal
+  ingestion (`retrospective.py`), the routing pass
   (`routing.py`), the background loop (`loop.py`), the library-wide routing health check
   (`routing_health.py`, embedding-only, cron/CI-friendly, read-only), token ledger (`usage.py`).
   None of these can activate anything: most write pending records; `routing_health.py` writes

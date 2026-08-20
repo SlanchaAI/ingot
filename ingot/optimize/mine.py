@@ -1,0 +1,516 @@
+"""Success/failure mining, the SkillForge paper's Failure Analyzer over *our* real traces.
+
+Pulls logged agent runs from Langfuse, keeps the ones attributable to the skill being mined
+(tagged with it, or ranking it in the embedding top-k for the task text, which also catches
+traffic the skill *should* have served but didn't route), re-judges each outcome with the
+multi-dimensional judge, and aggregates which failure dimensions (correctness / completeness /
+instruction-following / efficiency) dominate, turning accumulated operational evidence into a
+diagnosis of where a skill is weak, plus the weakest real tasks as mined eval candidates. This is
+the signal that drives targeted optimization (the paper: Liu et al., "SkillForge: Forging
+Domain-Specific, Self-Evolving Agent Skills", arXiv:2604.08618).
+
+Usage: python -m ingot.optimize.mine <skill> [--limit N]
+"""
+import argparse
+import base64
+import hashlib
+import json
+import os
+import urllib.request
+from collections import Counter, defaultdict
+from pathlib import Path
+from typing import Callable, NamedTuple
+from urllib.parse import urlencode, urlparse
+
+from .judge import DIMENSIONS, MODELS, _PROMPT, failed_dimensions, judge
+from .local_traces import LOCAL_TRACE_FILE, SCHEMA as LOCAL_TRACE_SCHEMA
+from ingot import paths
+
+LF_URL = os.environ.get("LANGFUSE_BASE_URL", "http://langfuse-web:3000")
+LF_PK = os.environ.get("LANGFUSE_PUBLIC_KEY", "pk-lf-local-demo")
+LF_SK = os.environ.get("LANGFUSE_SECRET_KEY", "sk-lf-local-demo")
+RUNS_DIR = paths.runs()
+JUDGE_CACHE_FILE = RUNS_DIR / "mine-cache" / "judgments.json"
+TRACE_PAGE_SIZE = 100
+CLUSTER_THRESHOLD = float(os.environ.get("MINE_CLUSTER_THRESHOLD", "0.90"))
+MAX_JUDGE_CALLS = int(os.environ.get("MINE_MAX_JUDGE_CALLS", "24"))
+CACHE_VERSION = 1
+
+
+def _trace_key(trace: dict) -> str:
+    if trace.get("id"):
+        return str(trace["id"])
+    material = json.dumps([trace.get("input"), trace.get("output")], sort_keys=True,
+                          separators=(",", ":"), default=str)
+    return hashlib.sha256(material.encode()).hexdigest()
+
+
+def fetch_traces(limit: int = 0) -> list[dict]:
+    """Traces with a recognizable task input and a non-empty answer output, read from the
+    configured evals backend's Langfuse-compatible trace API. Fails loudly when the backend is
+    unreachable: mining has no other source of real traffic, so a silent empty result would read
+    as 'nothing failing' when it means 'no traces'. A zero limit paginates through all available
+    traces; a positive limit is an explicit newest-N operational cap."""
+    parsed_url = urlparse(LF_URL)
+    if parsed_url.scheme not in {"http", "https"} or not parsed_url.netloc:
+        raise SystemExit(
+            "LANGFUSE_BASE_URL must be an absolute http:// or https:// URL; "
+            f"got {LF_URL!r}.")
+    auth = base64.b64encode(f"{LF_PK}:{LF_SK}".encode()).decode()
+    out = []
+    seen = set()
+    page = 1
+    while True:
+        query = urlencode({"limit": TRACE_PAGE_SIZE, "page": page})
+        req = urllib.request.Request(f"{LF_URL.rstrip('/')}/api/public/traces?{query}",
+                                     headers={"Authorization": f"Basic {auth}"})
+        try:
+            with urllib.request.urlopen(req, timeout=60) as response:
+                payload = json.loads(response.read())
+            data = payload["data"]
+            meta = payload.get("meta") or {}
+            total_pages = int(meta.get("totalPages") or 0)
+        except (OSError, ValueError, KeyError) as e:
+            raise SystemExit(
+                f"evals backend unreachable at {LF_URL} ({e}). Mining reads traces from Langfuse "
+                f"(the default) or a Langfuse-compatible endpoint; bring up the stack "
+                f"(`docker compose up`) or point LANGFUSE_BASE_URL / _PUBLIC_KEY / _SECRET_KEY "
+                f"at your own provider. See docs/mcp-integration.md (Using your own evals "
+                f"platform).") from e
+        new_keys = 0
+        for trace in data:
+            key = _trace_key(trace)
+            if key in seen:
+                continue
+            seen.add(key)
+            new_keys += 1
+            parsed = _task_answer(trace.get("input"), trace.get("output"))
+            if parsed:
+                task, rubric, answer = parsed
+                out.append({"task": task, "rubric": rubric, "answer": answer,
+                            "tags": trace.get("tags", [])})
+                if limit and len(out) >= limit:
+                    return out
+        if not data or not new_keys or (total_pages and page >= total_pages):
+            break
+        if not total_pages and len(data) < TRACE_PAGE_SIZE:
+            break
+        page += 1
+    return out
+
+
+def fetch_local_traces(limit: int = 0) -> list[dict]:
+    """Read normalized local coding-agent turns. Transcript parsing is a separate, local command
+    so the paid miner never gains permission to crawl a home directory as a side effect."""
+    if not LOCAL_TRACE_FILE.exists():
+        raise SystemExit(
+            f"No local trace store at {LOCAL_TRACE_FILE}; run `python -m ingot.optimize.local_traces` "
+            "on the machine that owns the Codex and Claude transcripts.")
+    try:
+        payload = json.loads(LOCAL_TRACE_FILE.read_text())
+    except (OSError, ValueError) as e:
+        raise SystemExit(f"Local trace store is unreadable ({e}); scan it again.") from e
+    if (payload.get("schema_version") != LOCAL_TRACE_SCHEMA
+            or not isinstance(payload.get("traces"), list)):
+        raise SystemExit(
+            f"unsupported local trace store; expected {LOCAL_TRACE_SCHEMA}, scan it again")
+    ordered = sorted(
+        (trace for trace in payload["traces"] if isinstance(trace, dict)),
+        key=lambda trace: (trace.get("timestamp", ""), trace.get("id", "")), reverse=True,
+    )
+    out = []
+    for trace in ordered:
+        parsed = _task_answer(trace.get("task"), trace.get("answer"))
+        if not parsed:
+            continue
+        task, rubric, answer = parsed
+        out.append({"task": task, "rubric": rubric, "answer": answer,
+                    "tags": trace.get("tags", [])})
+        if limit and len(out) >= limit:
+            break
+    return out
+
+
+def _task_answer(inp, ans):
+    """(task, rubric, answer) from supported trace roots: explicit eval dictionaries, LangGraph
+    state, and the root shapes emitted by the Claude Code and Codex Langfuse connectors."""
+    if isinstance(inp, dict) and inp.get("task") and isinstance(ans, str) and ans.strip():
+        return inp["task"], inp.get("rubric", ""), ans
+    if isinstance(inp, str) and inp.strip() and isinstance(ans, str) and ans.strip():
+        return inp, "", ans
+    if (isinstance(inp, dict) and inp.get("role") == "user"
+            and isinstance(inp.get("content"), str) and inp["content"].strip()
+            and isinstance(ans, dict) and ans.get("role") == "assistant"
+            and isinstance(ans.get("content"), str) and ans["content"].strip()):
+        return inp["content"], "", ans["content"]
+    try:
+        task = inp["messages"][0]["content"]
+        answer = ans["messages"][-1]["content"]
+    except (KeyError, IndexError, TypeError):
+        return None
+    if isinstance(answer, list):  # some models return content blocks, not a plain string
+        answer = "\n".join(b.get("text", "") if isinstance(b, dict) else str(b) for b in answer)
+    if isinstance(task, str) and task.strip() and isinstance(answer, str) and answer.strip():
+        return task, "", answer
+    return None
+
+
+def _tagged_with(tags, skill: str) -> bool:
+    """Does any tag name `skill`? Harnesses spell it three ways, and only the first is bare:
+    our own agent writes `pdf` plus a revision pin `revision=pdf@<hash>`, while Claude Code
+    writes `skill:<name>`, namespaced by plugin when the skill came from one
+    (`skill:superpowers:systematic-debugging`). Matching the bare form alone drops every trace an
+    external harness produced — which is nearly all real traffic — and mining then reports
+    'no traces relevant to X' as though the skill were never used."""
+    for tag in tags or []:
+        tag = str(tag)
+        if tag == skill:
+            return True
+        if tag.startswith("revision=") and tag[len("revision="):].split("@", 1)[0] == skill:
+            return True
+        if tag.startswith("skill:") and tag[len("skill:"):].rsplit(":", 1)[-1] == skill:
+            return True
+    return False
+
+
+def relevant_traces(traces: list[dict], skill: str, k: int = 5) -> list[dict]:
+    """Traces attributable to `skill`: tagged with it (external harnesses tag the
+    routed skill), or ranking it in the embedding top-k for the task text. The rank check is what
+    catches traffic the skill *should* have served but didn't route, under-triggering, the common
+    routing failure, which a tag filter alone would attribute to the wrong skill."""
+    from ingot.mcp_server.registry import load_skills
+    from ingot.mcp_server.router import Router
+    router = Router(load_skills())
+    return [t for t in traces
+            if _tagged_with(t.get("tags"), skill)
+            or any(s["name"] == skill for s in router.suggest(t["task"], k=k, min_score=0.0))]
+
+
+def _greedy_pick(difficulty, vecs, k: int) -> list[int]:
+    """Difficulty-weighted greedy max-min: each pick maximizes difficulty x novelty, where
+    novelty is 1 minus the max cosine to anything already picked. Hardest tasks win, but a
+    near-paraphrase of a previous pick gains ~nothing, so picks spread across failure modes
+    (specialize's lesson: judge failure dominates, embedding distance is only the coverage
+    term). Stops when no candidate adds value: aced tasks (difficulty 0) are dead weight."""
+    import numpy as np
+    difficulty = np.asarray(difficulty, dtype=np.float32).copy()
+    picked: list[int] = []
+    novelty = np.ones(len(difficulty), dtype=np.float32)
+    for _ in range(min(k, len(difficulty))):
+        gains = difficulty * novelty
+        i = int(np.argmax(gains))
+        if gains[i] <= 0:
+            break
+        picked.append(i)
+        novelty = np.minimum(novelty, 1.0 - vecs @ vecs[i])
+        difficulty[i] = -1.0
+    return picked
+
+
+MINED_CANDIDATES = 6        # eval candidates surfaced per mine run
+TRAIN_DUP_THRESHOLD = 0.90  # cosine to an existing train task at/above which a candidate leaks
+
+
+def _train_dupes(vecs, skill: str, norm_embed, log):
+    """Boolean mask of candidates that near-duplicate the skill's existing train tasks (the
+    holdout must recombine train, not repeat it), or None when there is no train set."""
+    import yaml
+    from pathlib import Path
+    tasks_file = Path(__file__).resolve().parent / "tasks" / f"{skill}.yaml"
+    if not tasks_file.exists():
+        return None
+    data = yaml.safe_load(tasks_file.read_text()) or {}
+    train_texts = [t["task"] for t in (data.get("train") or data.get("tasks") or [])]
+    if not train_texts:
+        return None
+    dupes = (vecs @ norm_embed(train_texts).T).max(axis=1) >= TRAIN_DUP_THRESHOLD
+    if dupes.any():
+        log(f"[mine] {int(dupes.sum())} candidate(s) dropped as near-duplicates of "
+            f"existing train tasks (leakage guard)")
+    return dupes
+
+
+def _normalized_embedder():
+    """Return an embedding function that produces row-normalized float vectors. Task-to-task
+    similarity (diversity + train-dup checks), so both sides use the document embedding."""
+    import numpy as np
+    from ingot.mcp_server.embedding import build_embedding
+
+    embedder = build_embedding()
+
+    def norm_embed(texts):
+        matrix = np.array(list(embedder.embed(texts)), dtype=np.float32)
+        return matrix / np.linalg.norm(matrix, axis=1, keepdims=True)
+
+    return norm_embed
+
+
+def _normalized_task(task: str) -> str:
+    return " ".join(task.casefold().split())
+
+
+def _cluster_traces(traces: list[dict], norm_embed, threshold: float = CLUSTER_THRESHOLD) -> list[list[int]]:
+    """Group formatting-equivalent and semantic paraphrases without an LLM call.
+
+    Each cluster retains every use index, so its frequency can weight health and failure counts.
+    The first task in a cluster is the stable representative while Langfuse returns newest first.
+    """
+    exact_groups = {}
+    for index, trace in enumerate(traces):
+        exact_groups.setdefault((trace.get("rubric", ""), _normalized_task(trace["task"])), []).append(index)
+    groups = list(exact_groups.values())
+    if len(groups) < 2:
+        return groups
+
+    import numpy as np
+    vectors = norm_embed([traces[group[0]]["task"] for group in groups])
+    clusters: list[list[int]] = []
+    representatives: list[int] = []
+    for group_index, group in enumerate(groups):
+        rubric = traces[group[0]].get("rubric", "")
+        compatible = [position for position, representative in enumerate(representatives)
+                      if traces[groups[representative][0]].get("rubric", "") == rubric]
+        if not compatible:
+            clusters.append(list(group))
+            representatives.append(group_index)
+            continue
+        similarities = vectors[[representatives[position] for position in compatible]] @ vectors[group_index]
+        nearest_compatible = int(np.argmax(similarities))
+        nearest_cluster = compatible[nearest_compatible]
+        if float(similarities[nearest_compatible]) >= threshold:
+            clusters[nearest_cluster].extend(group)
+        else:
+            clusters.append(list(group))
+            representatives.append(group_index)
+    return clusters
+
+
+def _judge_fingerprint() -> str:
+    payload = json.dumps({"version": CACHE_VERSION, "models": MODELS, "prompt": _PROMPT,
+                          "dimensions": DIMENSIONS}, sort_keys=True, separators=(",", ":"))
+    return hashlib.sha256(payload.encode()).hexdigest()
+
+
+def _judgment_key(trace: dict) -> str:
+    payload = json.dumps({"judge": _judge_fingerprint(), "task": trace["task"],
+                          "rubric": trace["rubric"], "answer": trace["answer"]},
+                         sort_keys=True, separators=(",", ":"))
+    return hashlib.sha256(payload.encode()).hexdigest()
+
+
+def _load_judge_cache(path: Path = JUDGE_CACHE_FILE) -> dict:
+    try:
+        data = json.loads(path.read_text())
+    except (OSError, ValueError):
+        return {}
+    if not isinstance(data, dict) or data.get("version") != CACHE_VERSION:
+        return {}
+    judgments = data.get("judgments")
+    return judgments if isinstance(judgments, dict) else {}
+
+
+def _save_judge_cache(judgments: dict, path: Path = JUDGE_CACHE_FILE) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    temporary = path.with_suffix(path.suffix + ".tmp")
+    temporary.write_text(json.dumps({"version": CACHE_VERSION, "judgments": judgments},
+                                    sort_keys=True, separators=(",", ":")) + "\n")
+    temporary.replace(path)
+
+
+def _combine_verdicts(verdicts: list[dict]) -> dict:
+    if len(verdicts) == 1:
+        return verdicts[0]
+    dimensions = {}
+    for dimension in DIMENSIONS:
+        failures = [v["dimensions"][dimension] for v in verdicts
+                    if dimension in failed_dimensions(v["dimensions"])]
+        dimensions[dimension] = failures[0] if len(failures) * 2 >= len(verdicts) else "pass"
+    return {"score": sum(v["score"] for v in verdicts) / len(verdicts),
+            "feedback": " | ".join(v.get("feedback", "") for v in verdicts[:3]),
+            "dimensions": dimensions}
+
+
+def _judge_trace_clusters(traces: list[dict], clusters: list[list[int]], log=print,
+                          cache_path: Path = JUDGE_CACHE_FILE
+                          ) -> tuple[list[tuple[int, dict, int]], int, int]:
+    """Judge at most one representative for each locally clustered task family.
+
+    Cached member verdicts represent their entire cluster. New clusters are filled in descending
+    frequency order under a per-run call budget. Repeated runs therefore drain the backlog without
+    paying twice for unchanged task, answer, judge-model, and rubric combinations.
+    """
+    cache = _load_judge_cache(cache_path)
+    scored: dict[int, dict] = {}
+    pending = []
+    for cluster_index, indices in enumerate(clusters):
+        cached = [cache[key] for index in indices
+                  if (key := _judgment_key(traces[index])) in cache]
+        if cached:
+            scored[cluster_index] = _combine_verdicts(cached)
+        else:
+            pending.append(cluster_index)
+
+    pending.sort(key=lambda i: (-len(clusters[i]), _normalized_task(traces[clusters[i][0]]["task"])))
+    allowance = len(pending) if MAX_JUDGE_CALLS <= 0 else min(MAX_JUDGE_CALLS, len(pending))
+    calls = 0
+    for cluster_index in pending[:allowance]:
+        representative = clusters[cluster_index][0]
+        trace = traces[representative]
+        verdict = judge(trace["task"], trace["rubric"], trace["answer"])
+        cache[_judgment_key(trace)] = verdict
+        _save_judge_cache(cache, cache_path)
+        scored[cluster_index] = verdict
+        calls += 1
+
+    results = [(clusters[index][0], scored[index], len(clusters[index]))
+               for index in range(len(clusters)) if index in scored]
+    if calls:
+        log(f"[mine] {calls} representative(s) judged; unchanged verdicts are cached")
+    return results, len(pending) - allowance, calls
+
+
+def _candidate_representatives(traces: list[dict], scores: list[float], log) -> list[int]:
+    """Keep the lowest-scoring representative of each formatting-equivalent task."""
+    representatives = {}
+    for index, trace in enumerate(traces):
+        key = _normalized_task(trace["task"])
+        previous = representatives.get(key)
+        if previous is None or scores[index] < scores[previous]:
+            representatives[key] = index
+    indices = list(representatives.values())
+    collapsed = len(traces) - len(indices)
+    if collapsed:
+        log(f"[mine] {collapsed} duplicate candidate(s) collapsed")
+    return indices
+
+
+class _RankingContext(NamedTuple):
+    skill: str
+    norm_embed: Callable
+    log: Callable
+
+
+def _rank_candidates(traces, scores, indices, context: _RankingContext) -> list[int]:
+    """Rank representative tasks by failure difficulty and embedding coverage."""
+    import numpy as np
+
+    vecs = context.norm_embed([traces[index]["task"] for index in indices])
+    difficulty = 1.0 - np.asarray([scores[index] for index in indices], dtype=np.float32)
+    dupes = _train_dupes(vecs, context.skill, context.norm_embed, context.log)
+    if dupes is not None:
+        difficulty[dupes] = -1.0
+    return [indices[index] for index in _greedy_pick(difficulty, vecs, MINED_CANDIDATES)]
+
+
+def _select_candidates(traces: list[dict], scores: list[float], skill: str, log=print) -> list[int]:
+    """Pick eval candidates from mined traces: difficulty from the judge (1 - score), spread
+    by embedding coverage, and never a near-duplicate of the skill's existing train set."""
+    # Collapse exact and formatting-only duplicates before semantic coverage selection. Keep the
+    # lowest-scoring occurrence because it provides the strongest failure evidence.
+    indices = _candidate_representatives(traces, scores, log)
+    context = _RankingContext(skill, _normalized_embedder(), log)
+    return _rank_candidates(traces, scores, indices, context)
+
+
+def _source_traces(source: str, limit: int) -> list[dict]:
+    if source == "langfuse":
+        return fetch_traces(limit)
+    if source == "local":
+        return fetch_local_traces(limit)
+    raise SystemExit(f"unknown trace source {source!r}; choose langfuse or local")
+
+
+def mine(skill: str, limit: int = 0, log=print, source: str = "langfuse",
+         allow_external_judge: bool = False) -> dict:
+    if source == "local" and not allow_external_judge:
+        raise SystemExit(
+            "Local transcript content stays local by default. Re-run with "
+            "`--allow-external-judge` to send selected task/answer pairs to JUDGE_MODEL.")
+    scope = f"the newest {limit}" if limit else "all"
+    log(f"[mine] pulling {scope} {source} traces for '{skill}'…")
+    traces = _source_traces(source, limit)
+    if not traces:
+        raise SystemExit("No usable traces found; run the agent or a candidate pass first to "
+                         "generate some.")
+    total = len(traces)
+    traces = relevant_traces(traces, skill)
+    if not traces:
+        raise SystemExit(f"No traces relevant to '{skill}' among the {total} fetched, run the agent "
+                         "on matching traffic first (or check the skill name).")
+    log(f"[mine] {len(traces)}/{total} fetched traces relevant to '{skill}' "
+        f"(tagged with it, or ranking it in the embedding top-5)")
+
+    norm_embed = _normalized_embedder()
+    clusters = _cluster_traces(traces, norm_embed)
+    scored, backlog, judge_calls = _judge_trace_clusters(traces, clusters, log=log,
+                                                          cache_path=JUDGE_CACHE_FILE)
+    if not scored:
+        raise SystemExit("No trace clusters were judged; increase MINE_MAX_JUDGE_CALLS above zero.")
+
+    dim_failures = Counter()          # dimension -> how many represented uses failed it
+    examples = defaultdict(list)      # dimension -> a few failing tasks
+    weighted_score = 0.0
+    covered = 0
+    candidate_traces = []
+    candidate_scores = []
+    candidate_weights = []
+    for index, verdict, weight in scored:
+        trace = traces[index]
+        weighted_score += verdict["score"] * weight
+        covered += weight
+        candidate_traces.append(trace)
+        candidate_scores.append(verdict["score"])
+        candidate_weights.append(weight)
+        for d in failed_dimensions(verdict["dimensions"]):
+            dim_failures[d] += weight
+            if len(examples[d]) < 3:
+                examples[d].append((trace["task"][:70], verdict["dimensions"][d]))
+
+    n = len(traces)
+    mean = weighted_score / covered
+    coverage = covered / n
+    bad_cases = sum(weight for _, verdict, weight in scored if verdict["score"] < 0.5)
+    log(f"[mine] {n} uses collapsed into {len(clusters)} semantic task cluster(s); "
+        f"{covered}/{n} uses represented by a judge verdict ({coverage:.0%} coverage)")
+    if backlog:
+        log(f"[mine] {backlog} unjudged cluster(s) remain; the next run continues from the cache")
+    log(f"\n[mine] analyzed {covered} represented real uses · weighted mean judge score "
+        f"{mean:.2f} · {bad_cases} bad cases (score < 0.5)")
+    log("[mine] failure dimensions (paper's Failure Analyzer), most common first:")
+    for d in sorted(DIMENSIONS, key=lambda d: -dim_failures[d]):
+        bar = "█" * round(10 * dim_failures[d] / covered)
+        log(f"    {d:<22} {dim_failures[d]:>3}/{covered}  {bar}")
+        for task, note in examples[d][:2]:
+            log(f"        · {task!r} → {note}")
+
+    # the weakest real tasks become mined eval candidates for a targeted optimize run,
+    # difficulty-weighted and coverage-spread so they aren't six paraphrases of one failure
+    picked = _select_candidates(candidate_traces, candidate_scores, skill, log=log)
+    mined = [{"task": candidate_traces[i]["task"],
+              "rubric": candidate_traces[i]["rubric"] or "(reference-free)",
+              "occurrences": candidate_weights[i]}
+             for i in picked]
+    log(f"\n[mine] {len(mined)} weakest tasks mined as eval candidates (coverage-spread) "
+        f"→ optimize on these next.")
+    return {"skill": skill, "traces": n, "clusters": len(clusters),
+            "judged_representatives": len(scored), "judge_calls": judge_calls,
+            "coverage": coverage, "health_complete": backlog == 0, "mean_score": mean,
+            "failure_dimensions": dict(dim_failures), "mined_tasks": mined}
+
+
+if __name__ == "__main__":
+    ap = argparse.ArgumentParser()
+    ap.add_argument("skill")
+    ap.add_argument("--limit", type=int, default=0,
+                    help="newest traces to inspect; 0 (default) paginates through all uses")
+    ap.add_argument("--source", choices=("langfuse", "local"), default="langfuse",
+                    help="trace store to mine; local requires an explicit transcript scan")
+    ap.add_argument("--allow-external-judge", action="store_true",
+                    help="allow local task/answer pairs to be sent to JUDGE_MODEL")
+    args = ap.parse_args()
+    if args.source == "local" and not args.allow_external_judge:
+        ap.error("--source local requires --allow-external-judge")
+    from . import require_openrouter_key
+    require_openrouter_key()
+    mine(args.skill, limit=args.limit, source=args.source,
+         allow_external_judge=args.allow_external_judge)

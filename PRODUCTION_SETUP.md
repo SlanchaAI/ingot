@@ -209,7 +209,7 @@ Codex, with the exact rule in [Make skill loading part of the agent instructions
 ## Operations
 
 Back up all named Langfuse datastore volumes and the repository's `skills/`, `runs/`, and
-`optimize/tasks/` directories. Pin image versions, review upgrades before applying them, and test
+`ingot/optimize/tasks/` directories. Pin image versions, review upgrades before applying them, and test
 restore procedures. Monitor container health and disk usage:
 
 ```bash

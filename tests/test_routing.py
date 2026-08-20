@@ -2,7 +2,7 @@
 no-regression/improvement/collision gate. No embeddings, no LLM, the router is injected."""
 import pytest
 
-from optimize import routing as R
+from ingot.optimize import routing as R
 
 
 class _ScriptedRouter:
@@ -115,11 +115,11 @@ def test_run_routing_auto_drafts_missing_cases(monkeypatch, tmp_path):
     skill = tmp_path / "skills" / "sk"
     skill.mkdir(parents=True)
     (skill / "SKILL.md").write_text("---\nname: sk\ndescription: d.\n---\nbody\n")
-    monkeypatch.setattr(R, "SKILLS_DIR", tmp_path / "skills")
+    monkeypatch.setattr(R, "resolve_skill_dir", lambda name: tmp_path / "skills" / name)
     monkeypatch.setattr(R, "TASKS_DIR", tmp_path / "tasks", raising=False)
     (tmp_path / "tasks").mkdir()
 
-    from optimize import draft as D
+    from ingot.optimize import draft as D
     def sentinel(*a, **k):
         raise RuntimeError("drafter invoked")
     monkeypatch.setattr(D, "draft_and_append_routing", sentinel)
@@ -132,26 +132,25 @@ def test_run_routing_writes_an_evidence_bundle_and_records_relative_paths(monkey
     the same portable bundle rather than a claim that one exists."""
     import json
 
-    from optimize import promote as P
+    from ingot.optimize import promote as P
     root = tmp_path / "skills"
     skill = root / "sk"
     skill.mkdir(parents=True)
     (skill / "SKILL.md").write_text("---\nname: sk\ndescription: old trigger.\n---\nbody\n")
     monkeypatch.setenv("SKILL_ROUTER_PATHS", str(root))
-    monkeypatch.setattr(R, "SKILLS_DIR", root)
+    monkeypatch.setattr(R, "resolve_skill_dir", lambda name: root / name)
     tasks = tmp_path / "tasks"
     tasks.mkdir()
     (tasks / "sk.yaml").write_text(
         "routing:\n  - task: use sk please\n    expected: sk\n  - task: unrelated\n    expected: null\n")
     monkeypatch.setattr(R, "TASKS_DIR", tasks, raising=False)
+    monkeypatch.setenv("INGOT_RUNS", str(tmp_path / "runs"))
     evidence_root = tmp_path / "runs" / "evidence"
-    monkeypatch.setattr(R, "EVIDENCE_DIR", evidence_root)
-    monkeypatch.setattr(P, "PENDING_DIR", tmp_path / "pending")
 
     monkeypatch.setattr(R, "optimize_description",
                         lambda skill, seed, cases, budget: ("new trigger.", 0.5, 0.9))
     monkeypatch.setattr(R, "_description_shadows", lambda skill, desc: ("", 0.0))
-    from optimize import ab as A
+    from ingot.optimize import ab as A
     monkeypatch.setattr(A, "_routing_metrics", lambda skill, champ, chall: {
         "champion": {"top1": 0.5, "recall_at_3": 0.5, "no_route_precision": 1.0},
         "challenger": {"top1": 1.0, "recall_at_3": 1.0, "no_route_precision": 1.0},

@@ -4,14 +4,18 @@
   <img src="docs/ingot.jpg" alt="Ingot, the mascot, handing skills out to AI agents" width="720">
 </p>
 
-**Evidence-gated change control for agent instructions.**
+**Open-source release control for agent skills.** Quarantine, prove, approve, publish,
+and roll back exact skill revisions.
 
 [![CI](https://github.com/SlanchaAI/ingot/actions/workflows/ci.yml/badge.svg)](https://github.com/SlanchaAI/ingot/actions/workflows/ci.yml) [![License: Apache 2.0](https://img.shields.io/github/license/SlanchaAI/ingot)](LICENSE) [![Python 3.12](https://img.shields.io/badge/Python-3.12-3776AB?logo=python&logoColor=white)](Dockerfile) [![Docker](https://img.shields.io/badge/Docker-Compose-2496ED?logo=docker&logoColor=white)](docker-compose.yml)
 
-An agent's [skills](https://github.com/anthropics/skills) are instructions it follows. **Ingot** is a
-local-first library and MCP server for individual developers who serve versioned skills, evaluate
-optimizer-generated challengers, and require human promotion before those challengers replace live
-instructions.
+Every tool installs a skill. Ingot quarantines it.
+
+An agent's [skills](https://github.com/anthropics/skills) are instructions it follows, and they
+arrive from anywhere: a marketplace, a teammate, an optimizer. **Ingot** is a local-first,
+air-gappable control plane for a team's skill library. It serves an exact revision of each skill
+over MCP, holds every proposed change in quarantine, and requires a human approval backed by
+evidence before one reaches what agents load.
 
 **[SkillOpt integration](https://github.com/microsoft/SkillOpt)** learns from real agent traces,
 trains bounded instruction edits, compares them on held-out tasks, and produces an evidence-backed
@@ -35,10 +39,19 @@ proposal. SkillOpt can propose a change but cannot activate one.
   installation fails. Restore any snapshot from the UI or CLI.
 - **Decisions produce a local audit trail.** Approvals, rejections, and rollbacks attempt to append
   metadata-only records after the transition. Audit-write failures are logged and do not roll back
-  the decision; the local trail is not tamper-proof.
+  the decision. Publication history is Git-backed, revision-bound, and externally anchorable in
+  forge mode; anyone with a shell on the machine can still rewrite the local trail.
 
-MCP serves the current contents of `skills/`. Direct edits, fetched skills, and copied or restored
-folders bypass the proposal workflow and become active. Review them as trusted code before use.
+**One writer.** In the tracked stack the served library is a Git vault mounted read-only into every
+service except the publisher, and the publisher only acts on an approved receipt. Approval does not
+change what is served: it queues a receipt the publisher then commits and activates. `ingot status`
+answers whether that actually holds for a given deployment, by asking the filesystem rather than
+reading a claim back out of the configuration.
+
+The writable stack still exists, as `compose.dev.yaml`, and it reports `UNMANAGED`. Anything running
+as that user can change what is served without an approval, so the guarantees above do not apply to
+it. Skills that arrive by direct edit, `cp`, or a restored folder are trusted code either way —
+review them as such.
 
 ## A recorded gated change
 
@@ -69,7 +82,13 @@ through evidence review, deliberate promotion, and rollback.
 - **Local development by default.** Compose binds the public ports to localhost and password-gates
   the UI. The MCP endpoint has no built-in authentication, and Ingot is not a hardened multi-tenant
   service. Follow the production guide before sharing it beyond one trusted machine.
-- **Easy.** A skill is a folder with a `SKILL.md`. Drop one in and it is live on the next request.
+- **Offline by default.** The default publication backend is `local`: the vault is a Git repository
+  on this machine and publishing needs no network, no GitHub account, and no `gh`. Set
+  `INGOT_PUBLISH_BACKEND=forge` (see `compose.forge.yaml`) to make a merged pull request the
+  publication authority instead, which anchors activation off-box at the cost of the air gap.
+- **Easy.** A skill is a folder with a `SKILL.md`. `ingot add file:./that-folder` quarantines a
+  local package. `ingot add github:OWNER/REPO --skill path/to/skill` fetches a public repository at
+  an exact commit and quarantines that package. Neither command publishes it.
 
 ## Quickstart
 
@@ -79,19 +98,40 @@ Prerequisites:
 - Free localhost ports `8000`, `8080`, and `3100`.
 - An OpenRouter API key, or a reachable OpenAI-compatible Ollama or vLLM endpoint.
 
-`scripts/fetch_skills.sh` copies unpinned third-party skills into the live `skills/` directory. For
-this PDF demo, fetch only Anthropic's document skills. Review their instructions and per-skill
-licenses in [Skill sources](docs/skill-sources.md) before running the fetch; add other sources after
-the first run.
+`scripts/fetch_skills.sh` clones unpinned third-party skills and quarantines each one for review. It
+serves nothing: the library stays byte-identical until you approve a package. For this PDF demo,
+fetch only Anthropic's document skills. Review their instructions and per-skill licenses in
+[Skill sources](docs/skill-sources.md) before running the fetch; add other sources after the first
+run.
 
 ```bash
 git clone https://github.com/SlanchaAI/ingot.git && cd ingot
 cp .env.example .env               # set API_KEY, or point BASE_URL at Ollama or vLLM
-scripts/fetch_skills.sh anthropics # fetch the document skills used by this demo
-docker compose up -d --build       # router (:8000), UI (:8080), Langfuse (:3100)
+pip install -e .                   # the `ingot` command (Python 3.12+, PyYAML only)
+ingot vault init vault             # the Git vault the publisher owns
+scripts/fetch_skills.sh anthropics # quarantine the document skills used by this demo
+docker compose up -d --build       # router (:8000), UI (:8080), publisher, Langfuse (:3100)
 docker compose ps
+open http://localhost:8080         # approve `pdf`; the publisher commits and activates it
 docker compose run --rm agent "How do I merge several PDFs into one and add page numbers?"
 ```
+
+`ingot vault init` is idempotent and the publisher runs it on every start, so skipping it only
+means the vault appears when the stack does.
+
+The whole loop also runs from a terminal, and none of it writes a served byte:
+
+```bash
+ingot pending                     # what is waiting on a decision
+ingot approve pdf                 # queue a publication receipt; the publisher activates it
+ingot history pdf                 # snapshots, receipts, and the decision trail
+ingot rollback pdf <revision>
+ingot status                      # MANAGED, PENDING, DRIFTED, or UNMANAGED
+```
+
+`ingot status` compares what is served against what the last release receipt says should be served,
+so an out-of-band edit to the library reports `DRIFTED` and the command exits non-zero. See
+[Managed deployment](docs/managed-deployment.md).
 
 A successful run names the route and the exact skill revision loaded before the answer. This is an
 excerpt from the recorded tutorial run; scores, hashes, token counts, and model output vary:
@@ -115,9 +155,12 @@ The change-control UI at `localhost:8080` asks for a login; the compose default 
 set `AUTH_MODE=open` explicitly. See [Privacy & security](docs/security.md#network-exposure).
 
 `docker compose up` brings up a self-hosted Langfuse (traces + experiment UI) alongside the router
-and UI; trace mining reads from it and has no local fallback, so it fails loudly if no
-Langfuse-compatible backend is reachable. To send traces to your own Langfuse without starting the
-bundled containers, set `LANGFUSE_*` and use `docker-compose.external-langfuse.yml` as documented in
+and UI. Langfuse remains the default mining source and fails loudly when unreachable. Historical
+Claude Code and Codex transcripts can be normalized locally as a separate, explicit source;
+external judging stays disabled until a mining run supplies an affirmative flag. See
+[Local coding-agent transcripts](docs/mcp-integration.md#local-coding-agent-transcripts). To send
+traces to your own Langfuse without starting the bundled containers, set `LANGFUSE_*` and use
+`docker-compose.external-langfuse.yml` as documented in
 [Configuration](docs/configuration.md#using-your-own-langfuse-project). Backend, model, and gate
 settings live in [Configuration](docs/configuration.md).
 
@@ -132,10 +175,10 @@ shows `SKILL.md` plus any bundled resources for the selected version. Browsing d
 revision being served. Each skill row shows the total number of active, pending, and snapshotted
 versions available in that explorer.
 
-Find a skill with an eval set and click **Optimize with SkillOpt**. The UI immediately explains
-that optimization can take a few minutes, disables the button, and opens the live generation log
-directly beneath that skill. The log updates automatically, so progress stays attached to the
-change you started instead of appearing in a page-level activity panel.
+For a skill without measured tasks, click **Create eval set**. The teacher drafts a separate
+train/holdout set and the live log stays attached to that skill. When the draft finishes, the card
+enables **Optimize with SkillOpt**. Optimization can take a few minutes; its attached log updates
+automatically and the resulting challenger remains quarantined.
 
 ![SkillOpt optimization progress shown directly beneath the tailwind skill](docs/ui-home.webp)
 
@@ -219,7 +262,8 @@ Ingot does three things around your skill library:
   human promotion. Promotion is snapshotted and recoverable.
 - **Improve.** SkillOpt integration mines real traces for failing skills, trains bounded instruction
   edits with its reflective optimizer, and A/Bs the result on held-out tasks, leaving a reviewable
-  proposal that only a human can activate.
+  proposal that only a human can activate. Agents using `skill-retrospective` can also submit a
+  verified, revision-bound update through the MCP; it lands in the same inert review queue.
 
 The component map is in [docs/how-it-works.md](docs/how-it-works.md); deeper design in
 [ARCHITECTURE.md](ARCHITECTURE.md).
@@ -232,6 +276,7 @@ The component map is in [docs/how-it-works.md](docs/how-it-works.md); deeper des
 | [How it works](docs/how-it-works.md) | Component map (MCP server, agent, optimizer, UI) |
 | [Configuration](docs/configuration.md) | Env reference, SkillOpt optimization, cross-model compatibility, eval task sets, Langfuse |
 | [The evidence gate](docs/evidence-gate.md) | The anti reward-hacking checks a reviewer relies on |
+| [Managed deployment](docs/managed-deployment.md) | One writer, publication backends, recovery, and what the audit trail does not guarantee |
 | [Privacy & security](docs/security.md) | Zero-data-retention, network exposure, threat model |
 | [Sign in with Google (SSO)](docs/sso.md) | Domain-restricted login and roles for a shared deployment |
 | [Bring your own agent](docs/mcp-integration.md) | Use the MCP server from your own harness; tracing |

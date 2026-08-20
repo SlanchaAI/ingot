@@ -4,8 +4,9 @@ from pathlib import Path
 
 import pytest
 
-from mcp_server.registry import load_skills, optimizable_components, skill_revision
-from optimize import promote as P
+from ingot.mcp_server.registry import load_skills, optimizable_components, skill_revision
+from ingot.optimize import promote as P
+from ingot.optimize import publication as Q
 
 
 def _library(tmp_path, monkeypatch):
@@ -13,9 +14,9 @@ def _library(tmp_path, monkeypatch):
     skill = root / "pdf"
     skill.mkdir(parents=True)
     (skill / "SKILL.md").write_text("---\nname: pdf\ndescription: Merge PDFs.\n---\nold body\n")
+    monkeypatch.setenv("INGOT_LIBRARY", str(root))
+    monkeypatch.setenv("INGOT_RUNS", str(tmp_path))
     monkeypatch.setenv("SKILL_ROUTER_PATHS", str(root))
-    monkeypatch.setattr(P, "PENDING_DIR", tmp_path / "pending")
-    monkeypatch.setattr(P, "REVISIONS_DIR", tmp_path / "revisions")
     return skill
 
 
@@ -34,6 +35,10 @@ def _pending(skill_dir, *, promotable=True):
             "gate": {"promotable": promotable, "blocked": [] if promotable else ["regression"]},
         },
     }
+
+
+def _complete(skill="pdf"):
+    return P._activate_approved(skill, P.load_pending(skill))
 
 
 def test_promote_refuses_blocked_evidence(tmp_path, monkeypatch):
@@ -63,25 +68,180 @@ def test_promote_refuses_bundled_file_drift(tmp_path, monkeypatch):
         P.approve_pending("pdf")
 
 
+def test_approval_queues_publication_without_activating(tmp_path, monkeypatch):
+    skill = _library(tmp_path, monkeypatch)
+    pending = _pending(skill)
+    P.save_pending("pdf", pending)
+
+    result = P.approve_pending("pdf", actor="admin")
+
+    assert result == "Approved 'pdf'; publishing to vault."
+    assert "old body" in (skill / "SKILL.md").read_text()
+    assert P.load_pending("pdf") == pending
+    publication = Q.publication_for_skill("pdf")
+    assert publication["state"] == "approved_publishing"
+    assert publication["actor"] == "admin"
+
+
 def test_promote_snapshots_previous_revision_and_swaps_challenger(tmp_path, monkeypatch):
     skill = _library(tmp_path, monkeypatch)
     pending = _pending(skill)
     old_revision = pending["evidence"]["champion"]["revision"]
     P.save_pending("pdf", pending)
-    result = P.approve_pending("pdf")
+    result = _complete()
     assert "new body" in (skill / "SKILL.md").read_text()
-    assert "old body" in (P.REVISIONS_DIR / "pdf" / old_revision / "SKILL.md").read_text()
+    assert "old body" in (P.revisions_dir() / "pdf" / old_revision / "SKILL.md").read_text()
     assert not P.pending_path("pdf").exists()
     assert old_revision in result
     assert load_skills(skill.parent)[0].revision == pending["evidence"]["challenger"]["revision"]
     audit = json.loads((tmp_path / "approval-audit.jsonl").read_text())
     assert audit["action"] == "approve" and audit["skill"] == "pdf"
 
-    result = P.rollback("pdf", old_revision)
+    result = P._activate_rollback("pdf", old_revision)
     assert "old body" in (skill / "SKILL.md").read_text()
     assert "Rolled back" in result
     records = [json.loads(line) for line in (tmp_path / "approval-audit.jsonl").read_text().splitlines()]
     assert [record["action"] for record in records] == ["approve", "rollback"]
+
+
+def test_rollback_queues_exact_snapshot_without_changing_served_skill(tmp_path, monkeypatch):
+    skill = _library(tmp_path, monkeypatch)
+    old_revision = load_skills(skill.parent)[0].revision
+    P._snapshot(skill, "pdf", old_revision)
+    (skill / "SKILL.md").write_text(
+        "---\nname: pdf\ndescription: Merge PDFs.\n---\ncurrent body\n"
+    )
+    current_revision = load_skills(skill.parent)[0].revision
+
+    result = P.rollback("pdf", old_revision, actor="admin")
+
+    assert result == f"Approved rollback of 'pdf' to {old_revision}; publishing to vault."
+    assert "current body" in (skill / "SKILL.md").read_text()
+    record = Q.publication_for_skill("pdf")
+    assert record["action"] == "rollback"
+    assert record["expected_champion"] == current_revision
+    assert record["candidate_revision"] == old_revision
+
+
+def test_absence_rollback_queues_without_removing_served_skill(tmp_path, monkeypatch):
+    skill = _library(tmp_path, monkeypatch)
+    P._snapshot_absence("pdf")
+    current_revision = load_skills(skill.parent)[0].revision
+
+    P.rollback("pdf", P.ABSENT_REVISION, actor="admin")
+
+    assert skill.is_dir()
+    record = Q.publication_for_skill("pdf")
+    assert record["expected_champion"] == current_revision
+    assert record["candidate_revision"] == P.ABSENT_REVISION
+    assert record["components"] == {}
+
+
+def test_promote_external_skill_through_writable_authoring_root(tmp_path, monkeypatch):
+    local = tmp_path / "local"
+    external = tmp_path / "external"
+    local.mkdir()
+    skill = external / "pdf"
+    skill.mkdir(parents=True)
+    skill_md = skill / "SKILL.md"
+    skill_md.write_text("---\nname: pdf\ndescription: Merge PDFs.\n---\nold body\n")
+    monkeypatch.setenv("INGOT_LIBRARY", str(local))
+    monkeypatch.setenv("SKILL_ROUTER_PATHS", str(external))
+    pending = _pending(skill)
+    old_revision = pending["evidence"]["champion"]["revision"]
+    P.save_pending("pdf", pending)
+
+    skill_md.chmod(0o444)
+    external.chmod(0o555)
+    try:
+        with pytest.warns(UserWarning, match="duplicate skill 'pdf'"):
+            result = _complete()
+    finally:
+        skill_md.chmod(0o644)
+        external.chmod(0o755)
+
+    promoted = local / "pdf"
+    assert "Promoted 'pdf'" in result
+    assert "old body" in (skill / "SKILL.md").read_text()
+    assert "new body" in (promoted / "SKILL.md").read_text()
+    with pytest.warns(UserWarning, match="duplicate skill 'pdf'"):
+        assert load_skills()[0].root == str(promoted.resolve())
+    assert "old body" in (
+        P.revisions_dir() / "pdf" / old_revision / "SKILL.md").read_text()
+
+
+def test_external_promotion_refuses_target_created_after_precheck(tmp_path, monkeypatch):
+    local = tmp_path / "local"
+    external = tmp_path / "external"
+    local.mkdir()
+    source = external / "pdf"
+    source.mkdir(parents=True)
+    (source / "SKILL.md").write_text(
+        "---\nname: pdf\ndescription: Merge PDFs.\n---\nold body\n")
+    target = local / "pdf"
+    monkeypatch.setenv("INGOT_LIBRARY", str(local))
+    monkeypatch.setenv("SKILL_ROUTER_PATHS", str(external))
+    P.save_pending("pdf", _pending(source))
+    copytree = P.shutil.copytree
+
+    def race(source_path, destination, *args, **kwargs):
+        result = copytree(source_path, destination, *args, **kwargs)
+        if Path(destination).name.endswith(".stage"):
+            target.mkdir()
+        return result
+
+    monkeypatch.setattr(P.shutil, "copytree", race)
+
+    with pytest.raises(ValueError, match="activation target appeared during promotion"):
+        _complete()
+
+    assert target.is_dir() and list(target.iterdir()) == []
+    assert "old body" in (source / "SKILL.md").read_text()
+    assert P.pending_path("pdf").exists()
+
+
+def test_promote_refuses_unserved_authoring_root_collision(tmp_path, monkeypatch):
+    local = tmp_path / "local"
+    external = tmp_path / "external"
+    collision = local / "pdf"
+    collision.mkdir(parents=True)
+    (collision / "notes.txt").write_text("operator-owned")
+    skill = external / "pdf"
+    skill.mkdir(parents=True)
+    (skill / "SKILL.md").write_text(
+        "---\nname: pdf\ndescription: Merge PDFs.\n---\nold body\n")
+    monkeypatch.setenv("INGOT_LIBRARY", str(local))
+    monkeypatch.setenv("SKILL_ROUTER_PATHS", str(external))
+    P.save_pending("pdf", _pending(skill))
+
+    with pytest.raises(ValueError, match="writable activation target already exists"):
+        _complete()
+
+    assert (collision / "notes.txt").read_text() == "operator-owned"
+    assert "old body" in (skill / "SKILL.md").read_text()
+    assert P.pending_path("pdf").exists()
+
+
+def test_promote_refuses_dangling_authoring_root_symlink(tmp_path, monkeypatch):
+    local = tmp_path / "local"
+    external = tmp_path / "external"
+    local.mkdir()
+    collision = local / "pdf"
+    collision.symlink_to(local / "missing", target_is_directory=True)
+    skill = external / "pdf"
+    skill.mkdir(parents=True)
+    (skill / "SKILL.md").write_text(
+        "---\nname: pdf\ndescription: Merge PDFs.\n---\nold body\n")
+    monkeypatch.setenv("INGOT_LIBRARY", str(local))
+    monkeypatch.setenv("SKILL_ROUTER_PATHS", str(external))
+    P.save_pending("pdf", _pending(skill))
+
+    with pytest.raises(ValueError, match="writable activation target already exists"):
+        _complete()
+
+    assert collision.is_symlink()
+    assert "old body" in (skill / "SKILL.md").read_text()
+    assert P.pending_path("pdf").exists()
 
 
 def test_approval_succeeds_when_audit_write_fails(tmp_path, monkeypatch, caplog):
@@ -90,7 +250,7 @@ def test_approval_succeeds_when_audit_write_fails(tmp_path, monkeypatch, caplog)
     P.save_pending("pdf", pending)
     monkeypatch.setattr(P, "_audit", lambda *args: (_ for _ in ()).throw(OSError("disk full")))
 
-    result = P.approve_pending("pdf")
+    result = _complete()
 
     assert "Promoted 'pdf'" in result
     assert "new body" in (skill / "SKILL.md").read_text()
@@ -103,10 +263,10 @@ def test_rollback_succeeds_when_audit_write_fails(tmp_path, monkeypatch, caplog)
     pending = _pending(skill)
     old_revision = pending["evidence"]["champion"]["revision"]
     P.save_pending("pdf", pending)
-    P.approve_pending("pdf")
+    _complete()
     monkeypatch.setattr(P, "_audit", lambda *args: (_ for _ in ()).throw(OSError("disk full")))
 
-    result = P.rollback("pdf", old_revision)
+    result = P._activate_rollback("pdf", old_revision)
 
     assert "Rolled back" in result
     assert "old body" in (skill / "SKILL.md").read_text()
@@ -122,7 +282,7 @@ def test_failed_stage_write_leaves_live_skill_untouched(tmp_path, monkeypatch):
 
     monkeypatch.setattr(P, "write_components", fail_write)
     with pytest.raises(RuntimeError, match="stage failed"):
-        P.approve_pending("pdf")
+        _complete()
     assert "old body" in (skill / "SKILL.md").read_text()
 
 
@@ -133,7 +293,7 @@ def test_write_components_rejects_symlink_escape(tmp_path):
     (skill / "SKILL.md").write_text("---\nname: skill\ndescription: d\n---\nbody\n")
     (skill / "scripts").symlink_to(outside, target_is_directory=True)
     with pytest.raises(ValueError, match="escapes skill root"):
-        from mcp_server.registry import write_components
+        from ingot.mcp_server.registry import write_components
         write_components(skill, {"description": "d", "body": "b", "file:scripts/pwn.py": "bad"})
 
 
@@ -150,7 +310,7 @@ def test_promotion_sweeps_a_leftover_staging_directory(tmp_path, monkeypatch):
     assert load_skills(skill.parent)[0].body == "old body"  # never shadowed the live skill
 
     P.save_pending("pdf", _pending(skill))
-    P.approve_pending("pdf")
+    _complete()
 
     assert not stale.exists()
     assert list(skill.parent.glob(".pdf.*")) == []
@@ -203,7 +363,7 @@ def test_failed_rollback_copy_leaves_no_partial_staging_directory(tmp_path, monk
     skill = _library(tmp_path, monkeypatch)
     P.save_pending("pdf", _pending(skill))
     old_revision = P.load_pending("pdf")["evidence"]["champion"]["revision"]
-    P.approve_pending("pdf")
+    _complete()
 
     def fail_copy(src, dst, **kwargs):
         Path(dst).mkdir(parents=True, exist_ok=True)   # a partially copied tree
@@ -211,7 +371,7 @@ def test_failed_rollback_copy_leaves_no_partial_staging_directory(tmp_path, monk
 
     monkeypatch.setattr(P.shutil, "copytree", fail_copy)
     with pytest.raises(RuntimeError, match="copy failed"):
-        P.rollback("pdf", old_revision)
+        P._activate_rollback("pdf", old_revision)
 
     assert list(skill.parent.glob(".pdf.*")) == []
     assert "new body" in (skill / "SKILL.md").read_text()   # the live skill is untouched
@@ -227,9 +387,9 @@ def test_failed_snapshot_copy_leaves_no_partial_snapshot(tmp_path, monkeypatch):
 
     monkeypatch.setattr(P.shutil, "copytree", fail_copy)
     with pytest.raises(RuntimeError, match="snapshot failed"):
-        P.approve_pending("pdf")
+        _complete()
 
-    assert list((P.REVISIONS_DIR / "pdf").glob("*")) == []
+    assert list((P.revisions_dir() / "pdf").glob("*")) == []
     assert "old body" in (skill / "SKILL.md").read_text()
 
 
@@ -247,7 +407,7 @@ def _promote_body(skill, body):
         "evidence": {"champion": {"revision": current.revision},
                      "challenger": {"revision": skill_revision(skill, challenger)}, "gate": gate},
     })
-    P.approve_pending("pdf")
+    _complete()
     return current.revision
 
 
@@ -260,7 +420,7 @@ def test_rollback_then_promote_orders_the_restored_revision_first(tmp_path, monk
 
     assert [r["revision"] for r in P.list_revisions("pdf")] == [second, first]
 
-    P.rollback("pdf", first)                        # snapshot C (third body), live is back on A
+    P._activate_rollback("pdf", first)              # snapshot C (third body), live is back on A
     third = [r["revision"] for r in P.list_revisions("pdf")][0]
     assert third not in (first, second)
 
@@ -275,7 +435,7 @@ def test_rollback_then_promote_orders_the_restored_revision_first(tmp_path, monk
 def test_list_revisions_falls_back_to_mtime_without_an_index(tmp_path, monkeypatch):
     """Snapshots taken before the index existed still list, ordered below stamped ones."""
     _library(tmp_path, monkeypatch)
-    legacy = P.REVISIONS_DIR / "pdf" / ("a" * 8)
+    legacy = P.revisions_dir() / "pdf" / ("a" * 8)
     legacy.mkdir(parents=True)
     assert [r["revision"] for r in P.list_revisions("pdf")] == ["a" * 8]
     assert P.list_revisions("pdf")[0]["created"] > 0
@@ -288,7 +448,7 @@ def _write_snapshot_index(text: str) -> None:
 
 
 def _snapshot_dir(name: str) -> None:
-    (P.REVISIONS_DIR / "pdf" / name).mkdir(parents=True, exist_ok=True)
+    (P.revisions_dir() / "pdf" / name).mkdir(parents=True, exist_ok=True)
 
 
 @pytest.mark.parametrize("index", [
@@ -338,7 +498,7 @@ def test_promotion_survives_a_stamp_failure(tmp_path, monkeypatch, caplog, stamp
     monkeypatch.setattr(P, "_stamp_snapshot",
                         lambda *a: (_ for _ in ()).throw(stamp_error))
 
-    assert "Promoted 'pdf'" in P.approve_pending("pdf")
+    assert "Promoted 'pdf'" in _complete()
     assert "new body" in (skill / "SKILL.md").read_text()   # the directory swap still happened
     assert "snapshot index write failed" in caplog.text
     assert [r["revision"] for r in P.list_revisions("pdf")]   # mtime fallback still lists it
@@ -348,7 +508,7 @@ def test_snapshot_index_is_not_restored_into_the_live_skill(tmp_path, monkeypatc
     skill = _library(tmp_path, monkeypatch)
     first = _promote_body(skill, "second body")
 
-    P.rollback("pdf", first)
+    P._activate_rollback("pdf", first)
 
     assert P.snapshot_index_path("pdf").exists()
     assert not (skill / ".snapshots.json").exists()

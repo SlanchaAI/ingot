@@ -1,6 +1,6 @@
 import json
 
-from optimize.evidence import build_evidence, first_divergence, render_markdown, write_evidence
+from ingot.optimize.evidence import build_evidence, first_divergence, render_markdown, write_evidence
 
 
 SUMMARY = {
@@ -81,7 +81,7 @@ ROUTING_METRICS = {
 
 
 def _routing_evidence(gate=None, parity=True):
-    from optimize.evidence import RoutingRun, build_routing_evidence
+    from ingot.optimize.evidence import RoutingRun, build_routing_evidence
     metrics = dict(ROUTING_METRICS)
     if not parity:
         metrics["parity"] = {"rate": 0.0, "total": 0}
@@ -93,7 +93,7 @@ def _routing_evidence(gate=None, parity=True):
 
 
 def test_routing_evidence_carries_revisions_and_router_metrics():
-    from optimize.evidence import ROUTING_SCHEMA
+    from ingot.optimize.evidence import ROUTING_SCHEMA
     evidence = _routing_evidence()
     assert evidence["schema_version"] == ROUTING_SCHEMA
     assert evidence["champion"]["revision"] == "champ-rev"
@@ -103,7 +103,7 @@ def test_routing_evidence_carries_revisions_and_router_metrics():
 
 
 def test_write_evidence_renders_the_routing_report(tmp_path):
-    from optimize.evidence import render_routing_markdown
+    from ingot.optimize.evidence import render_routing_markdown
     evidence = _routing_evidence()
     json_path, md_path = write_evidence(evidence, tmp_path)
     assert json.loads(json_path.read_text()) == evidence
@@ -117,7 +117,7 @@ def test_write_evidence_renders_the_routing_report(tmp_path):
 
 
 def test_routing_report_marks_a_blocked_gate_and_unexercised_parity():
-    from optimize.evidence import render_routing_markdown
+    from ingot.optimize.evidence import render_routing_markdown
     blocked = {"promotable": False, "blocked": ["routing top1 regressed"], "warnings": []}
     text = render_routing_markdown(_routing_evidence(gate=blocked, parity=False))
     assert "BLOCKED" in text
@@ -125,11 +125,27 @@ def test_routing_report_marks_a_blocked_gate_and_unexercised_parity():
     assert "Cross-harness parity: not exercised" in text
 
 
-def test_recorded_path_is_repo_relative_and_leaves_outside_paths_alone(tmp_path):
+def test_recorded_path_is_state_relative_and_leaves_outside_paths_alone(tmp_path, monkeypatch):
+    """A bundle written inside a container has to be resolvable from the host, so the location is
+    recorded relative to the state root rather than absolutely."""
     from pathlib import Path
 
-    from optimize.evidence import _REPO_ROOT, recorded_path
-    inside = _REPO_ROOT / "runs" / "evidence" / "pdf" / "1" / "EVIDENCE.md"
+    from ingot import paths
+    from ingot.optimize.evidence import recorded_path
+    monkeypatch.setenv("INGOT_HOME", str(tmp_path))
+    inside = paths.runs() / "evidence" / "pdf" / "1" / "EVIDENCE.md"
     assert recorded_path(inside) == "runs/evidence/pdf/1/EVIDENCE.md"
     outside = Path("/somewhere/else/EVIDENCE.md")
     assert recorded_path(outside) == "/somewhere/else/EVIDENCE.md"
+
+
+def test_a_bundle_recorded_before_state_moved_out_of_the_package_still_reads_as_relative(
+        tmp_path, monkeypatch):
+    """Records written when `runs/` lived beside the code carry `runs/evidence/...`. Falling back
+    to an absolute path from whoever's machine wrote it would make them unresolvable."""
+    from ingot.optimize.evidence import _PACKAGE_ROOT, recorded_path
+    monkeypatch.setenv("INGOT_HOME", str(tmp_path))
+
+    legacy = _PACKAGE_ROOT / "runs" / "evidence" / "pdf" / "1" / "EVIDENCE.md"
+
+    assert recorded_path(legacy) == "runs/evidence/pdf/1/EVIDENCE.md"

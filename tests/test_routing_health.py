@@ -4,7 +4,7 @@ from types import SimpleNamespace
 
 import yaml
 
-from optimize import routing_health as H
+from ingot.optimize import routing_health as H
 
 
 class _ScriptedRouter:

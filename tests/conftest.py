@@ -11,8 +11,23 @@ import pytest
 
 
 @pytest.fixture(autouse=True)
-def _isolated_local_skills_root(tmp_path_factory, monkeypatch):
-    monkeypatch.setattr("mcp_server.registry.SKILLS_DIR", tmp_path_factory.mktemp("local-skills"))
+def _isolated_state(tmp_path_factory, monkeypatch):
+    """No test may touch the developer's real state directory, or the checkout's.
+
+    State resolves through `ingot.paths` at call time and defaults to an XDG directory, so a test
+    that reaches a default instead of a fixture would write a real review queue and real receipts
+    into `~/.local/state/ingot` and pass while doing it. One per-test INGOT_HOME contains every one
+    of them; specific overrides are cleared so an environment variable the developer happens to
+    have exported cannot reach in either.
+
+    This also replaces the old SKILLS_DIR patch. `configured_roots` always puts the local authoring
+    root first, even ahead of an explicit root, so a test that loads skills would otherwise see
+    whatever `scripts/fetch_skills.sh` left in the checkout (first caught on a machine with 72
+    fetched skills: 9 failures and a multi-minute embedding stall)."""
+    from ingot import paths
+    monkeypatch.setenv(paths.HOME, str(tmp_path_factory.mktemp("state")))
+    for name in (paths.LIBRARY, paths.RUNS, paths.TASKS, paths.VAULT, *paths.LEGACY.values()):
+        monkeypatch.delenv(name, raising=False)
     monkeypatch.delenv("SKILL_ROUTER_PATHS", raising=False)
 
 

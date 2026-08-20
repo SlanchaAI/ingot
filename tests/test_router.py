@@ -3,8 +3,8 @@ Validates the retrieval + threshold behavior that routing, compose-awareness, an
 collision check all depend on."""
 import pytest
 
-from mcp_server.registry import Skill
-from mcp_server.router import Router
+from ingot.mcp_server.registry import Skill
+from ingot.mcp_server.router import Router
 
 SKILLS = [
     Skill("pdf", "Merge, split, and extract text from PDF files and documents.", "body", "p"),
@@ -43,7 +43,7 @@ def test_nearest_empty_router_is_safe():
 
 def test_router_reuses_description_vectors_across_refreshes(monkeypatch):
     import numpy as np
-    import mcp_server.router as router_mod
+    import ingot.mcp_server.router as router_mod
     calls = []
 
     class FakeEmbedding:
@@ -96,6 +96,8 @@ def test_route_returns_clean_no_match_below_threshold():
     assert result["skill_body"] == "" and result["skill_root"] is None
     assert "threshold" in result["reason"]
     assert result["alternatives"][0]["name"] == "pdf"
+    assert result["matched_on"] in {"description", "content"}
+    assert result["score"] == max(result["score_components"].values())
 
 
 def test_route_novel_flag_signals_weak_strong_escalation():
@@ -127,6 +129,7 @@ def test_route_novel_flag_signals_weak_strong_escalation():
     ({"required_tools": ["browser"]}, {"available_tools": ["bash"]}),
     ({"required_mcps": ["github"]}, {"available_mcps": []}),
     ({"scopes": ["project"], "path_patterns": ["*/wanted/*"]}, {"cwd": "/tmp/other/project"}),
+    ({"scopes": ["project"], "path_patterns": ["/tmp/*"]}, {}),
 ])
 def test_route_filters_incompatible_skills_before_ranking(skill_metadata, context):
     router = Router([_skill("blocked", "Merge PDF documents.", **skill_metadata)])
@@ -166,3 +169,131 @@ def test_conflicting_skills_do_not_both_appear_in_ranked_result():
     result = Router([one, two]).route("same routing text", "codex", "/tmp", min_score=0.0)
     ranked = [result["match"], *[item["name"] for item in result["alternatives"]]]
     assert not ({"one", "two"} <= set(ranked))
+
+
+class _BodyAwareEmbedding:
+    """Deterministic vectors: descriptions/billing point east, Kubernetes content/query north."""
+
+    def __init__(self):
+        self.document_calls = []
+
+    @staticmethod
+    def _vector(text):
+        import numpy as np
+        if "CrashLoopBackOff" in text or "kubernetes pod" in text.lower():
+            return np.array([0.0, 1.0], dtype=np.float32)
+        return np.array([1.0, 0.0], dtype=np.float32)
+
+    def embed(self, texts):
+        values = list(texts)
+        self.document_calls.append(values)
+        return iter(self._vector(text) for text in values)
+
+    def embed_query(self, texts):
+        return iter(self._vector(text) for text in texts)
+
+
+def test_body_aware_route_breaks_an_ambiguous_description_tie(monkeypatch):
+    import ingot.mcp_server.router as router_mod
+    embedder = _BodyAwareEmbedding()
+    monkeypatch.setattr(router_mod, "build_embedding", lambda: embedder)
+    router_mod.Router._vector_cache.clear()
+    router = router_mod.Router([
+        _skill("billing-runbook", "Operate a production service."),
+        Skill(**{**_skill("kubernetes-runbook", "Operate a production service.").__dict__,
+                 "body": "Diagnose a kubernetes pod in CrashLoopBackOff."}),
+    ])
+
+    result = router.route("diagnose a kubernetes pod", "codex", "/tmp", min_score=0.0)
+
+    assert result["match"] == "kubernetes-runbook"
+    assert result["matched_on"] == "content"
+    assert result["score_components"]["content"] > result["score_components"]["description"]
+    assert all("skill_body" not in item for item in result["alternatives"])
+
+
+def test_body_aware_route_filters_incompatible_content_before_ranking(monkeypatch):
+    import ingot.mcp_server.router as router_mod
+    monkeypatch.setattr(router_mod, "build_embedding", _BodyAwareEmbedding)
+    router_mod.Router._vector_cache.clear()
+    blocked = Skill(**{
+        **_skill("kubernetes-runbook", "Operate a production service.",
+                 required_tools=["kubectl"]).__dict__,
+        "body": "Diagnose a kubernetes pod in CrashLoopBackOff.",
+    })
+    router = router_mod.Router([
+        _skill("billing-runbook", "Operate a production service."),
+        blocked,
+    ])
+
+    result = router.route("diagnose a kubernetes pod", "codex", "/tmp",
+                          available_tools=[], min_score=0.0)
+
+    assert result["match"] == "billing-runbook"
+
+
+def test_variant_content_is_ranked_for_the_requested_harness(monkeypatch):
+    import ingot.mcp_server.router as router_mod
+    monkeypatch.setattr(router_mod, "build_embedding", _BodyAwareEmbedding)
+    router_mod.Router._vector_cache.clear()
+    alpha = Skill(**{
+        **_skill("alpha", "Operate a production service.").__dict__,
+        "body": "Investigate invoice charges.",
+        "variants": {"codex": "Diagnose a kubernetes pod in CrashLoopBackOff."},
+    })
+    beta = Skill(**{
+        **_skill("beta", "Operate a production service.").__dict__,
+        "body": "Diagnose a kubernetes pod in CrashLoopBackOff.",
+        "variants": {"codex": "Investigate invoice charges."},
+    })
+    router = router_mod.Router([alpha, beta])
+
+    assert router.route("diagnose a kubernetes pod", "codex", "/tmp",
+                        min_score=0.0)["match"] == "alpha"
+    assert router.route("diagnose a kubernetes pod", "claude", "/tmp",
+                        min_score=0.0)["match"] == "beta"
+
+
+def test_body_change_reuses_description_vector_and_reembeds_content(monkeypatch):
+    import ingot.mcp_server.router as router_mod
+    embedder = _BodyAwareEmbedding()
+    monkeypatch.setattr(router_mod, "build_embedding", lambda: embedder)
+    router_mod.Router._vector_cache.clear()
+    first = _skill("runbook", "Operate a production service.")
+    second = Skill(**{**first.__dict__, "body": "Diagnose a CrashLoopBackOff."})
+
+    router_mod.Router([first]).route("diagnose a kubernetes pod", "codex", "/tmp",
+                                     min_score=0.0)
+    router_mod.Router([second]).route("diagnose a kubernetes pod", "codex", "/tmp",
+                                      min_score=0.0)
+
+    assert embedder.document_calls[0] == [first.description]
+    assert len(embedder.document_calls) == 3
+    assert "Instructions:" in embedder.document_calls[1][0]
+    assert "CrashLoopBackOff" in embedder.document_calls[2][0]
+
+
+def test_vector_cache_evicts_stale_body_revisions(monkeypatch):
+    import ingot.mcp_server.router as router_mod
+    embedder = _BodyAwareEmbedding()
+    monkeypatch.setattr(router_mod, "build_embedding", lambda: embedder)
+    monkeypatch.setattr(router_mod.Router, "_vector_cache_limit", 2, raising=False)
+    router_mod.Router._vector_cache.clear()
+
+    for revision in range(4):
+        skill = Skill(**{
+            **_skill("runbook", "Operate a production service.").__dict__,
+            "body": f"revision {revision} Diagnose a CrashLoopBackOff.",
+        })
+        router_mod.Router([skill]).route(
+            "diagnose a kubernetes pod", "codex", "/tmp", min_score=0.0
+        )
+
+    assert len(router_mod.Router._vector_cache) <= 2
+
+
+@pytest.mark.parametrize("value", ["0", "4001", "invalid"])
+def test_body_projection_bound_fails_closed(monkeypatch, value):
+    monkeypatch.setenv("ROUTER_BODY_CHARS", value)
+    with pytest.raises(ValueError, match="integer from 1 to 4000"):
+        Router([])

@@ -1,0 +1,7 @@
+Fixture objective check
+
+- deterministic output exists
+- no external endpoint was contacted
+- no credential was used
+
+PASS

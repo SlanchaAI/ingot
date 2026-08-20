@@ -1,0 +1,33 @@
+{
+  "schema_version": "ATIF-v1.1",
+  "session_id": "fixture-session",
+  "agent": {
+    "name": "codex",
+    "version": "fixture-version",
+    "model_name": "fixture-model",
+    "extra": {
+      "originator": "fixture",
+      "cwd": "/fixtures/workspace"
+    }
+  },
+  "steps": [
+    {
+      "step_id": 1,
+      "timestamp": "2000-01-01T00:00:00Z",
+      "source": "user",
+      "message": "Create the deterministic fixture deliverable."
+    },
+    {
+      "step_id": 2,
+      "timestamp": "2000-01-01T00:00:00Z",
+      "source": "agent",
+      "message": "I will inspect the fixture workspace."
+    },
+    {
+      "step_id": 3,
+      "timestamp": "2000-01-01T00:00:01Z",
+      "source": "agent",
+      "message": "The fixture deliverable is ready."
+    }
+  ]
+}

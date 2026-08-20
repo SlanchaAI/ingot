@@ -1,0 +1,3 @@
+# Dedicated, ignored Dell-only runtime for Harbor's local role compatibility gateway.
+# Keep the proxy extra explicit: LiteLLM's base package does not install its proxy server.
+litellm[proxy]==1.93.0

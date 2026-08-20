@@ -1,0 +1,40 @@
+[build-system]
+requires = ["setuptools>=77"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "ingot"
+version = "0.2.0"
+description = "Release control for AI agent skills"
+readme = "README.md"
+requires-python = ">=3.12"
+license = "Apache-2.0"
+
+# Deliberately minimal. `ingot list` reads SKILL.md folders through ingot.mcp_server.registry, whose only
+# non-stdlib import is PyYAML, and the deterministic commands that follow must keep that property:
+# a developer inspecting a skill should not install FastAPI, ONNX, LangGraph, Langfuse, or the
+# optimizer to do it. The server, UI, and optimizer keep installing from requirements.txt, which
+# stays the pinned set CI exercises -- this is a packaging shim over that, not a replacement for it.
+dependencies = [
+    "pyyaml==6.0.3",
+]
+
+[project.scripts]
+ingot = "ingot.cli:main"
+
+[tool.setuptools]
+# One installed name. `ingot add` reaches the quarantine through `ingot.optimize.ingress`, so the
+# optimizer package is installed too -- without it the command works under pytest, where the repo
+# root is the working directory, and fails for anyone running the installed script from anywhere
+# else.
+#
+# `mcp_server` and `optimize` were top-level packages until they moved under `ingot`. Both names are
+# far too generic to claim on PyPI, and a compatibility shim would have been self-defeating: a shim
+# named `optimize` still claims `optimize`. Nothing outside this repository imported them, so they
+# were moved rather than aliased.
+#
+# `ui` and `agent` stay repo-root modules run with `python -m` from /app, as the Dockerfile and
+# Compose already do. They are not installed, so they claim no name; moving them under `ingot` would
+# make them installed and drag FastAPI and the agent scaffold into a CLI whose whole point is that
+# `ingot list` works in a bare virtualenv.
+packages = ["ingot", "ingot.mcp_server", "ingot.optimize"]

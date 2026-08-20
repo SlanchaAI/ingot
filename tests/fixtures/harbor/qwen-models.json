@@ -1,0 +1,28 @@
+{
+  "object": "list",
+  "data": [
+    {
+      "id": "dot-backbone",
+      "object": "model",
+      "owned_by": "vllm",
+      "root": "Qwen/Qwen3.6-27B-FP8",
+      "parent": null,
+      "max_model_len": 163840,
+      "permission": [
+        {
+          "id": "modelperm-bf3337a2a0df3e11",
+          "object": "model_permission",
+          "allow_create_engine": false,
+          "allow_sampling": true,
+          "allow_logprobs": true,
+          "allow_search_indices": false,
+          "allow_view": true,
+          "allow_fine_tuning": false,
+          "organization": "*",
+          "group": null,
+          "is_blocking": false
+        }
+      ]
+    }
+  ]
+}

@@ -1,10 +1,10 @@
 # Architecture
 
-Ingot is a local-first change-control system for agent instructions. A skill folder is the unit of
-change; every version of it is content-addressed, every proposed change is quarantined until a human
-approves it, and every promotion is atomic and reversible. Routing exists to serve the approved
-revision to an agent. Ingot is not a multi-tenant service, and the default Compose deployment
-exposes only loopback ports.
+Ingot is a local-first, air-gappable control plane for a team's skill library. A skill folder is the
+unit of change; every version of it is content-addressed, every proposed change is quarantined until
+a human approves it, and every promotion is atomic and reversible. Routing exists to serve the
+approved revision to an agent. Ingot is not a multi-tenant service, and the default Compose
+deployment exposes only loopback ports.
 
 ## The change-control pipeline
 
@@ -36,11 +36,14 @@ exposes only loopback ports.
 
 1. The bundled agent sends task and execution context to `route_and_load` over MCP.
 2. The router refreshes the skill registry when files change, filters by harness, platform, scope,
-   tools, MCPs, activation, and trust, then ranks compatible descriptions. Description embeddings
-   are cached across refreshes.
+   tools, MCPs, activation, and trust, then ranks compatible skills by the stronger cosine score
+   from the description or a bounded document containing name, description, and approved
+   harness-specific body. Both representations share a 4,096-vector least-recently-used cache
+   across refreshes; description-only vectors remain authoritative for collision detection.
 3. One response is authoritative for the direct `match` or explicit `related_match`, loaded body,
-   revision, root, body-free alternatives, and `novel` escalation signal. A related match is loaded
-   for compose-or-extend use. The agent uses the weak model unless `novel` is true.
+   revision, root, body-free alternatives, component scores, and `novel` escalation signal. A
+   related match is loaded for compose-or-extend use. The agent uses the weak model unless `novel`
+   is true.
 4. The run is recorded to Langfuse (the default evals backend, or a Langfuse-compatible endpoint
    `LANGFUSE_*` points at); mining reads it back and has no local fallback. Hosted model calls use
    the configured OpenAI-compatible endpoint. OpenRouter calls always request ZDR providers.
@@ -48,7 +51,7 @@ exposes only loopback ports.
 ## SkillOpt optimization
 
 SkillOpt optimization is a core product capability. It proposes changes but never activates them.
-Runs start in the background (`optimize.loop`) or on demand from the UI, and every result enters the
+Runs start in the background (`ingot.optimize.loop`) or on demand from the UI, and every result enters the
 same human review path.
 
 Mining reads every usable Langfuse trace by default, with `--limit N` available only as an explicit
@@ -102,7 +105,7 @@ text components (`OPTIMIZE_COMPONENTS=body,file:<path>`), diffed for review and 
 
 ## Stores and ownership
 
-`skills/` contains active skills. `optimize/tasks/` contains eval sets. `runs/pending/` contains one
+`skills/` contains active skills. `ingot/optimize/tasks/` contains eval sets. `runs/pending/` contains one
 active review slot per skill, with displaced candidates archived. `runs/revisions/` contains
 rollback snapshots, plus a `.snapshots.json` index per skill that records when each revision was
 last snapshotted; it sits beside the snapshot directories, never inside one, so a rollback restores
@@ -163,13 +166,13 @@ Promotion stages changes and restores the prior directory if the swap fails. Eve
 the displaced revision. Restore it from the UI's History section, or with:
 
 ```bash
-docker compose run --rm --entrypoint python optimize -m optimize.promote rollback SKILL REVISION
+docker compose run --rm --entrypoint python optimize -m ingot.optimize.promote rollback SKILL REVISION
 ```
 
-The `optimize` service's entrypoint is `python -m optimize.ab`, so the entrypoint override is what
-makes the arguments reach `optimize.promote`.
+The `optimize` service's entrypoint is `python -m ingot.optimize.ab`, so the entrypoint override is what
+makes the arguments reach `ingot.optimize.promote`.
 
-Operators should back up `skills/`, `runs/`, and `optimize/tasks/`. Container databases require
+Operators should back up `skills/`, `runs/`, and `ingot/optimize/tasks/`. Container databases require
 normal volume backup procedures.
 
 ## Trust boundaries

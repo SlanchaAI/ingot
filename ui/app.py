@@ -2,31 +2,45 @@
 
 Reviewers see the evidence and the promotion decision first. SkillOpt optimization is a core
 workflow that only ever writes to the pending queue. Promotion and
-rollback both go through `optimize.promote`, which snapshots the displaced revision and swaps
+rollback both go through `ingot.optimize.promote`, which snapshots the displaced revision and swaps
 directories atomically.
 """
 import difflib
+import json
 import logging
 import os
+import tempfile
 import threading
+from collections.abc import Callable
 from contextlib import contextmanager
 from pathlib import Path
 from urllib.parse import urlparse
 
+import yaml
 from fastapi import Depends, FastAPI, HTTPException, Request
 from fastapi.responses import FileResponse, RedirectResponse
 from pydantic import BaseModel, Field
 
-from mcp_server.registry import SLUG_RE, load_skills, read_components, skill_revision
-from optimize.ab import TASKS_DIR, run_ab
+from ingot.mcp_server.registry import SLUG_RE, load_skills, read_components, skill_revision
+from ingot.optimize import harbor_report, resolve_skill_dir
+from ingot.optimize.ab import TASKS_DIR, run_ab
+from ingot.optimize.local_traces import LOCAL_TRACE_FILE, store_summary
 from ui.auth import (auth_mode, current_actor, require_auth, require_role, using_default_password)
-from optimize.promote import (_audit_best_effort, approve_pending, list_revisions,
-                              list_snapshotted_skills, load_pending, load_snapshot_components,
-                              pending_path, read_audit, rollback, stale_evidence_reason)
+from ingot.optimize.promote import (ABSENT_REVISION, _audit_best_effort, approve_pending, list_pending, list_revisions,
+                                    list_snapshotted_skills, load_pending, load_snapshot_components,
+                                    pending_path, read_audit, reject_pending, rollback,
+                                    stale_evidence_reason)
+from ingot.optimize.publication import (publication_for_skill, publishing_skills, recent_publications)
+from ingot import paths
 
 logger = logging.getLogger(__name__)
-REPO_ROOT = Path(__file__).resolve().parent.parent
-EVIDENCE_DIR = (REPO_ROOT / "runs" / "evidence").resolve()
+# Recorded evidence locations are written relative to the state root, so this is what they
+# resolve against -- not the code's directory, which no longer holds state.
+STATE_ROOT = paths.runs().parent
+
+
+def _evidence_dir() -> Path:
+    return (paths.runs() / "evidence").resolve()
 # Bundles written inside a container recorded their container-absolute path before evidence
 # locations became repo-relative. Both forms name the same file from the host checkout.
 CONTAINER_ROOT = Path("/app")
@@ -82,7 +96,8 @@ else:
         return {"authenticated": password, "email": "", "name": actor if password else "",
                 "role": "admin" if password else ""}
 
-RUNS: dict[str, dict] = {}  # skill -> {"status": running|done|error, "log": [lines]}
+RUNS: dict[str, dict] = {}  # skill -> {"status": running|done|error, "action": eval|review|optimize, "log": [lines]}
+RUN_LOCK = threading.Lock()
 
 
 @app.get("/")
@@ -98,13 +113,78 @@ def config():
     return {"langfuse_url": os.environ.get("LANGFUSE_PUBLIC_URL", "http://localhost:3100")}
 
 
+@app.get("/api/traces")
+def traces(project: str = "", harness: str = "", skill: str = "", since: str = "",
+           until: str = "", include_tasks: bool = False):
+    """Safe console projection of locally normalized coding-agent turns.
+
+    Answers stay in the on-disk store used by the explicit mining command. The browser receives
+    task text and attribution metadata, never answer text, reasoning, or tool payloads.
+    """
+    try:
+        return store_summary(LOCAL_TRACE_FILE, project=project, harness=harness, skill=skill,
+                             since=since, until=until, include_tasks=include_tasks)
+    except ValueError as error:
+        raise HTTPException(400, str(error)) from error
+
+
+@app.get("/api/harbor")
+def harbor_matrices():
+    """Skills that have a cross-harness matrix on disk."""
+    return {"skills": harbor_report.available()}
+
+
+@app.get("/api/harbor/{skill}")
+def harbor_matrix(skill: str):
+    """The harness x model matrix for one skill: does this skill help this combination, and by how
+    much, judged in a sandbox against the same held-out tasks with and without the skill.
+
+    404 when the skill has never been run, so "not measured yet" cannot be read as "no effect".
+    """
+    _check(skill)
+    try:
+        matrix = harbor_report.read_matrix(skill)
+    except ValueError as error:
+        raise HTTPException(503, str(error)) from error
+    if matrix is None:
+        raise HTTPException(404, f"no cross-harness run for '{skill}'; run "
+                                 f"`python -m ingot.optimize.harbor_eval {skill} --agent <harness>`")
+    return matrix
+
+
+@app.get("/api/clusters")
+def clusters():
+    """The category buckets, as last computed. Clustering loads the embedding model, which is too
+    heavy for a request on the poll path, so it is a command that writes the file and this only
+    serves it. 404 names the command rather than implying the feature is missing."""
+    from ingot.optimize.cluster import CLUSTER_PATH
+    if not CLUSTER_PATH.exists():
+        raise HTTPException(404, "no clusters computed yet; run "
+                                 "`docker compose run --rm --entrypoint python optimize "
+                                 "-m ingot.optimize.cluster`")
+    try:
+        data = json.loads(CLUSTER_PATH.read_text())
+    except (OSError, ValueError) as e:  # a half-written or hand-edited file is not a 500
+        raise HTTPException(503, f"clusters file is unreadable ({e}); re-run ingot.optimize.cluster")
+    indexed = {s.name for s in _cached_load_skills()}
+    # Skills come and go between clustering runs. Say so rather than drawing a stale map as fact.
+    for cluster in data.get("clusters", []):
+        for member in cluster.get("members", []):
+            member["missing"] = member["name"] not in indexed
+    data["stale_members"] = sum(m.get("missing", False)
+                                for c in data.get("clusters", []) for m in c.get("members", []))
+    data["unclustered"] = len(indexed) - sum(len(c.get("members", []))
+                                             for c in data.get("clusters", []))
+    return data
+
+
 _SKILLS_CACHE = None
 _SKILLS_CACHE_KEY = None
 
 
 def _get_skills_cache_key():
     """Fast cache key based on mtime of skill directories and SKILL.md files."""
-    from mcp_server.registry import configured_roots, skill_sources
+    from ingot.mcp_server.registry import configured_roots, skill_sources
     roots = configured_roots()
     mtimes = [id(load_skills)]
     for r in roots:
@@ -131,16 +211,37 @@ def _cached_load_skills():
 @app.get("/api/skills")
 def skills():
     tasksets = {p.stem for p in TASKS_DIR.glob("*.yaml")}
-    from mcp_server.usage_counts import load_counts
+    from ingot.mcp_server.usage_counts import load_counts
+    from ingot.mcp_server import provenance
     counts = load_counts()
-    return [
+    # One parsed ledger per root, not per skill: a merged library re-reads the same VENDORED.md
+    # once for every skill it serves otherwise.
+    ledgers: dict = {}
+    # Approval does not free the review slot: the pending record is held until the vault commit
+    # lands, so an approved change keeps reading as one still awaiting a decision.
+    publishing = publishing_skills()
+    active = [
         {"name": s.name, "description": s.description, "has_tasks": s.name in tasksets,
          "pending": load_pending(s.name) is not None, "revision": s.revision,
+         "publishing": s.name in publishing,
          "uses": counts.get(s.name, 0),
+         "provenance": provenance.classify(s.name, s.root, ledgers=ledgers),
          "status": RUNS.get(s.name, {}).get("status")}
         for s in _cached_load_skills()
         if SLUG_RE.fullmatch(s.name)  # a non-slug name (hostile frontmatter) can't be optimized anyway
     ]
+    active_names = {item["name"] for item in active}
+    creations = []
+    for pending in list_pending():
+        if pending.get("kind") != "creation" or pending.get("skill") in active_names:
+            continue
+        components = pending.get("challenger_components") or {}
+        creations.append({"name": pending["skill"],
+                          "description": str(components.get("description", "")),
+                          "has_tasks": False, "pending": True, "revision": "", "uses": 0,
+                          "publishing": pending["skill"] in publishing,
+                          "provenance": "proposed", "status": None, "active": False})
+    return active + creations
 
 
 def _active_skill(skill: str):
@@ -181,7 +282,7 @@ def skill_versions(skill: str):
                          "revision": _pending_revision(active, pending),
                          "created": pending.get("created")})
     versions.extend({"key": item["revision"], "kind": "snapshot", **item}
-                    for item in list_revisions(skill))
+                    for item in list_revisions(skill) if item["revision"] != ABSENT_REVISION)
     return {"skill": skill, "description": active.description, "versions": versions}
 
 
@@ -215,12 +316,7 @@ def optimize(skill: str):
     result is a quarantined pending record for review."""
     _check(skill)
     _preflight_optimize(skill)
-    state = RUNS[skill] = {"status": "running", "log": []}
-
-    def log(*args):
-        state["log"].append(" ".join(str(a) for a in args))
-        if len(state["log"]) > 1000:
-            state["log"] = state["log"][-1000:]
+    state, log = _start_run(skill, "optimize")
 
     threading.Thread(target=_run_optimization, args=(skill, state, log), daemon=True).start()
     return {"started": skill}
@@ -230,14 +326,116 @@ def _preflight_optimize(skill: str) -> None:
     _preflight_provider()
     if not (TASKS_DIR / f"{skill}.yaml").exists():
         raise HTTPException(404, f"no eval task set for '{skill}'")
-    # one SkillOpt run at a time: the token ledger is process-global, and concurrent runs
-    # would also contend for the same OpenRouter budget
-    if any(s.get("status") == "running" for s in RUNS.values()):
-        raise HTTPException(409, "a SkillOpt run is already in progress")
+
+
+def _start_run(skill: str, action: str) -> tuple[dict, Callable[..., None]]:
+    # Drafting and optimization share a process-global token ledger and OpenRouter budget. Claim
+    # the slot under a lock: FastAPI runs sync handlers concurrently, so a check before assignment
+    # lets two paid requests both pass.
+    with RUN_LOCK:
+        if any(s.get("status") == "running" for s in RUNS.values()):
+            raise HTTPException(409, "a paid model run is already in progress")
+        state = RUNS[skill] = {"status": "running", "action": action, "log": []}
+
+    def log(*args):
+        state["log"].append(" ".join(str(a) for a in args))
+        if len(state["log"]) > 1000:
+            state["log"] = state["log"][-1000:]
+
+    return state, log
+
+
+@app.post("/api/evals/{skill}",
+          dependencies=[Depends(same_origin), Depends(require_role("proposer"))])
+def create_eval_set(skill: str):
+    """Draft the missing train/holdout task set without starting an optimization."""
+    _active_skill(_check(skill))
+    _preflight_provider()
+    if (TASKS_DIR / f"{skill}.yaml").exists():
+        raise HTTPException(409, f"'{skill}' already has an eval task set")
+    state, log = _start_run(skill, "eval")
+    threading.Thread(target=_run_eval_draft, args=(skill, state, log), daemon=True).start()
+    return {"started": skill}
+
+
+def _eval_payload(skill: str) -> dict:
+    path = TASKS_DIR / f"{skill}.yaml"
+    if not path.exists():
+        raise HTTPException(404, f"no eval task set for '{skill}'")
+    try:
+        data = yaml.safe_load(path.read_text()) or {}
+        if not isinstance(data, dict):
+            raise ValueError("top level must be a mapping")
+        train = data.get("train") or data.get("tasks") or []
+        explicit_holdout = bool(data.get("holdout"))
+        holdout = data.get("holdout") or train
+        routing = data.get("routing") or []
+        acceptance = data.get("acceptance") or []
+        if not all(isinstance(section, list)
+                   for section in (train, holdout, routing, acceptance)):
+            raise ValueError("train, holdout, routing, and acceptance must be lists")
+    except (OSError, ValueError, yaml.YAMLError) as e:
+        raise HTTPException(
+            503, f"eval set is unreadable for '{skill}' ({e}); repair its task file") from e
+    tasks = list(train) + (list(holdout) if explicit_holdout else [])
+    return {
+        "skill": skill, "train": train, "holdout": holdout, "routing": routing,
+        "acceptance": acceptance, "leakage": not explicit_holdout,
+        "counts": {
+            "train": len(train), "holdout": len(holdout), "routing": len(routing),
+            "acceptance": len(acceptance),
+            "checks": sum(len(task.get("checklist") or [])
+                          for task in tasks if isinstance(task, dict)),
+        },
+    }
+
+
+@app.get("/api/evals/{skill}")
+def eval_set(skill: str):
+    """The exact task-set inputs the optimizer reads, exposed so its scores stay traceable."""
+    _active_skill(_check(skill))
+    return _eval_payload(skill)
+
+
+@app.get("/api/reviews/{skill}")
+def review_result(skill: str):
+    """The newest persisted current-skill review. Reviews measure; they never propose or activate."""
+    active = _active_skill(_check(skill))
+    from ingot.optimize.review import REVIEW_DIR
+    path = REVIEW_DIR / f"{skill}.json"
+    if not path.exists():
+        raise HTTPException(404, f"no review result for '{skill}'")
+    try:
+        data = json.loads(path.read_text())
+        if not isinstance(data, dict):
+            raise ValueError("top level must be an object")
+        data.setdefault("created", int(path.stat().st_mtime))
+        recorded = data.get("revision")
+        if not isinstance(recorded, str) or not recorded:
+            data["stale"] = "review did not record a skill revision; run it again"
+        elif recorded != active.revision:
+            data["stale"] = "active skill changed since this review ran; run it again"
+        else:
+            data["stale"] = None
+        return data
+    except (OSError, ValueError) as e:
+        raise HTTPException(503, f"review result is unreadable ({e}); run the review again") from e
+
+
+@app.post("/api/reviews/{skill}",
+          dependencies=[Depends(same_origin), Depends(require_role("proposer"))])
+def start_review(skill: str):
+    """Score the active skill against its evals without creating a pending revision."""
+    _active_skill(_check(skill))
+    _preflight_provider()
+    _eval_payload(skill)  # refuse missing or malformed measurement inputs before spending
+    state, log = _start_run(skill, "review")
+    threading.Thread(target=_run_review, args=(skill, state, log), daemon=True).start()
+    return {"started": skill}
 
 
 def _preflight_provider() -> None:
-    from optimize import openrouter_key_missing, preflight_provider_pins
+    from ingot.optimize import openrouter_key_missing, preflight_provider_pins
     if openrouter_key_missing():
         raise HTTPException(400, "API_KEY is not set, copy .env.example to .env, "
                                  "add your key (https://openrouter.ai/keys), and restart the stack "
@@ -257,12 +455,47 @@ def _run_optimization(skill: str, state: dict, log) -> None:
         state["status"] = "error"
 
 
+def _run_eval_draft(skill: str, state: dict, log) -> None:
+    try:
+        from ingot.optimize import usage as usage_ledger
+        from ingot.optimize.draft import draft_and_save
+
+        usage_ledger.reset()
+        components = read_components(resolve_skill_dir(skill))
+        # The teacher may fail after opening its output. Stage beside the mounted task directory,
+        # then hard-link the complete file into place so failure cannot create a bogus eval set
+        # and a concurrent writer cannot be overwritten.
+        with tempfile.TemporaryDirectory(prefix=f".draft-{skill}-", dir=TASKS_DIR) as staging:
+            staged = draft_and_save(skill, components["description"], components["body"],
+                                    Path(staging), log=log)
+            try:
+                os.link(Path(staged), TASKS_DIR / f"{skill}.yaml")
+            except FileExistsError:
+                raise RuntimeError(f"'{skill}' already has an eval task set") from None
+        state["status"] = "done"
+    except BaseException as e:  # surface provider, parse, and SystemExit failures in the card
+        log(f"ERROR: {e}")
+        state["status"] = "error"
+
+
+def _run_review(skill: str, state: dict, log) -> None:
+    try:
+        from ingot.optimize.review import run_review
+        run_review(skill, log=log)
+        state["status"] = "done"
+    except BaseException as e:  # provider, judge, and spend-cap failures belong in the skill log
+        log(f"ERROR: {e}")
+        state["status"] = "error"
+
+
 @app.get("/api/runs")
 def runs():
-    return {skill: {"status": s["status"], "log": s["log"][-30:]} for skill, s in RUNS.items()}
+    return {skill: {"status": s["status"], "action": s.get("action", "optimize"),
+                    "log": s["log"][-30:]} for skill, s in RUNS.items()}
 
 
-_COMPONENT_LABEL = {"description": "SKILL.md (description)", "body": "SKILL.md (body)"}
+_COMPONENT_LABEL = {"description": "SKILL.md (description)", "body": "SKILL.md (body)",
+                    "frontmatter": "SKILL.md (frontmatter)"}
 
 
 def _label(component: str) -> str:
@@ -292,6 +525,22 @@ def _review_risk(champion: dict, challenger: dict) -> dict:
             "high_risk": changed_pct >= 50 or size_delta_pct <= -50}
 
 
+def _publication_matches_pending(publication: dict, pending: dict) -> bool:
+    """Whether a skill-level receipt belongs to this exact quarantined proposal."""
+    proposal_id = next((str((pending.get(kind) or {}).get("proposal_id") or "")
+                        for kind in ("retrospective", "creation")
+                        if (pending.get(kind) or {}).get("proposal_id")), "")
+    revision = str(((pending.get("evidence") or {}).get("challenger") or {}).get("revision") or "")
+    identities = []
+    if proposal_id:
+        identities.append(str(publication.get("proposal_id") or "") == proposal_id)
+    if revision:
+        identities.append(str(publication.get("candidate_revision") or "") == revision)
+    if not identities:
+        identities.append(publication.get("components") == pending.get("challenger_components"))
+    return all(identities)
+
+
 @app.get("/api/pending/{skill}")
 def pending(skill: str):
     p = load_pending(_check(skill))
@@ -304,13 +553,24 @@ def pending(skill: str):
     for comp in changed_components:
         label = _label(comp)
         blocks.append("\n".join(difflib.unified_diff(
-            champ[comp].splitlines(), chall.get(comp, "").splitlines(),
+            str(champ.get(comp, "")).splitlines(), str(chall.get(comp, "")).splitlines(),
             fromfile=f"{label} (champion)", tofile=f"{label} (challenger)", lineterm="")))
     comparison = [{"component": _label(component), "before": str(champ.get(component, "")),
                    "after": str(chall.get(component, ""))}
                   for component in changed_components]
+    publication = publication_for_skill(skill)
+    if publication and not _publication_matches_pending(publication, p):
+        publication = None
+    # `pr` and `note` are what make a stalled publication legible: a receipt sitting at
+    # awaiting_merge because the vault does not allow auto-merge is waiting on a person, and the
+    # reviewer has no other way to learn which pull request to go and merge.
+    publication_view = ({key: publication.get(key) for key in
+                         ("id", "state", "actor", "action", "attempts", "last_error", "pr", "note")}
+                        if publication else None)
     return {"skill": skill, "kind": p.get("kind", "quality"), "inner_loop": _inner_loop(p),
             "ab": p.get("ab"), "routing": p.get("routing"), "dataset": p.get("dataset"),
+            "retrospective": p.get("retrospective"), "creation": p.get("creation"),
+            "publication": publication_view,
             "evidence": p.get("evidence_paths"), "stale": _stale_reason(skill, p),
             "model": p.get("model"), "judge": p.get("judge"),
             "gate": p.get("gate", {"promotable": True, "blocked": []}),
@@ -368,6 +628,57 @@ def approve(skill: str, actor: str = Depends(current_actor)):
             raise HTTPException(409, str(e))
 
 
+PUBLICATION_FIELDS = ("id", "skill", "action", "state", "actor", "attempts",
+                      "pr", "note", "last_error", "created")
+LIVE_STATES = ("approved_publishing", "publishing", "awaiting_merge")
+
+
+def _pending_blocked() -> str | None:
+    """A human-readable warning when a pending record exists but cannot be used, else None."""
+    from ingot.optimize.promote import pending_dir, unreadable_pending
+    queue = pending_dir()
+    if queue.is_dir() and not os.access(queue, os.R_OK | os.X_OK):
+        return (f"cannot read the review queue at {queue} as uid {os.getuid()}; "
+                f"quarantined changes cannot be listed")
+    blocked = unreadable_pending()
+    if not blocked:
+        return None
+    return (f"{len(blocked)} quarantined change(s) in {queue} cannot be read as uid "
+            f"{os.getuid()} and are NOT shown below: {', '.join(blocked)}")
+
+
+@app.get("/api/publications")
+def publications():
+    """The publication lane, read only.
+
+    A receipt outlives the pending record it came from, so this is the only surface that can show
+    an approved change while it is still travelling to the vault. `unreadable` is not cosmetic:
+    `Path.glob` swallows `PermissionError`, so a store this process cannot list looks exactly like
+    an empty one, and an empty lane is the reading a stalled publisher most wants you to make."""
+    # Read the receipt store through the module attribute, not a name bound at import: the path is
+    # configurable, `recent_publications` looks it up per call, and a frozen copy here inspected one
+    # directory while listing another.
+    from ingot.optimize.publication import publications_dir
+
+    # Only the forge backend has a pull request to link to, and only it knows the repository.
+    forge = os.environ.get("INGOT_FORGE_REPOSITORY") or ""
+    store = publications_dir()
+    unreadable = store.is_dir() and not os.access(store, os.R_OK | os.X_OK)
+    records = [] if unreadable else recent_publications()
+    return {"publications": [dict({key: record.get(key) for key in PUBLICATION_FIELDS},
+                                  pr_url=(f"https://github.com/{forge}/pull/{record['pr']}"
+                                          if forge and record.get("pr") else None))
+                             for record in records],
+            "live_states": list(LIVE_STATES),
+            "unreadable": (f"cannot read the receipt store at {store} as uid "
+                           f"{os.getuid()}; publications cannot be listed") if unreadable else None,
+            # The same misreading, one directory over. `list_pending` skips a record it cannot read
+            # so one corrupt file cannot break review, which also means an unreadable proposal is
+            # indistinguishable from no proposal and the board reports CLEAR over it. Observed live:
+            # the MCP container writes records as root 0600 while this process is uid 1000.
+            "pending_blocked": _pending_blocked()}
+
+
 @app.get("/api/evidence/{skill}")
 def evidence(skill: str):
     """The recorded evidence bundle for a pending change, read only.
@@ -376,7 +687,8 @@ def evidence(skill: str):
     runs/evidence. Nothing a request carries selects a file."""
     path = _evidence_file(_recorded_location(_check(skill)))
     markdown = _read_evidence(path)
-    return {"skill": skill, "path": path.relative_to(EVIDENCE_DIR).as_posix(), "markdown": markdown}
+    return {"skill": skill, "path": path.relative_to(_evidence_dir()).as_posix(),
+            "markdown": markdown}
 
 
 def _recorded_location(skill: str) -> str:
@@ -406,9 +718,9 @@ def _host_path(recorded: str) -> Path:
     refuse."""
     path = Path(recorded)
     if not path.is_absolute():
-        return REPO_ROOT / path
+        return STATE_ROOT / path
     try:
-        return REPO_ROOT / path.relative_to(CONTAINER_ROOT)
+        return STATE_ROOT / path.relative_to(CONTAINER_ROOT)
     except ValueError:
         return path
 
@@ -418,7 +730,7 @@ def _evidence_file(recorded: str) -> Path:
     Resolution happens before the containment check, so neither `..` nor a symlink out of the
     evidence tree can reach another part of the filesystem."""
     resolved = _host_path(recorded).resolve()
-    if not resolved.is_relative_to(EVIDENCE_DIR):
+    if not resolved.is_relative_to(_evidence_dir()):
         raise HTTPException(400, "recorded evidence path is outside runs/evidence")
     return resolved
 
@@ -443,14 +755,12 @@ def reject(skill: str, payload: RejectRequest | None = None,
     # later would let a second reject pass the check, then re-delete and double-audit after the
     # first released, returning 200 instead of 404 (mirrors approve/rollback holding the lock).
     with change_control(skill):
-        pending = load_pending(skill)
-        if pending is None:
-            raise HTTPException(404, f"no pending change for '{skill}'")
-        revision = _challenger_revision(pending)
-        pending_path(skill).unlink(missing_ok=True)
-        reason = " ".join((payload.reason if payload else "").split())
-        _audit_best_effort("reject", skill, revision, actor, reason=reason)
-    return {"result": f"rejected the pending change for '{skill}'"}
+        try:
+            result = reject_pending(skill, actor=actor,
+                                    reason=payload.reason if payload else "")
+        except ValueError as exc:
+            raise HTTPException(404, str(exc))
+    return {"result": result}
 
 
 @app.get("/api/history")

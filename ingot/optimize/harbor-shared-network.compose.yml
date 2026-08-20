@@ -1,0 +1,4 @@
+networks:
+  default:
+    external: true
+    name: ingot-harbor-trials

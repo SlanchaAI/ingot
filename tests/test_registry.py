@@ -1,10 +1,12 @@
-"""Unit tests for skill discovery / frontmatter parsing edge cases (mcp_server.registry)."""
+"""Unit tests for skill discovery / frontmatter parsing edge cases (ingot.mcp_server.registry)."""
 import os
+from pathlib import Path
 
 import pytest
 
-from mcp_server.registry import (
-    configured_roots, load_skills, optimizable_components, parse_skill, write_skill_md,
+from ingot.mcp_server.registry import (
+    configured_roots, load_skills, optimizable_components, parse_skill, writable_skill_dir,
+    write_skill_md,
 )
 
 
@@ -73,7 +75,7 @@ def test_configured_roots_reads_platform_path_separator(tmp_path, monkeypatch):
     a, b, local = tmp_path / "a", tmp_path / "b", tmp_path / "local"
     a.mkdir(); b.mkdir(); local.mkdir()
     monkeypatch.setenv("SKILL_ROUTER_PATHS", os.pathsep.join([str(a), str(b), str(a)]))
-    monkeypatch.setattr("mcp_server.registry.SKILLS_DIR", local)
+    monkeypatch.setenv("INGOT_LIBRARY", str(local))
     assert configured_roots() == [local.resolve(), a.resolve(), b.resolve()]
 
 
@@ -81,7 +83,7 @@ def test_explicit_roots_override_environment(tmp_path, monkeypatch):
     env_root, explicit, local = tmp_path / "env", tmp_path / "explicit", tmp_path / "local"
     env_root.mkdir(); explicit.mkdir(); local.mkdir()
     monkeypatch.setenv("SKILL_ROUTER_PATHS", str(env_root))
-    monkeypatch.setattr("mcp_server.registry.SKILLS_DIR", local)
+    monkeypatch.setenv("INGOT_LIBRARY", str(local))
     assert configured_roots([explicit]) == [local.resolve(), explicit.resolve()]
 
 
@@ -89,8 +91,15 @@ def test_environment_roots_keep_local_authoring_root(tmp_path, monkeypatch):
     external, local = tmp_path / "external", tmp_path / "local"
     external.mkdir(); local.mkdir()
     monkeypatch.setenv("SKILL_ROUTER_PATHS", str(external))
-    monkeypatch.setattr("mcp_server.registry.SKILLS_DIR", local)
+    monkeypatch.setenv("INGOT_LIBRARY", str(local))
     assert configured_roots() == [local.resolve(), external.resolve()]
+
+
+def test_writable_skill_dir_expands_user_root(tmp_path, monkeypatch):
+    monkeypatch.setenv("HOME", str(tmp_path))
+    monkeypatch.setenv("INGOT_LIBRARY", str(Path("~/skills")))
+
+    assert writable_skill_dir("sample") == tmp_path / "skills" / "sample"
 
 
 def test_load_skills_uses_declared_root_precedence_with_warning(tmp_path):
@@ -192,7 +201,7 @@ def test_leftover_staging_directory_is_not_published_as_its_own_skill(tmp_path):
 
 @pytest.mark.parametrize("suffix", ["stage", "previous", "rollback"])
 def test_skill_sources_skips_every_staging_suffix(tmp_path, suffix):
-    from mcp_server.registry import skill_sources
+    from ingot.mcp_server.registry import skill_sources
     _live_skill(tmp_path)
     _hidden_stage(tmp_path, "pdf", "abandoned body", suffix=suffix)
     assert [p.parent.name for p in skill_sources(tmp_path)] == ["pdf"]

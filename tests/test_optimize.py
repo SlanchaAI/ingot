@@ -4,32 +4,37 @@ import inspect
 
 import pytest
 
-from optimize import ab as ab_mod
-from optimize import judge as judge_mod
-from optimize.ab import body_retention, promotion_gate, retention_warnings
-from optimize.judge import DIMENSIONS, failed_dimensions
+from ingot.optimize import ab as ab_mod
+from ingot.optimize import judge as judge_mod
+from ingot.optimize.ab import body_retention, promotion_gate, retention_warnings
+from ingot.optimize.judge import DIMENSIONS, failed_dimensions
 
 
 def test_optimizer_has_no_activation_control():
     # the canary module is deleted outright on this branch, the strongest form of "no
     # activation control"; the remaining assertions cover the surviving surfaces
-    from optimize import promote as promotion
+    from ingot.optimize import promote as promotion
 
     assert "promote_now" not in inspect.signature(ab_mod.run_ab).parameters
     assert not hasattr(promotion, "promote")
 
 
-def test_ensemble_judge_averages_score_and_majority_votes_dimensions(monkeypatch):
-    # two judges: one says 1.0 all-pass, one says 0.0 with a correctness failure -> mean 0.5, and
-    # correctness fails only if a MAJORITY flag it (here 1 of 2 → still "pass", harder to game)
-    fake = iter([
-        {"score": 1.0, "feedback": "great", "dimensions": {d: "pass" for d in DIMENSIONS}},
-        {"score": 0.0, "feedback": "wrong", "dimensions": {**{d: "pass" for d in DIMENSIONS}, "correctness": "bad API"}},
-    ])
+def test_ensemble_judge_averages_items_and_majority_votes_dimensions(monkeypatch):
+    # Two judges disagreeing about correctness and agreeing on everything else. Averaging happens
+    # per checklist item, so the disagreement costs half of correctness's weight (3 of 8) rather
+    # than half of the whole answer: 1 - 0.5*(3/8) = 0.8125. Under the old holistic contract the
+    # same disagreement scored 0.5, which charged the challenger for three checks both judges
+    # passed. Correctness still reads as "pass" because 1 of 2 is not a majority.
+    def items(correctness):
+        return {"items": {i["id"]: {"value": correctness if i["id"] == "correctness" else 1.0,
+                                    "note": "bad API" if i["id"] == "correctness" else ""}
+                          for i in judge_mod.DEFAULT_CHECKLIST},
+                "feedback": "f", "unparseable": False}
+    fake = iter([items(1.0), items(0.0)])
     monkeypatch.setattr(judge_mod, "MODELS", ["m1", "m2"])
-    monkeypatch.setattr(judge_mod, "_judge_one", lambda model, prompt: next(fake))
+    monkeypatch.setattr(judge_mod, "_judge_one", lambda model, prompt, checklist: next(fake))
     r = judge_mod.judge("t", "rubric", "ans")
-    assert abs(r["score"] - 0.5) < 1e-9
+    assert abs(r["score"] - 0.8125) < 1e-9
     assert failed_dimensions(r["dimensions"]) == []   # 1/2 is not a majority → not flagged
 
 
@@ -125,9 +130,51 @@ def test_load_tasks_reads_explicit_train_holdout(tmp_path, monkeypatch):
     assert split == {"kind": "holdout", "leakage": False}
 
 
+def test_load_tasks_drafts_from_the_skills_own_root(tmp_path, monkeypatch):
+    """A multi-root library serves most skills from read-only mounts, never from the writable
+    authoring root. Drafting must resolve the skill where the registry indexed it — looking under
+    SKILLS_DIR instead meant every mounted skill died on FileNotFoundError before a task set
+    could be written."""
+    from ingot.mcp_server.registry import Skill
+
+    mounted = tmp_path / "mounted-library" / "gb10-serving"
+    mounted.mkdir(parents=True)
+    monkeypatch.setattr(ab_mod, "TASKS_DIR", tmp_path / "tasks")
+    (tmp_path / "tasks").mkdir()
+    monkeypatch.setattr("ingot.mcp_server.registry.load_skills",
+                        lambda *a, **k: [Skill(name="gb10-serving", description="d", body="b",
+                                               path=str(mounted / "SKILL.md"), root=str(mounted))])
+    monkeypatch.setattr("ingot.mcp_server.registry.read_components",
+                        lambda d: {"description": f"desc-from:{d}", "body": "body"})
+
+    seen = {}
+
+    def fake_draft(name, description, body, tasks_dir, **kw):
+        seen.update(name=name, description=description)
+        (tasks_dir / f"{name}.yaml").write_text(
+            "skill: gb10-serving\ntrain:\n  - task: a\n    rubric: r\nholdout:\n  - task: b\n    rubric: r\n")
+
+    monkeypatch.setattr("ingot.optimize.draft.draft_and_save", fake_draft)
+    train, holdout, split = ab_mod.load_tasks("gb10-serving")
+
+    assert seen["description"] == f"desc-from:{mounted}"   # the mount, not SKILLS_DIR
+    assert [t["task"] for t in train] == ["a"] and split["leakage"] is False
+
+
+def test_load_tasks_names_the_skill_when_it_is_not_indexed(tmp_path, monkeypatch):
+    """An unindexed name means the roots are misconfigured. Say so — the old code raised a bare
+    FileNotFoundError on a path the operator never configured directly."""
+    import pytest
+    monkeypatch.setattr(ab_mod, "TASKS_DIR", tmp_path)
+    monkeypatch.setattr("ingot.mcp_server.registry.load_skills", lambda *a, **k: [])
+    with pytest.raises(SystemExit) as exc:
+        ab_mod.load_tasks("nonexistent")
+    assert "nonexistent" in str(exc.value) and "SKILL_ROUTER_PATHS" in str(exc.value)
+
+
 def test_greedy_pick_spreads_across_failure_modes():
     import numpy as np
-    from optimize.mine import _greedy_pick
+    from ingot.optimize.mine import _greedy_pick
     # two orthogonal "failure modes", two near-identical tasks in each; hardest overall is
     # index 0, but the second pick must come from the OTHER mode even though index 1 is harder
     vecs = np.array([[1.0, 0.0], [1.0, 0.0], [0.0, 1.0], [0.0, 1.0]], dtype=np.float32)
@@ -137,27 +184,28 @@ def test_greedy_pick_spreads_across_failure_modes():
 
 def test_greedy_pick_skips_aced_and_excluded_tasks():
     import numpy as np
-    from optimize.mine import _greedy_pick
+    from ingot.optimize.mine import _greedy_pick
     vecs = np.eye(3, dtype=np.float32)
     # one real candidate, one aced task (difficulty 0), one excluded (train near-duplicate)
     assert _greedy_pick([0.7, 0.0, -1.0], vecs, k=3) == [0]
 
 
 def test_save_pending_archives_a_displaced_cross_pass_challenger(tmp_path, monkeypatch):
-    from optimize import promote as promote_mod
-    monkeypatch.setattr(promote_mod, "PENDING_DIR", tmp_path)
+    from ingot.optimize import promote as promote_mod
+    monkeypatch.setenv("INGOT_RUNS", str(tmp_path))
+    pending = promote_mod.pending_dir()
     promote_mod.save_pending("pdf", {"changed_components": ["body"], "created": 111})
     promote_mod.save_pending("pdf", {"changed_components": ["body"], "created": 222})   # same pass: overwrite
-    assert len(list(tmp_path.glob("pdf*"))) == 1
+    assert len(list(pending.glob("pdf*"))) == 1
     promote_mod.save_pending("pdf", {"changed_components": ["description"], "created": 333})
     import json
-    archived = tmp_path / "pdf.displaced-222.json"
+    archived = pending / "pdf.displaced-222.json"
     assert json.loads(archived.read_text())["changed_components"] == ["body"]           # preserved
-    assert json.loads((tmp_path / "pdf.json").read_text())["changed_components"] == ["description"]
+    assert json.loads((pending / "pdf.json").read_text())["changed_components"] == ["description"]
 
 
 def test_length_penalty_is_zero_under_target_and_grows_above():
-    from optimize.rollout import BODY_TARGET_CHARS, LENGTH_PENALTY, length_penalty
+    from ingot.optimize.rollout import BODY_TARGET_CHARS, LENGTH_PENALTY, length_penalty
     assert length_penalty("x" * (BODY_TARGET_CHARS // 2)) == 0.0            # concise -> no penalty
     assert length_penalty("x" * BODY_TARGET_CHARS) == 0.0                   # exactly at target -> no penalty
     assert length_penalty("x" * (BODY_TARGET_CHARS * 2)) > 0.0             # bloated -> penalized
@@ -167,7 +215,7 @@ def test_length_penalty_is_zero_under_target_and_grows_above():
 def test_reflection_lm_sends_generic_api_key_to_openrouter(monkeypatch):
     import sys
     from types import SimpleNamespace
-    from optimize import rollout as rollout_mod
+    from ingot.optimize import rollout as rollout_mod
 
     captured = {}
 
@@ -237,7 +285,7 @@ def test_gate_ignores_parity_with_no_cases():
 
 
 def test_zdr_provider_pinned_and_in_sync():
-    from optimize.judge import ZDR_PROVIDER
+    from ingot.optimize.judge import ZDR_PROVIDER
     assert ZDR_PROVIDER == {"provider": {"zdr": True, "data_collection": "deny"}}
     from agent.run import ZDR_PROVIDER as agent_zdr
     assert agent_zdr == ZDR_PROVIDER  # duplicated literal (import-weight reasons) must not drift
@@ -275,7 +323,7 @@ def test_optimize_split_rejects_unknown_component(monkeypatch):
 
 
 def test_skill_adapter_renders_frozen_components():
-    from optimize.rollout import assemble
+    from ingot.optimize.rollout import assemble
     frozen, candidate = {"description": "when to use me"}, {"body": "the rules"}
     text = assemble({**frozen, **candidate})
     assert "when to use me" in text and "the rules" in text
@@ -297,8 +345,8 @@ def test_eval_serve_template_injects_body_and_contract():
 
 
 def test_rollouts_serve_the_exact_serving_contract(monkeypatch):
-    from optimize import SERVE_TEMPLATE
-    from optimize import rollout as R
+    from ingot.optimize import SERVE_TEMPLATE
+    from ingot.optimize import rollout as R
     captured = {}
 
     class FakeLLM:
@@ -311,7 +359,7 @@ def test_rollouts_serve_the_exact_serving_contract(monkeypatch):
     adapter = R.SkillAdapter(frozen={"description": "trigger words"})
     adapter._llm = FakeLLM()
     monkeypatch.setattr(R, "judge",
-                        lambda t, r, a, reference="", check=None, deliverable=None:
+                        lambda t, r, a, reference="", check=None, deliverable=None, checklist=None:
                         {"score": 1.0, "feedback": "f", "dimensions": {}})
     candidate = {"body": "the rules"}
     answer, score, _ = adapter._rollout(adapter.serve(candidate), {"task": "t", "rubric": "r"})
@@ -323,10 +371,10 @@ def test_rollouts_serve_the_exact_serving_contract(monkeypatch):
 
 
 def test_agent_rollout_mode_routes_through_the_scaffold(monkeypatch):
-    from optimize import rollout as R
+    from ingot.optimize import rollout as R
     monkeypatch.setattr(R, "SKILLOPT_ROLLOUTS", "agent")
     monkeypatch.setattr(R, "judge",
-                        lambda t, r, a, reference="", check=None, deliverable=None:
+                        lambda t, r, a, reference="", check=None, deliverable=None, checklist=None:
                         {"score": 0.5, "feedback": "f", "dimensions": {}})
     seen = {}
 
@@ -398,7 +446,7 @@ def _script_skill(tmp_path, monkeypatch, scripts=("scripts/helper.py",), holdout
         holdout[0]["check"] = {"fixture": "x = 1", "assert": "assert x == 1"}
     (tasks / "excel.yaml").write_text(yaml.safe_dump(
         {"train": [{"task": "t2", "rubric": "r"}], "holdout": holdout}))
-    monkeypatch.setattr(ab_mod, "SKILLS_DIR", skills)
+    monkeypatch.setattr(ab_mod, "resolve_skill_dir", lambda name: skills / name)
     monkeypatch.setattr(ab_mod, "TASKS_DIR", tasks)
     return d
 
@@ -441,7 +489,7 @@ def test_greedy_search_trains_each_component_with_the_others_frozen(tmp_path, mo
         calls.append({"key": key, "frozen": dict(frozen)})
         return {key: text + "!"}, 0.5, 0.9
 
-    monkeypatch.setattr("optimize.skillopt_loop.run_skillopt", fake_skillopt)
+    monkeypatch.setattr("ingot.optimize.skillopt_loop.run_skillopt", fake_skillopt)
     champion = {"description": "d", "body": "b",
                 "file:scripts/a.py": "A", "file:scripts/b.py": "B"}
     challenger, seed_score, best_score = ab_mod._greedy_search(
@@ -465,7 +513,7 @@ def test_greedy_search_body_pass_matches_the_old_single_run_contract(tmp_path, m
         calls.append({"seed": dict(seed), "frozen": dict(frozen)})
         return {"body": "better"}, 0.3, 0.8
 
-    monkeypatch.setattr("optimize.skillopt_loop.run_skillopt", fake_skillopt)
+    monkeypatch.setattr("ingot.optimize.skillopt_loop.run_skillopt", fake_skillopt)
     champion = {"description": "d", "body": "b"}
     challenger, s0, s1 = ab_mod._greedy_search("excel", champion, ["body"],
                                                [{"task": "t", "rubric": "r"}], log=lambda *_: None)

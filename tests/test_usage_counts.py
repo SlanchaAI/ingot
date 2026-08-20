@@ -1,5 +1,5 @@
 """Unit tests for the per-skill load counter (no server needed)."""
-from mcp_server import usage_counts
+from ingot.mcp_server import usage_counts
 
 
 def test_record_use_increments_and_persists(tmp_path, monkeypatch):

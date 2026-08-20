@@ -16,6 +16,11 @@ Set in `.env` (never committed):
 | `RELATED_SCORE` | `0.37` | floor of the `related` band; below it a task is novel (weak/strong escalation). Calibrated to `EMBED_MODEL` (0.45 for bge-small) |
 | `EMBED_MODEL` | `onnx-community/Qwen3-Embedding-0.6B-ONNX` | router embedding model (q4 ONNX, ~15 ms/query on CPU; +7 top-1 over the former bge-small default on a 297-query eval). The default Qwen files are baked into the image and loaded cache-only. Ingot does not use BGE-M3. Any fastembed name also works, but an unbaked override may download at first use and requires recalibrating the three score thresholds. Keep in sync with the Dockerfile's build arg |
 | `EMBED_ONNX_FILE` | `onnx/model_q4.onnx` | which ONNX weight file to load inside the `EMBED_MODEL` repo; only relevant for ONNX exports that ship multiple quantizations |
+| `EMBED_BACKEND` | `local` | `local` uses the in-process CPU backend; `remote` uses an OpenAI-compatible embedding server and fails if it cannot be reached |
+| `EMBED_BASE_URL` | unset | required for `remote`, including `/v1` (for example `http://embed-gpu:8080/v1`) |
+| `EMBED_REMOTE_MODEL` | unset | required for `remote`; model identifier sent to the server, separate from the local `EMBED_MODEL` so GPU mode cannot accidentally request the CPU ONNX export |
+| `EMBED_TIMEOUT_SECONDS` | `60` | remote embedding request timeout |
+| `ROUTER_BODY_CHARS` | `1000` | approved body-prefix characters in each body-aware routing document. Name and description are always included; harness variants are embedded separately. Must be 1–4000. The hard ceiling prevents the decoder-style CPU ONNX attention tensor from exceeding 4 GB |
 | `BODY_TARGET_CHARS` | `6000` | length penalty starts past this body size |
 | `LENGTH_PENALTY` | `0.10` | max score subtracted for a very long body |
 | `LOOP_HEALTH_THRESHOLD` | `0.7` | the background loop proposes a change for skills whose mined mean score is below this |
@@ -51,6 +56,12 @@ OIDC/SSO variables (`OIDC_ISSUER`, `OIDC_CLIENT_ID`, `OIDC_CLIENT_SECRET`, `OIDC
 
 Evidence-gate knobs (`PROMOTE_MIN_MARGIN`, `PROMOTE_MIN_SAMPLES`, `COLLISION_SCORE`,
 `JUDGE_MODELS`) are covered in [The evidence gate](evidence-gate.md).
+
+Routing responses report `matched_on` (`description` or `content`) and both
+cosine values under `score_components`. The aggregate is their maximum, so
+existing description scores cannot decrease. Body evidence can create new
+matches, however, so run a representative held-out routing suite before
+changing thresholds or enabling a new library at scale.
 
 ### SkillOpt optimization
 
@@ -99,12 +110,12 @@ the local rollout + judge, so it needs no Langfuse.
 ### Writing eval task sets
 
 Task sets are runtime artifacts, not shipped opinions; the repo commits none. They live in
-`optimize/tasks/<skill>.yaml` (gitignored). Create one by hand or let `SKILLOPT_MODEL` auto-draft one
+`ingot/optimize/tasks/<skill>.yaml` (gitignored). Create one by hand or let `SKILLOPT_MODEL` auto-draft one
 on the first CLI optimize run.
 
 To author one manually:
 
-1. Create `optimize/tasks/<skill>.yaml`, where `<skill>` exactly matches the directory name under
+1. Create `ingot/optimize/tasks/<skill>.yaml`, where `<skill>` exactly matches the directory name under
    `skills/`.
 2. Add separate `train:` and `holdout:` lists. The candidate search sees only `train`; the evidence
    gate sees only `holdout`. A flat `tasks:` list is treated as train/holdout leakage and cannot

@@ -1,0 +1,17 @@
+{
+  "object": "list",
+  "data": [
+    {
+      "id": "ablit35b",
+      "aliases": ["ablit35b"],
+      "object": "model",
+      "owned_by": "llamacpp",
+      "meta": {
+        "n_ctx": 65536,
+        "n_ctx_train": 262144,
+        "n_params": 34660610688,
+        "ftype": "Q4_K - Medium"
+      }
+    }
+  ]
+}
