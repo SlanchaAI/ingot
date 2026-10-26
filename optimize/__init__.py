@@ -134,7 +134,7 @@ def provider_conflict(model: str, pins: list[str]) -> str | None:
         with urllib.request.urlopen(
                 f"https://openrouter.ai/api/v1/models/{model}/endpoints", timeout=10) as r:
             endpoints = json.loads(r.read()).get("data", {}).get("endpoints", [])
-    except Exception:
+    except (OSError, ValueError, TypeError, AttributeError):
         return None
     if not endpoints:
         return (f"model '{model}' has no endpoints on OpenRouter, check the model id "

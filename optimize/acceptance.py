@@ -56,8 +56,8 @@ def _violations(criteria: list[dict], answers: list[str]) -> list[tuple[float, s
         if hits:
             detail = f" ({c['description']})" if c["description"] else ""
             out.append((hits / total,
-                        f"acceptance '{c['id']}': {hits}/{len(answers)} holdout answer(s) matched "
-                        f"forbidden pattern{detail}"))
+                        (f"acceptance '{c['id']}': {hits}/{len(answers)} holdout answer(s) matched "
+                        f"forbidden pattern{detail}")))
     return out
 
 
@@ -72,7 +72,8 @@ def classify(criteria: list[dict], answers: list[str], block_rate: float = 0.5) 
     the criterion (block); a minority is a warning for the human to weigh with the evidence.
     block_rate=0 restores strict zero-tolerance (any violation blocks); block_rate>=1 makes
     acceptance a pure warning (never blocks)."""
-    blocking, warning = [], []
+    blocking: list[str] = []
+    warning: list[str] = []
     for rate, reason in _violations(criteria, answers):
         (blocking if rate > block_rate else warning).append(reason)
     return blocking, warning

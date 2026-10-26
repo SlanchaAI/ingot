@@ -1,14 +1,15 @@
 """Discover skills from skills/<name>/SKILL.md. The YAML frontmatter `description` is the routing
 key; the markdown body is what an agent loads. No compilation, no DB, a skill is just its SKILL.md."""
 from __future__ import annotations
+
 import hashlib
 import os
 import re
 import uuid
 import warnings
+from collections.abc import Iterable
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Iterable
 
 import yaml
 
@@ -20,7 +21,7 @@ _FRONTMATTER = re.compile(r"^---\s*\n(.*?)\n---\s*\n(.*)$", re.DOTALL)
 SLUG_RE = re.compile(r"^[a-z0-9][a-z0-9-]*$")
 
 
-_ROUTER_DEFAULTS = {
+_ROUTER_DEFAULTS: dict[str, list[str] | str | int] = {
     "harnesses": ["claude", "codex"],
     "scopes": ["global"],
     "path_patterns": [],
@@ -82,7 +83,7 @@ def skill_sources(library_root: Path) -> list[Path]:
 
 def configured_roots(explicit: Iterable[str | Path] | None = None) -> list[Path]:
     """Canonical skill-library roots. Explicit CLI roots replace the environment configuration."""
-    values = list(explicit) if explicit is not None else [
+    values: list[str | Path] = list(explicit) if explicit is not None else [
         p for p in os.environ.get("SKILL_ROUTER_PATHS", "").split(os.pathsep) if p
     ]
     values = [SKILLS_DIR, *values] if values else [SKILLS_DIR]
@@ -108,10 +109,14 @@ def _router_metadata(meta: dict) -> dict:
     list_fields = ("harnesses", "scopes", "path_patterns", "required_tools", "required_mcps",
                    "platforms", "conflicts")
     for key in list_fields:
-        if not isinstance(result[key], list) or not all(isinstance(item, str) for item in result[key]):
+        value = result[key]
+        if not isinstance(value, list) or not all(isinstance(item, str) for item in value):
             raise ValueError(f"metadata.skill-router.{key} must be a list of strings")
     try:
-        result["priority"] = int(result["priority"])
+        priority = result["priority"]
+        if not isinstance(priority, (str, int, float)):
+            raise TypeError("priority must be a string or integer")
+        result["priority"] = int(priority)
     except (TypeError, ValueError):
         result["priority"] = 50
     return result
@@ -139,11 +144,11 @@ def skill_revision(skill_root: Path, components: dict[str, str] | None = None) -
     for key in (components or {}):
         if not key.startswith("file:"):
             continue
-        relative = Path(key[len("file:"):])
-        if relative.as_posix() == "SKILL.md" or relative.is_absolute() or ".." in relative.parts:
-            raise ValueError(f"component escapes skill root: {relative}")
-        _contained_file(skill_root, skill_root / relative)
-        files.setdefault(relative.as_posix(), skill_root / relative)
+        relative_path = Path(key[len("file:"):])
+        if relative_path.as_posix() == "SKILL.md" or relative_path.is_absolute() or ".." in relative_path.parts:
+            raise ValueError(f"component escapes skill root: {relative_path}")
+        _contained_file(skill_root, skill_root / relative_path)
+        files.setdefault(relative_path.as_posix(), skill_root / relative_path)
 
     digest = hashlib.sha256()
     for relative, path in sorted(files.items()):

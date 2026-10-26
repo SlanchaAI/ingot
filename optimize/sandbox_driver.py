@@ -17,7 +17,7 @@ def _phase(name: str, source: str, timeout: int) -> dict | None:
         f.write(source)
         path = f.name
     try:
-        run = subprocess.run([sys.executable, path], capture_output=True, text=True, timeout=timeout)
+        run = subprocess.run([sys.executable, path], check=False, capture_output=True, text=True, timeout=timeout)
     except subprocess.TimeoutExpired:
         return {"phase": name, "returncode": -1, "stderr": "", "timeout": True}
     if run.returncode != 0:

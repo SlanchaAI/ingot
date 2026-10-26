@@ -43,6 +43,7 @@ def test_nearest_empty_router_is_safe():
 
 def test_router_reuses_description_vectors_across_refreshes(monkeypatch):
     import numpy as np
+
     import mcp_server.router as router_mod
     calls = []
 

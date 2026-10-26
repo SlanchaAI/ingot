@@ -8,7 +8,6 @@ import pytest
 
 from optimize import require_openrouter_key
 
-
 ROOT = Path(__file__).resolve().parent.parent
 
 
@@ -45,6 +44,7 @@ def test_fully_local_setup_needs_no_key(monkeypatch):
 
 def test_local_model_but_openrouter_teacher_still_needs_key(monkeypatch):
     import pytest
+
     from optimize import require_openrouter_key
     monkeypatch.delenv("OPENROUTER_API_KEY", raising=False)
     monkeypatch.delenv("OPENROUTER_BASE_URL", raising=False)                 # teacher on OpenRouter
@@ -106,21 +106,25 @@ class _FakeEndpoints:
 
 def test_provider_conflict_loose_name_matching(monkeypatch):
     import urllib.request
+
     from optimize import provider_conflict
     monkeypatch.setattr(urllib.request, "urlopen",
                         lambda url, timeout=10: _FakeEndpoints(["DeepInfra", "Io Net"]))
     assert provider_conflict("qwen/x", ["deep-infra"]) is None         # display-name vs slug
     assert provider_conflict("qwen/x", ["io-net"]) is None             # punctuation-insensitive
     msg = provider_conflict("qwen/x", ["groq"])
+    assert msg is not None
     assert "no provider that serves 'qwen/x'" in msg and "DeepInfra" in msg
     assert "OPENROUTER_PROVIDERS=groq" in msg and "falls back" in msg
 
 
 def test_provider_conflict_unknown_model_and_network_failure(monkeypatch):
     import urllib.request
+
     from optimize import provider_conflict
     monkeypatch.setattr(urllib.request, "urlopen", lambda url, timeout=10: _FakeEndpoints([]))
-    assert "no endpoints on OpenRouter" in provider_conflict("qwen/typo-27b", ["groq"])
+    msg = provider_conflict("qwen/typo-27b", ["groq"])
+    assert msg is not None and "no endpoints on OpenRouter" in msg
     def boom(url, timeout=10):
         raise OSError("offline")
     monkeypatch.setattr(urllib.request, "urlopen", boom)
@@ -129,6 +133,7 @@ def test_provider_conflict_unknown_model_and_network_failure(monkeypatch):
 
 def test_preflight_no_pins_makes_no_network_calls(monkeypatch):
     import urllib.request
+
     from optimize import preflight_provider_pins
     monkeypatch.delenv("OPENROUTER_PROVIDERS", raising=False)
     def forbidden(url, timeout=10):
@@ -233,6 +238,7 @@ def test_preflight_skips_roles_on_local_endpoints(monkeypatch):
 
 def test_invoke_retry_fails_fast_on_permanent_config_errors(monkeypatch):
     import pytest
+
     from optimize import judge as judge_mod
     monkeypatch.setattr(judge_mod.time, "sleep", lambda s: (_ for _ in ()).throw(AssertionError("slept")))
 

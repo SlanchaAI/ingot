@@ -176,7 +176,7 @@ def test_relevant_traces_keeps_tagged_or_embedding_ranked(monkeypatch):
             return [{"name": "excel"}] if "spreadsheet" in task else [{"name": "other"}]
 
     monkeypatch.setattr("mcp_server.router.Router", FakeRouter)
-    monkeypatch.setattr("mcp_server.registry.load_skills", lambda: [])
+    monkeypatch.setattr("mcp_server.registry.load_skills", list)
     traces = [
         {"task": "spreadsheet lookup with discounts", "tags": []},   # ranked -> keep (misrouted traffic)
         {"task": "rotate a pdf", "tags": ["excel"]},                 # tagged -> keep
@@ -300,8 +300,11 @@ def test_judge_cache_invalidates_when_answer_or_judge_changes(monkeypatch, tmp_p
     traces = [{"task": "task", "rubric": "rubric", "answer": "first"}]
     cache = tmp_path / "judgments.json"
     calls = []
-    monkeypatch.setattr(mine, "judge", lambda *args: calls.append(args) or {
-        "score": 1.0, "feedback": "f", "dimensions": {d: "pass" for d in DIMENSIONS}})
+    def fake_call_1(*args):
+        calls.append(args)
+        return {'score': 1.0, 'feedback': 'f', 'dimensions': {d: 'pass' for d in DIMENSIONS}}
+
+    monkeypatch.setattr(mine, "judge", fake_call_1)
     monkeypatch.setattr(mine, "MODELS", ["judge/one"])
 
     mine._judge_trace_clusters(traces, [[0]], log=lambda *_: None, cache_path=cache)

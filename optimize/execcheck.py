@@ -94,12 +94,12 @@ def _sandbox(spec: dict, timeout: int) -> dict | None:
         cmd += ["--runtime", SANDBOX_RUNTIME]
     cmd += [SANDBOX_IMAGE, "python", "-m", "optimize.sandbox_driver"]
     try:
-        run = subprocess.run(cmd, input=json.dumps({**spec, "timeout": timeout}),
+        run = subprocess.run(cmd, check=False, input=json.dumps({**spec, "timeout": timeout}),
                              capture_output=True, text=True, timeout=timeout * 3 + 30)
     except FileNotFoundError:
         return None                                   # no docker CLI in this environment
     except subprocess.TimeoutExpired:
-        subprocess.run(["docker", "kill", name], capture_output=True)
+        subprocess.run(["docker", "kill", name], check=False, capture_output=True)
         return {"phase": "sandbox", "returncode": -1, "stderr": "", "timeout": True}
     if run.returncode != 0:
         return None                                   # docker infra failure (no socket, no image)
@@ -135,7 +135,7 @@ def check(answer: str) -> dict:
         f.write(code)
         path = f.name
     try:
-        p = subprocess.run([sys.executable, path], capture_output=True, text=True, timeout=10,
+        p = subprocess.run([sys.executable, path], check=False, capture_output=True, text=True, timeout=10,
                            env={"PATH": os.environ.get("PATH", "")})
     except subprocess.TimeoutExpired:
         return {"status": "inconclusive", "detail": "timed out (>10s)"}
@@ -151,7 +151,7 @@ def _run(code: str, cwd: str, timeout: int) -> subprocess.CompletedProcess:
         f.write(code)
         path = f.name
     try:
-        return subprocess.run([sys.executable, path], capture_output=True, text=True,
+        return subprocess.run([sys.executable, path], check=False, capture_output=True, text=True,
                               timeout=timeout, cwd=cwd, env={"PATH": os.environ.get("PATH", "")})
     finally:
         os.unlink(path)
@@ -211,11 +211,11 @@ def check_with_fixture(answer: str, fixture: str = "", assertion: str = "", time
             return _failure(run.stderr, "exec_error", "likely a missing dependency")
         if assertion:
             try:
-                verdict = _run(assertion, cwd, timeout)
+                assertion_run = _run(assertion, cwd, timeout)
             except subprocess.TimeoutExpired:
                 return {"status": "inconclusive", "detail": "assertion timed out"}
-            if verdict.returncode != 0:
-                return _failure(verdict.stderr, "assert_failed", "assertion could not run")
+            if assertion_run.returncode != 0:
+                return _failure(assertion_run.stderr, "assert_failed", "assertion could not run")
     return {"status": "passed", "detail": "code ran against the fixture and the assertion held"}
 
 

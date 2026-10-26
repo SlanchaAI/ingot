@@ -15,6 +15,8 @@ from langchain_openai import ChatOpenAI
 
 from . import usage as usage_ledger
 
+__all__ = ["DIMENSIONS", "MODELS", "ZDR_PROVIDER", "failed_dimensions", "invoke_retry", "judge"]
+
 # Reward-hacking guard: the judge must NOT be the same model as SKILLOPT_MODEL.
 # If the author and the grader share blind spots, the search learns to please the judge instead of
 # improving the skill. Default judge is a model distinct from both the reflection LM (GLM) and the
@@ -22,7 +24,7 @@ from . import usage as usage_ledger
 # JUDGE_MODELS (comma-separated) runs an ensemble and averages, harder still to game.
 MODELS = [m.strip() for m in os.environ.get(
     "JUDGE_MODELS", os.environ.get("JUDGE_MODEL", "google/gemini-2.5-flash")).split(",") if m.strip()]
-from . import ZDR_PROVIDER, client_kwargs, skillopt_model, teacher_base_url  # noqa: E402
+from . import ZDR_PROVIDER, client_kwargs, skillopt_model, teacher_base_url
 
 if skillopt_model() in MODELS:
     print(f"[judge] WARNING: judge model {MODELS} includes the teacher model, which invites "

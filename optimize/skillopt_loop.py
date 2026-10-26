@@ -50,7 +50,7 @@ def _format_buffer(buffer: list[dict]) -> str:
 
 def _longitudinal(tasks: list[dict], before: dict, after: dict) -> str:
     """Categorize the same tasks under the epoch's start vs end skill for the slow-update prompt."""
-    buckets = {"regressions": [], "persistent failures": [], "improvements": [], "stable successes": []}
+    buckets: dict[str, list[str]] = {"regressions": [], "persistent failures": [], "improvements": [], "stable successes": []}
     for t in tasks:
         key = t["task"]
         b, a = before.get(key, False), after.get(key, False)

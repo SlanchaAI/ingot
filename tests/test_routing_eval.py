@@ -1,7 +1,8 @@
-from mcp_server.routing_eval import evaluate_cases, evaluate_parity, load_cases
+from pathlib import Path
+
 from mcp_server.registry import load_skills
 from mcp_server.router import Router
-from pathlib import Path
+from mcp_server.routing_eval import evaluate_cases, evaluate_parity, load_cases
 
 
 class FakeRouter:
@@ -16,7 +17,7 @@ class FakeRouter:
 
 
 def test_evaluate_cases_reports_selection_and_no_route_metrics():
-    cases = [
+    cases: list[dict] = [
         {"task": "pdf", "expected": "pdf"},
         {"task": "alt", "expected": "pdf"},
         {"task": "none", "expected": None},

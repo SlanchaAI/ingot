@@ -21,7 +21,7 @@ def load_counts() -> dict[str, int]:
         return {}
 
 
-def record_use(name: str) -> None:
+def record_use(name: str | None) -> None:
     """Increment one skill's load count, atomically (temp file + rename). Swallows all IO errors."""
     if not name:
         return

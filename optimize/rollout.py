@@ -37,10 +37,17 @@ def length_penalty(body: str) -> float:
 # A/B-call cost per rollout. Set SKILLOPT_ROLLOUTS=agent to opt in.
 SKILLOPT_ROLLOUTS = os.environ.get("SKILLOPT_ROLLOUTS", "direct")
 
-from . import (SERVE_TEMPLATE, client_kwargs, is_openrouter, model_api_key,  # noqa: E402
-               model_base_url, openrouter_extra_body, teacher_base_url)
-from .judge import invoke_retry, judge  # noqa: E402
-from . import usage as usage_ledger  # noqa: E402
+from . import (
+    SERVE_TEMPLATE,
+    client_kwargs,
+    is_openrouter,
+    model_api_key,
+    model_base_url,
+    openrouter_extra_body,
+    teacher_base_url,
+)
+from . import usage as usage_ledger
+from .judge import invoke_retry, judge
 
 
 def assemble(candidate: dict[str, str]) -> str:
@@ -60,7 +67,7 @@ class SkillAdapter:
 
     def __init__(self, frozen: dict[str, str] | None = None):
         self._frozen = frozen or {}
-        self._llm = None  # built lazily: agent-mode rollouts never need the direct client
+        self._llm: ChatOpenAI | None = None  # built lazily: agent-mode rollouts never need the direct client
 
     def _client(self):
         if self._llm is None:

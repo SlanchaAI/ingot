@@ -1,5 +1,6 @@
 """Unit tests for the per-run token ledger (optimize.usage), including thread-safety."""
 import threading
+from io import BytesIO
 
 from optimize import usage
 
@@ -51,3 +52,9 @@ def test_format_report_is_readable():
     usage.add("judge", {"input_tokens": 1234, "output_tokens": 56})
     out = usage.format_report()
     assert "judge" in out and "TOTAL" in out and "1,234" in out
+
+
+def test_malformed_prices_do_not_abort_offline_reporting(monkeypatch):
+    monkeypatch.setattr("urllib.request.urlopen",
+                        lambda *args, **kwargs: BytesIO(b'{"data":[null]}'))
+    assert usage._openrouter_prices() == {}

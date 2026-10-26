@@ -20,6 +20,8 @@ COLLISION_SCORE together with the model."""
 from __future__ import annotations
 
 import os
+from collections.abc import Sequence
+from typing import Protocol
 
 import numpy as np
 
@@ -47,6 +49,19 @@ def _baked_fastembed(model: str) -> bool:
     return model == os.environ.get("BAKED_FALLBACK_EMBED_MODEL")
 
 
+class _Encoding(Protocol):
+    @property
+    def ids(self) -> list[int]: ...
+
+
+class _Tokenizer(Protocol):
+    def encode_batch(self, texts: list[str]) -> Sequence[_Encoding]: ...
+
+
+class _Session(Protocol):
+    def run(self, outputs: list[str], feeds: dict[str, np.ndarray], /) -> Sequence[object]: ...
+
+
 class QwenOnnxEmbedding:
     """A Qwen3-Embedding ONNX export on ONNX Runtime CPU. Right padding with attention-mask-indexed
     last-token pooling (equivalent to the official left-padded pooling under causal attention: the
@@ -58,13 +73,14 @@ class QwenOnnxEmbedding:
         from huggingface_hub import hf_hub_download
         from tokenizers import Tokenizer
         local_only = _baked_qwen(model, onnx_file)
-        self._tokenizer = Tokenizer.from_file(
+        self._tokenizer: _Tokenizer = Tokenizer.from_file(
             hf_hub_download(model, "tokenizer.json", local_files_only=local_only))
-        self._session = ort.InferenceSession(
+        session = ort.InferenceSession(
             hf_hub_download(model, onnx_file, local_files_only=local_only),
                                              providers=["CPUExecutionProvider"])
-        self._inputs = self._session.get_inputs()
-        self._out = next(o.name for o in self._session.get_outputs() if "hidden" in o.name)
+        self._inputs = session.get_inputs()
+        self._out = next(o.name for o in session.get_outputs() if "hidden" in o.name)
+        self._session: _Session = session
 
     def _feeds(self, ids_batch: list[list[int]]):
         width = max(len(ids) for ids in ids_batch)
@@ -90,7 +106,10 @@ class QwenOnnxEmbedding:
             ids_batch = [(list(e.ids) + [_EOS] if not e.ids or e.ids[-1] != _EOS else list(e.ids))
                          for e in encodings]
             feeds, mask = self._feeds(ids_batch)
-            hidden = self._session.run([self._out], feeds)[0].astype(np.float32)
+            output = self._session.run([self._out], feeds)[0]
+            if not isinstance(output, np.ndarray):
+                raise TypeError("embedding model must return a dense hidden-state tensor")
+            hidden = output.astype(np.float32)
             last = mask.sum(axis=1) - 1
             pooled = hidden[np.arange(len(ids_batch)), last]
             vectors.extend(pooled / (np.linalg.norm(pooled, axis=1, keepdims=True) + 1e-8))

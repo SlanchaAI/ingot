@@ -247,18 +247,26 @@ class _Resp:
 
 
 def test_discovery_is_cached_per_issuer(monkeypatch):
-    calls = []
+    calls: list[str] = []
+    def fake_call_1(url, timeout=None):
+        calls.append(url)
+        return _Resp({'issuer': 'x'})
+
     monkeypatch.setattr(oidc_flow.httpx, "get",
-                        lambda url, timeout=None: calls.append(url) or _Resp({"issuer": "x"}))
+                        fake_call_1)
     first = oidc_flow._discovery("https://idp.test")
     second = oidc_flow._discovery("https://idp.test")
     assert first == second and len(calls) == 1   # second call served from cache
 
 
 def test_jwks_is_cached_within_ttl_and_refetched_after(monkeypatch):
-    calls = []
+    calls: list[str] = []
+    def fake_call_2(url, timeout=None):
+        calls.append(url)
+        return _Resp({'keys': [{'kid': 'k'}]})
+
     monkeypatch.setattr(oidc_flow.httpx, "get",
-                        lambda url, timeout=None: calls.append(url) or _Resp({"keys": [{"kid": "k"}]}))
+                        fake_call_2)
     now = [1000.0]
     monkeypatch.setattr(oidc_flow.time, "time", lambda: now[0])
     oidc_flow._jwks("https://idp.test/jwks")
@@ -272,7 +280,7 @@ def test_jwks_is_cached_within_ttl_and_refetched_after(monkeypatch):
 def test_jwks_refetches_once_on_an_unknown_kid(monkeypatch):
     # key rotation: the token's kid is not in the cached JWKS, so force a single refetch
     responses = [{"keys": [{"kid": "old"}]}, {"keys": [{"kid": "old"}, {"kid": "new"}]}]
-    calls = []
+    calls: list[str] = []
 
     def fake_get(url, timeout=None):
         resp = _Resp(responses[min(len(calls), len(responses) - 1)])
@@ -286,9 +294,13 @@ def test_jwks_refetches_once_on_an_unknown_kid(monkeypatch):
 
 
 def test_jwks_does_not_refetch_for_a_known_kid(monkeypatch):
-    calls = []
+    calls: list[str] = []
+    def fake_call_3(url, timeout=None):
+        calls.append(url)
+        return _Resp({'keys': [{'kid': 'k1'}]})
+
     monkeypatch.setattr(oidc_flow.httpx, "get",
-                        lambda url, timeout=None: calls.append(url) or _Resp({"keys": [{"kid": "k1"}]}))
+                        fake_call_3)
     oidc_flow._jwks_for_token("https://idp.test/jwks", "k1")
     assert len(calls) == 1                             # kid present, no rotation refetch
 
@@ -306,10 +318,10 @@ def test_cookie_is_secure_only_over_https(monkeypatch):
 
 def test_current_actor_falls_back_to_sub_then_placeholder():
     # AUTH_MODE=oidc is set by the autouse fixture; the audit actor prefers email, then sub
-    assert auth.current_actor(SimpleNamespace(session={"user": {"sub": "s-1"}})) == "s-1"
-    assert auth.current_actor(SimpleNamespace(session={"user": {"name": "n"}})) == "sso-user"
+    assert auth.current_actor(Request({"type": "http", "session": {"user": {"sub": "s-1"}}})) == "s-1"
+    assert auth.current_actor(Request({"type": "http", "session": {"user": {"name": "n"}}})) == "sso-user"
     with pytest.raises(HTTPException):
-        auth.current_actor(SimpleNamespace(session={}))
+        auth.current_actor(Request({"type": "http", "session": {}}))
 
 
 def test_check_domain_accepts_any_listed_domain_case_insensitively():

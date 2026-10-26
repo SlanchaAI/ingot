@@ -3,6 +3,7 @@ approval is attributed to the authenticated user in the audit trail."""
 import base64
 import json
 
+from fastapi import Request
 from fastapi.testclient import TestClient
 
 from optimize import promote as P
@@ -111,7 +112,7 @@ def test_promote_endpoint_threads_the_authenticated_actor(tmp_path, monkeypatch)
     f = tmp_path / "auth.json"
     f.write_text(json.dumps({"alice": auth.hash_password("pw")}))
     monkeypatch.setattr(auth, "AUTH_FILE", f)
-    captured = {}
+    captured: dict[str, str | None] = {}
     monkeypatch.setattr(ui_app, "approve_pending",
                         lambda skill, actor=None: captured.update(actor=actor) or "ok")
     _promotable("pdf")
@@ -124,7 +125,7 @@ def test_rollback_endpoint_threads_the_authenticated_actor(tmp_path, monkeypatch
     monkeypatch.setattr(auth, "AUTH_FILE", tmp_path / "none.json")
     monkeypatch.setenv("AUTH_USER", "carol")
     monkeypatch.setenv("AUTH_PASSWORD", "pw")
-    captured = {}
+    captured: dict[str, str | None] = {}
     monkeypatch.setattr(ui_app, "rollback",
                         lambda skill, revision, actor=None: captured.update(actor=actor) or "ok")
     r = TestClient(app).post("/api/rollback/pdf/deadbeef", headers=_basic("carol", "pw"))
@@ -150,9 +151,9 @@ def test_actor_extraction_feeds_the_audit_attribution(tmp_path, monkeypatch):
     f.write_text(json.dumps({"alice": auth.hash_password("pw")}))
     monkeypatch.setattr(auth, "AUTH_FILE", f)
 
-    class Req:  # minimal stand-in carrying .headers
-        def __init__(self, headers):
-            self.headers = headers
+    def Req(headers):
+        return Request({"type": "http", "headers": [
+            (key.lower().encode(), value.encode()) for key, value in headers.items()]})
 
     assert auth._actor_from(Req(_basic("alice", "pw"))) == "alice"
     assert auth._actor_from(Req(_basic("alice", "wrong"))) is None

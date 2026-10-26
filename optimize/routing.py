@@ -6,21 +6,25 @@ improvements. The promotion gate requires no routing regression, at least one st
 and no collision with another skill description."""
 import os
 import time
-from dataclasses import dataclass
-from dataclasses import replace
+from dataclasses import dataclass, replace
 from pathlib import Path
 
 import yaml
 
-from mcp_server.registry import SKILLS_DIR, load_skills, optimizable_components, skill_revision
+from mcp_server.registry import (
+    SKILLS_DIR,
+    load_skills,
+    optimizable_components,
+    skill_revision,
+)
 from mcp_server.router import Router
 
+from . import skillopt_bridge as sk
 from . import usage as usage_ledger
 from .ab import COLLISION_SCORE, TASKS_DIR, _description_shadows
 from .evidence import RoutingRun, build_routing_evidence, recorded_path, write_evidence
 from .promote import save_pending
 from .rollout import make_reflection_lm
-from . import skillopt_bridge as sk
 
 EVIDENCE_DIR = Path(__file__).resolve().parent.parent / "runs" / "evidence"
 
@@ -186,6 +190,8 @@ def run_routing(skill: str, budget: int = 60, log=print) -> dict:
 
     from .ab import _routing_metrics
     metrics = _routing_metrics(skill, champion, challenger)
+    if metrics is None:
+        raise SystemExit("routing metrics unavailable for the candidate")
     promotable, blocked = routing_gate(skill, metrics, challenger)
     for variant in ("champion", "challenger"):
         m = metrics[variant]

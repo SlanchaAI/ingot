@@ -10,12 +10,20 @@ RUN pip install --no-cache-dir pip==26.1.2 \
 # sandbox containers through the host daemon (the compose optimize services mount the socket).
 ARG TARGETARCH
 ARG DOCKER_CLI_VERSION=27.5.1
-RUN arch=$([ "${TARGETARCH:-$(dpkg --print-architecture)}" = "arm64" ] && echo aarch64 || echo x86_64) \
-    && python -c "import urllib.request,sys; urllib.request.urlretrieve(sys.argv[1], '/tmp/docker.tgz')" \
-       "https://download.docker.com/linux/static/stable/${arch}/docker-${DOCKER_CLI_VERSION}.tgz" \
-    && tar -xzf /tmp/docker.tgz -C /tmp docker/docker \
-    && mv /tmp/docker/docker /usr/local/bin/docker \
-    && rm -rf /tmp/docker.tgz /tmp/docker
+RUN python <<'PYCODE'
+import os
+import platform
+import urllib.request
+
+target = os.environ.get("TARGETARCH") or platform.machine()
+arch = "aarch64" if target in ("arm64", "aarch64") else "x86_64"
+version = os.environ["DOCKER_CLI_VERSION"]
+url = f"https://download.docker.com/linux/static/stable/{arch}/docker-{version}.tgz"
+urllib.request.urlretrieve(url, "/app/docker.tgz")
+PYCODE
+RUN tar -xzf /app/docker.tgz -C /app docker/docker \
+    && mv /app/docker/docker /usr/local/bin/docker \
+    && rm -rf /app/docker.tgz /app/docker
 
 # Pre-download the CPU embedding models so the demo runs offline (no runtime download):
 # the Qwen3 q4 ONNX router default (~925MB including its tokenizer), plus the bge-small fastembed
@@ -24,12 +32,24 @@ RUN arch=$([ "${TARGETARCH:-$(dpkg --print-architecture)}" = "arm64" ] && echo a
 # EMBED_MODEL / EMBED_ONNX_FILE envs the server reads, or the model downloads on first boot.
 ARG EMBED_MODEL=onnx-community/Qwen3-Embedding-0.6B-ONNX
 ARG EMBED_ONNX_FILE=onnx/model_q4.onnx
-RUN python -c "from huggingface_hub import hf_hub_download as fetch; \
-fetch('${EMBED_MODEL}', 'tokenizer.json'); fetch('${EMBED_MODEL}', '${EMBED_ONNX_FILE}')"
+RUN python <<'PYCODE'
+import os
+
+from huggingface_hub import hf_hub_download as fetch
+
+fetch(os.environ["EMBED_MODEL"], "tokenizer.json")
+fetch(os.environ["EMBED_MODEL"], os.environ["EMBED_ONNX_FILE"])
+PYCODE
 ENV BAKED_EMBED_MODEL=${EMBED_MODEL} \
     BAKED_EMBED_ONNX_FILE=${EMBED_ONNX_FILE}
 ARG FALLBACK_EMBED_MODEL=BAAI/bge-small-en-v1.5
-RUN python -c "from fastembed import TextEmbedding; TextEmbedding('${FALLBACK_EMBED_MODEL}')"
+RUN python <<'PYCODE'
+import os
+
+from fastembed import TextEmbedding
+
+TextEmbedding(os.environ["FALLBACK_EMBED_MODEL"])
+PYCODE
 ENV BAKED_FALLBACK_EMBED_MODEL=${FALLBACK_EMBED_MODEL}
 
 COPY mcp_server ./mcp_server

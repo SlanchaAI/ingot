@@ -48,7 +48,7 @@ def test_adapter_scores_expected_top3_miss_and_no_route():
 
 def test_skillopt_description_search_keeps_only_a_strict_router_improvement(monkeypatch):
     cases = [{"task": "merge pdfs", "expected": "pdf"}]
-    scripts = {
+    scripts: dict[str, dict[str, tuple[str, list[str]]]] = {
         "old trigger": {"merge pdfs": ("docx", [])},
         "new trigger": {"merge pdfs": ("pdf", [])},
     }

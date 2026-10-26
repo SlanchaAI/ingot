@@ -3,7 +3,13 @@ import asyncio
 import json
 from types import SimpleNamespace
 
-from agent.run import (_print_route, _route_identity, _trace_tags, behavior_events, run_task)
+from agent.run import (
+    _print_route,
+    _route_identity,
+    _trace_tags,
+    behavior_events,
+    run_task,
+)
 
 
 class _Msg:
@@ -97,11 +103,12 @@ def test_behavior_events_capture_tool_order_and_hash_final_output():
 def test_build_agent_strong_flag_selects_model_and_endpoint(monkeypatch):
     # weak (default): MODEL on the serving endpoint; strong: strong_model() on the teacher
     # endpoint, the weak/strong split must never leak the wrong key or base_url across roles
-    import agent.run as run_mod
     import deepagents
     import langchain_openai
 
-    captured = {}
+    import agent.run as run_mod
+
+    captured: dict[str, str] = {}
 
     class FakeChat:
         def __init__(self, model, temperature, base_url, api_key, extra_body):
@@ -182,13 +189,13 @@ def test_canonical_route_controls_body_and_weak_strong_escalation():
     assert _trace_tags(related, False) == ["demo", "pdf", "related", "revision=pdf@r1"]
 
     # An unconstrained suggestion may exist, but an incompatible canonical route remains novel.
-    routed = {"match": None, "skill_body": "", "alternatives": [], "novel": True}
+    routed: dict = {"match": None, "skill_body": "", "alternatives": [], "novel": True}
     assert should_escalate(routed) is True
     assert "codex-only" not in instructions_for_route(routed)
 
 
 def test_print_route_renders_alternative_reason(capsys):
-    routed = {"match": None, "alternatives": [
+    routed: dict = {"match": None, "alternatives": [
         {"name": "pdf", "score": 0.91, "reason": "Compatible with this harness"}
     ]}
 
@@ -201,7 +208,7 @@ def test_print_route_renders_alternative_reason(capsys):
 
 
 def test_print_route_marks_loaded_related_match(capsys):
-    routed = {"match": None, "related_match": "pdf", "score": 0.6,
+    routed: dict = {"match": None, "related_match": "pdf", "score": 0.6,
               "reason": "loaded for compose or extend", "alternatives": []}
 
     _print_route(routed)

@@ -6,19 +6,22 @@ retrieval instruction prefix, descriptions don't). Any fastembed model name also
 previous default `BAAI/bge-small-en-v1.5`, ~4 ms/query), but recalibrate MIN_SCORE /
 RELATED_SCORE / COLLISION_SCORE with the model (mcp_server/embedding.py)."""
 from __future__ import annotations
+
 import os
 import sys
 import threading
 from pathlib import Path
+from typing import ClassVar
 
 import numpy as np
 
-from .embedding import EMBED_MODEL as _MODEL, build_embedding
+from .embedding import EMBED_MODEL as _MODEL
+from .embedding import build_embedding
 from .registry import Skill
 
 
 class Router:
-    _vector_cache: dict[tuple[str, str], np.ndarray] = {}
+    _vector_cache: ClassVar[dict[tuple[str, str], np.ndarray]] = {}
     _cache_lock = threading.Lock()
 
     def __init__(self, skills: list[Skill]):
@@ -114,7 +117,7 @@ class Router:
 
     @staticmethod
     def _without_conflicts(ranked: list[tuple[Skill, float]]) -> list[tuple[Skill, float]]:
-        selected = []
+        selected: list[tuple[Skill, float]] = []
         for candidate in ranked:
             skill = candidate[0]
             if any(skill.name in set(existing.metadata.get("conflicts", [])) or

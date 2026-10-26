@@ -20,11 +20,13 @@ curl -sS -o /dev/null http://localhost:8000/mcp || [ "$?" -eq 52 ]
   >"$CLAUDE_LOG"
 
 CLAUDE_LOG="$CLAUDE_LOG" MARKER="$MARKER" python3 -c '
-import json, os
+import json
+import os
 
-events = [json.loads(line) for line in open(os.environ["CLAUDE_LOG"]) if line.strip()]
+with open(os.environ["CLAUDE_LOG"]) as log:
+    events = [json.loads(line) for line in log if line.strip()]
 marker = os.environ["MARKER"]
-blocks = []
+blocks: list[dict] = []
 def walk(value):
     if isinstance(value, dict):
         blocks.append(value)
@@ -43,7 +45,11 @@ print(f"Claude MCP call passed: {marker}")
 '
 
 LF_URL="$LF_URL" LF_PK="$LF_PK" LF_SK="$LF_SK" MARKER="$MARKER" python3 -c '
-import base64, json, os, time, urllib.request
+import base64
+import json
+import os
+import time
+import urllib.request
 
 auth = base64.b64encode((os.environ["LF_PK"] + ":" + os.environ["LF_SK"]).encode()).decode()
 url = os.environ["LF_URL"].rstrip("/") + "/api/public/traces?limit=50"
@@ -65,6 +71,7 @@ docker run --rm --add-host host.docker.internal:host-gateway -v "$PWD:/app" -w /
   -e LANGFUSE_SECRET_KEY="$LF_SK" \
   -e SMOKE_MARKER="$MARKER" ingot-mcp python -c '
 import os
+
 from optimize.mine import fetch_traces
 
 marker = os.environ["SMOKE_MARKER"]
