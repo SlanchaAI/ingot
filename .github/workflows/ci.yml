@@ -10,9 +10,42 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+          cache: pip
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Install pinned dependencies
+        run: python -m pip install -r requirements.txt
+      - name: Cache public embedding test dependency
+        uses: actions/cache@v4
+        with:
+          path: .whole-tests/huggingface
+          key: qwen3-embedding-0.6b-onnx-q4-v1
+      - name: Prepare public embedding test dependency
+        env:
+          HF_HOME: ${{ github.workspace }}/.whole-tests/huggingface
+        run: python -c 'from mcp_server.embedding import build_embedding; build_embedding()'
+      - name: Verify every executable module
+        run: bash tests/verify_whole_tests.sh
+      - name: Publish coverage and inventory evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: whole-tests-evidence
+          path: |
+            .whole-tests/coverage.json
+            .whole-tests/coverage.xml
+            .whole-tests/html/
+            .whole-tests/browser-coverage.json
+            .whole-tests/shell.trace
+            .whole-tests/pytest.xml
+            .whole-tests/inventory.json
+            .whole-tests/audit.json
+          if-no-files-found: error
       - name: Build image
         run: docker build -t ingot-mcp .
-      - name: Run tests
-        run: docker run --rm -v "$PWD:/app" -w /app ingot-mcp python -m pytest tests -q
       - name: Smoke test Compose and Langfuse TLS
         run: ./scripts/compose_smoke.sh
