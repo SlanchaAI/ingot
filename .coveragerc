@@ -1,0 +1,8 @@
+[run]
+branch = True
+source = agent,mcp_server,optimize,ui
+dynamic_context = test_function
+
+[report]
+show_missing = True
+fail_under = 85

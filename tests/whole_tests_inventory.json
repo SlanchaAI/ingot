@@ -1,0 +1,319 @@
+{
+  "agent/__init__.py": {
+    "exclude": "Empty package marker; no executable behavior. Still included in Python coverage collection."
+  },
+  "agent/run.py": {
+    "tests": [
+      "tests/test_run_task.py"
+    ]
+  },
+  "evals/fixtures/project/src/app.py": {
+    "exclude": "Synthetic routing fixture containing only a print; input data for routing evaluations, not shipped application code."
+  },
+  "mcp_server/__init__.py": {
+    "exclude": "Empty package marker; no executable behavior. Still included in Python coverage collection."
+  },
+  "mcp_server/embedding.py": {
+    "tests": [
+      "tests/test_embedding.py"
+    ]
+  },
+  "mcp_server/registry.py": {
+    "tests": [
+      "tests/test_registry.py"
+    ]
+  },
+  "mcp_server/router.py": {
+    "tests": [
+      "tests/test_router.py"
+    ]
+  },
+  "mcp_server/routing_eval.py": {
+    "tests": [
+      "tests/test_routing_eval.py"
+    ]
+  },
+  "mcp_server/server.py": {
+    "tests": [
+      "tests/test_server.py"
+    ]
+  },
+  "mcp_server/usage_counts.py": {
+    "tests": [
+      "tests/test_usage_counts.py"
+    ]
+  },
+  "optimize/__init__.py": {
+    "tests": [
+      "tests/test_env_check.py"
+    ]
+  },
+  "optimize/ab.py": {
+    "tests": [
+      "tests/test_optimize.py"
+    ]
+  },
+  "optimize/acceptance.py": {
+    "tests": [
+      "tests/test_acceptance.py"
+    ]
+  },
+  "optimize/compat.py": {
+    "tests": [
+      "tests/test_compat.py"
+    ]
+  },
+  "optimize/draft.py": {
+    "tests": [
+      "tests/test_draft.py"
+    ]
+  },
+  "optimize/evidence.py": {
+    "tests": [
+      "tests/test_evidence.py"
+    ]
+  },
+  "optimize/execcheck.py": {
+    "tests": [
+      "tests/test_execcheck.py"
+    ]
+  },
+  "optimize/judge.py": {
+    "tests": [
+      "tests/test_judge.py"
+    ]
+  },
+  "optimize/loop.py": {
+    "tests": [
+      "tests/test_loop.py"
+    ]
+  },
+  "optimize/mine.py": {
+    "tests": [
+      "tests/test_mine.py"
+    ]
+  },
+  "optimize/promote.py": {
+    "tests": [
+      "tests/test_promote.py"
+    ]
+  },
+  "optimize/rollout.py": {
+    "tests": [
+      "tests/test_skillopt_loop.py"
+    ]
+  },
+  "optimize/routing.py": {
+    "tests": [
+      "tests/test_routing.py"
+    ]
+  },
+  "optimize/routing_health.py": {
+    "tests": [
+      "tests/test_routing_health.py"
+    ]
+  },
+  "optimize/sandbox_driver.py": {
+    "tests": [
+      "tests/test_sandbox_driver.py"
+    ]
+  },
+  "optimize/skillopt_bridge.py": {
+    "tests": [
+      "tests/test_skillopt_bridge.py"
+    ]
+  },
+  "optimize/skillopt_loop.py": {
+    "tests": [
+      "tests/test_skillopt_loop.py"
+    ]
+  },
+  "optimize/usage.py": {
+    "tests": [
+      "tests/test_usage.py"
+    ]
+  },
+  "scripts/claude_langfuse_smoke.sh": {
+    "tests": [
+      "tests/test_shell_behavior.py"
+    ]
+  },
+  "scripts/claude_setup.sh": {
+    "tests": [
+      "tests/test_setup_scripts.py"
+    ]
+  },
+  "scripts/codex_langfuse_smoke.sh": {
+    "tests": [
+      "tests/test_shell_behavior.py"
+    ]
+  },
+  "scripts/codex_setup.sh": {
+    "tests": [
+      "tests/test_setup_scripts.py"
+    ]
+  },
+  "scripts/compose_smoke.sh": {
+    "tests": [
+      "tests/test_shell_behavior.py"
+    ]
+  },
+  "scripts/fetch_skills.sh": {
+    "tests": [
+      "tests/test_shell_behavior.py"
+    ]
+  },
+  "tests/browser_behavior.cjs": {
+    "exclude": "Verification infrastructure, executed by tests/verify_whole_tests.sh; not a product module."
+  },
+  "tests/conftest.py": {
+    "exclude": "Verification infrastructure, executed by tests/verify_whole_tests.sh; not a product module."
+  },
+  "tests/shell_coverage.py": {
+    "exclude": "Verification infrastructure, executed by tests/verify_whole_tests.sh; not a product module."
+  },
+  "tests/test_acceptance.py": {
+    "exclude": "Verification infrastructure, executed by tests/verify_whole_tests.sh; not a product module."
+  },
+  "tests/test_auth.py": {
+    "exclude": "Verification infrastructure, executed by tests/verify_whole_tests.sh; not a product module."
+  },
+  "tests/test_compat.py": {
+    "exclude": "Verification infrastructure, executed by tests/verify_whole_tests.sh; not a product module."
+  },
+  "tests/test_draft.py": {
+    "exclude": "Verification infrastructure, executed by tests/verify_whole_tests.sh; not a product module."
+  },
+  "tests/test_embedding.py": {
+    "exclude": "Verification infrastructure, executed by tests/verify_whole_tests.sh; not a product module."
+  },
+  "tests/test_env_check.py": {
+    "exclude": "Verification infrastructure, executed by tests/verify_whole_tests.sh; not a product module."
+  },
+  "tests/test_evidence.py": {
+    "exclude": "Verification infrastructure, executed by tests/verify_whole_tests.sh; not a product module."
+  },
+  "tests/test_execcheck.py": {
+    "exclude": "Verification infrastructure, executed by tests/verify_whole_tests.sh; not a product module."
+  },
+  "tests/test_judge.py": {
+    "exclude": "Verification infrastructure, executed by tests/verify_whole_tests.sh; not a product module."
+  },
+  "tests/test_keycloak_integration.py": {
+    "exclude": "Verification infrastructure, executed by tests/verify_whole_tests.sh; not a product module."
+  },
+  "tests/test_lite_mode.py": {
+    "exclude": "Verification infrastructure, executed by tests/verify_whole_tests.sh; not a product module."
+  },
+  "tests/test_loop.py": {
+    "exclude": "Verification infrastructure, executed by tests/verify_whole_tests.sh; not a product module."
+  },
+  "tests/test_mine.py": {
+    "exclude": "Verification infrastructure, executed by tests/verify_whole_tests.sh; not a product module."
+  },
+  "tests/test_oidc.py": {
+    "exclude": "Verification infrastructure, executed by tests/verify_whole_tests.sh; not a product module."
+  },
+  "tests/test_oidc_flow.py": {
+    "exclude": "Verification infrastructure, executed by tests/verify_whole_tests.sh; not a product module."
+  },
+  "tests/test_optimize.py": {
+    "exclude": "Verification infrastructure, executed by tests/verify_whole_tests.sh; not a product module."
+  },
+  "tests/test_promote.py": {
+    "exclude": "Verification infrastructure, executed by tests/verify_whole_tests.sh; not a product module."
+  },
+  "tests/test_rbac.py": {
+    "exclude": "Verification infrastructure, executed by tests/verify_whole_tests.sh; not a product module."
+  },
+  "tests/test_registry.py": {
+    "exclude": "Verification infrastructure, executed by tests/verify_whole_tests.sh; not a product module."
+  },
+  "tests/test_router.py": {
+    "exclude": "Verification infrastructure, executed by tests/verify_whole_tests.sh; not a product module."
+  },
+  "tests/test_routing.py": {
+    "exclude": "Verification infrastructure, executed by tests/verify_whole_tests.sh; not a product module."
+  },
+  "tests/test_routing_eval.py": {
+    "exclude": "Verification infrastructure, executed by tests/verify_whole_tests.sh; not a product module."
+  },
+  "tests/test_routing_health.py": {
+    "exclude": "Verification infrastructure, executed by tests/verify_whole_tests.sh; not a product module."
+  },
+  "tests/test_run_task.py": {
+    "exclude": "Verification infrastructure, executed by tests/verify_whole_tests.sh; not a product module."
+  },
+  "tests/test_sandbox_driver.py": {
+    "exclude": "Verification infrastructure, executed by tests/verify_whole_tests.sh; not a product module."
+  },
+  "tests/test_security.py": {
+    "exclude": "Verification infrastructure, executed by tests/verify_whole_tests.sh; not a product module."
+  },
+  "tests/test_server.py": {
+    "exclude": "Verification infrastructure, executed by tests/verify_whole_tests.sh; not a product module."
+  },
+  "tests/test_setup_scripts.py": {
+    "exclude": "Verification infrastructure, executed by tests/verify_whole_tests.sh; not a product module."
+  },
+  "tests/test_shell_behavior.py": {
+    "exclude": "Verification infrastructure, executed by tests/verify_whole_tests.sh; not a product module."
+  },
+  "tests/test_skillopt_bridge.py": {
+    "exclude": "Verification infrastructure, executed by tests/verify_whole_tests.sh; not a product module."
+  },
+  "tests/test_skillopt_loop.py": {
+    "exclude": "Verification infrastructure, executed by tests/verify_whole_tests.sh; not a product module."
+  },
+  "tests/test_ui.py": {
+    "exclude": "Verification infrastructure, executed by tests/verify_whole_tests.sh; not a product module."
+  },
+  "tests/test_usage.py": {
+    "exclude": "Verification infrastructure, executed by tests/verify_whole_tests.sh; not a product module."
+  },
+  "tests/test_usage_counts.py": {
+    "exclude": "Verification infrastructure, executed by tests/verify_whole_tests.sh; not a product module."
+  },
+  "tests/test_whole_tests_audit.py": {
+    "exclude": "Verification infrastructure, executed by tests/verify_whole_tests.sh; not a product module."
+  },
+  "tests/verify_whole_tests.sh": {
+    "exclude": "Verification infrastructure, executed by tests/verify_whole_tests.sh; not a product module."
+  },
+  "tests/whole_tests_audit.py": {
+    "exclude": "Verification infrastructure, executed by tests/verify_whole_tests.sh; not a product module."
+  },
+  "ui/__init__.py": {
+    "exclude": "Empty package marker; no executable behavior. Still included in Python coverage collection."
+  },
+  "ui/app.py": {
+    "tests": [
+      "tests/test_ui.py"
+    ]
+  },
+  "ui/auth.py": {
+    "tests": [
+      "tests/test_auth.py"
+    ]
+  },
+  "ui/oidc.py": {
+    "tests": [
+      "tests/test_oidc.py"
+    ]
+  },
+  "ui/oidc_flow.py": {
+    "tests": [
+      "tests/test_oidc_flow.py"
+    ]
+  },
+  "ui/rbac.py": {
+    "tests": [
+      "tests/test_rbac.py"
+    ]
+  },
+  "ui/static/index.html": {
+    "tests": [
+      "tests/browser_behavior.cjs"
+    ]
+  }
+}

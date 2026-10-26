@@ -46,3 +46,6 @@ class FakeIdp:
 @pytest.fixture
 def idp():
     return FakeIdp()
+
+# Loaded only as instrumentation; ordinary pytest callers retain their existing behavior.
+pytest_plugins = ['tests.shell_coverage']

@@ -25,3 +25,9 @@ skills/*
 
 # eval task sets are runtime artifacts (auto-drafted or user-authored), not shipped opinions
 optimize/tasks/*.yaml
+
+# Whole-repository verification evidence (published by CI)
+.whole-tests/
+.coverage
+htmlcov/
+coverage.xml
