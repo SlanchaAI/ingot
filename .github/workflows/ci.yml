@@ -6,6 +6,23 @@ on:
   pull_request:
 
 jobs:
+  lint:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+      - name: Install source checkers
+        run: |
+          python -m pip install -r requirements.txt -r requirements-lint.txt
+          npm ci
+      - name: Lint and type-check every source
+        run: bash tests/verify_whole_lint.sh
   test:
     runs-on: ubuntu-latest
     steps:

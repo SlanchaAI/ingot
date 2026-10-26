@@ -5,3 +5,11 @@ __pycache__/
 *.pyc
 .hf_cache/
 .pytest_cache/
+
+# Local source-check dependencies and output
+.venv/
+node_modules/
+.cache/
+.ruff_cache/
+.mypy_cache/
+*.log
