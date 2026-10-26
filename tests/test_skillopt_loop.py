@@ -2,6 +2,7 @@
 stubbed so the orchestration, accept on improvement, keep the seed otherwise, and buffer rejected
 edits back into the next reflection, is exercised deterministically."""
 import json
+from typing import TypedDict
 
 import pytest
 
@@ -9,26 +10,37 @@ from optimize import rollout as R
 from optimize import skillopt_loop as S
 
 
+class Seen(TypedDict):
+    reflect_user_msgs: list[str]
+    slow_calls: int
+
+
 def _fake_lm(reply_for):
     """Route each call to a canned reply by which vendored prompt is in the system message, and
     record every analyst (reflect) user-message + slow-update invocation for assertions."""
-    seen = {"reflect_user_msgs": [], "slow_calls": 0}
+    class FakeLM:
+        def __init__(self):
+            self.reflect_user_msgs: list[str] = []
+            self.slow_calls = 0
 
-    def lm(messages):
-        system = messages[0]["content"]
-        user = messages[1]["content"] if len(messages) > 1 else ""
-        if "failure-analysis" in system:            # analyst_error.md
-            seen["reflect_user_msgs"].append(user)
-            return reply_for["analyst"]
-        if "update-size controller" in system:      # lr_autonomous.md
-            return reply_for.get("lr", json.dumps({"learning_rate": 1}))
-        if "RANK" in system:                        # ranking.md
-            return reply_for.get("ranking", json.dumps({"selected_indices": [0]}))
-        seen["slow_calls"] += 1                      # slow_update.md
-        return reply_for.get("slow", json.dumps({"guidance": "consolidated guidance"}))
+        @property
+        def seen(self) -> Seen:
+            return {"reflect_user_msgs": self.reflect_user_msgs, "slow_calls": self.slow_calls}
 
-    lm.seen = seen
-    return lm
+        def __call__(self, messages):
+            system = messages[0]["content"]
+            user = messages[1]["content"] if len(messages) > 1 else ""
+            if "failure-analysis" in system:
+                self.reflect_user_msgs.append(user)
+                return reply_for["analyst"]
+            if "update-size controller" in system:
+                return reply_for.get("lr", json.dumps({"learning_rate": 1}))
+            if "RANK" in system:
+                return reply_for.get("ranking", json.dumps({"selected_indices": [0]}))
+            self.slow_calls += 1
+            return reply_for.get("slow", json.dumps({"guidance": "consolidated guidance"}))
+
+    return FakeLM()
 
 
 def _install(monkeypatch, lm, scorer, answer_fn=None):
@@ -65,7 +77,7 @@ def test_keeps_seed_when_no_edit_improves(monkeypatch):
     lm = _fake_lm({"analyst": json.dumps(
         {"failure_summary": [], "patch": {"edits": [{"op": "append", "content": "NEUTRAL"}]}})})
     _install(monkeypatch, lm, scorer=lambda system: 0.0)   # nothing the optimizer does helps
-    best, seed_score, best_score = S.run_skillopt({"body": "SEED"}, TRAIN, log=lambda *a: None)
+    best, _seed_score, best_score = S.run_skillopt({"body": "SEED"}, TRAIN, log=lambda *a: None)
     assert best == {"body": "SEED"}          # seed returned unchanged
     assert best_score == 0.0
 
@@ -168,7 +180,7 @@ def test_acceptance_penalty_docks_a_violating_candidate(monkeypatch):
         {"failure_summary": [], "patch": {"edits": [{"op": "append", "content": "GOOD"}]}})})
     _install(monkeypatch, lm, scorer=lambda s: 1.0 if "GOOD" in s else 0.0,
              answer_fn=lambda s: "uses V3 directive" if "V3" in s else "clean v4")
-    best, _, best_score = S.run_skillopt({"body": "SEED with V3"}, TRAIN, acceptance=crit,
+    _best, _, best_score = S.run_skillopt({"body": "SEED with V3"}, TRAIN, acceptance=crit,
                                          log=lambda *a: None)
     # judge loves the append (1.0) but every answer still violates -> soft docked by the full penalty
     assert best_score == pytest.approx(0.5)

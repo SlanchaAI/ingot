@@ -30,7 +30,11 @@ grep -F "ingot/route_and_load (completed)" "$CODEX_LOG" >/dev/null || {
 }
 
 LF_URL="$LF_URL" LF_PK="$LF_PK" LF_SK="$LF_SK" MARKER="$MARKER" python3 -c '
-import base64, json, os, time, urllib.request
+import base64
+import json
+import os
+import time
+import urllib.request
 
 auth = base64.b64encode((os.environ["LF_PK"] + ":" + os.environ["LF_SK"]).encode()).decode()
 url = os.environ["LF_URL"].rstrip("/") + "/api/public/traces?limit=50"
@@ -56,6 +60,7 @@ docker run --rm --add-host host.docker.internal:host-gateway -v "$PWD:/app" -w /
   -e LANGFUSE_SECRET_KEY="$LF_SK" \
   -e SMOKE_MARKER="$MARKER" ingot-mcp python -c '
 import os
+
 from optimize.mine import fetch_traces
 
 marker = os.environ["SMOKE_MARKER"]

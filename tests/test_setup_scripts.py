@@ -6,7 +6,6 @@ import subprocess
 import sys
 from pathlib import Path
 
-
 ROOT = Path(__file__).resolve().parent.parent
 
 
@@ -84,7 +83,7 @@ def test_codex_setup_rejects_old_codex_before_writing_config(tmp_path):
     _executable(fake_bin / "node", 'echo 22\n')
     _executable(fake_bin / "codex", 'echo "codex-cli 0.127.9"\n')
 
-    result = subprocess.run([str(ROOT / "scripts" / "codex_setup.sh")], cwd=ROOT, env=env,
+    result = subprocess.run([str(ROOT / "scripts" / "codex_setup.sh")], check=False, cwd=ROOT, env=env,
                             text=True, capture_output=True)
 
     assert result.returncode != 0
@@ -97,7 +96,7 @@ def test_remote_setup_requires_explicit_langfuse_credentials(tmp_path):
     env["LANGFUSE_BASE_URL"] = "https://langfuse.example"
 
     for script in ("claude_setup.sh", "codex_setup.sh"):
-        result = subprocess.run([str(ROOT / "scripts" / script)], cwd=ROOT, env=env,
+        result = subprocess.run([str(ROOT / "scripts" / script)], check=False, cwd=ROOT, env=env,
                                 text=True, capture_output=True)
         assert result.returncode != 0
         assert "requires LANGFUSE_PUBLIC_KEY and LANGFUSE_SECRET_KEY" in result.stderr
@@ -142,7 +141,7 @@ if [ "$1" = "--version" ]; then echo "codex-cli 0.144.5"; fi
 ''')
 
     result = subprocess.run([str(ROOT / "scripts" / "codex_setup.sh"), "--doctor"],
-                            cwd=ROOT, env=env, text=True, capture_output=True)
+                            check=False, cwd=ROOT, env=env, text=True, capture_output=True)
 
     assert result.returncode != 0
     assert "Ingot MCP: missing" in result.stdout

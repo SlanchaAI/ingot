@@ -202,7 +202,9 @@ def test_sweep_ignores_unrelated_and_symlinked_hidden_directories(tmp_path, monk
 def test_failed_rollback_copy_leaves_no_partial_staging_directory(tmp_path, monkeypatch):
     skill = _library(tmp_path, monkeypatch)
     P.save_pending("pdf", _pending(skill))
-    old_revision = P.load_pending("pdf")["evidence"]["champion"]["revision"]
+    pending = P.load_pending("pdf")
+    assert pending is not None
+    old_revision = pending["evidence"]["champion"]["revision"]
     P.approve_pending("pdf")
 
     def fail_copy(src, dst, **kwargs):
@@ -261,7 +263,7 @@ def test_rollback_then_promote_orders_the_restored_revision_first(tmp_path, monk
     assert [r["revision"] for r in P.list_revisions("pdf")] == [second, first]
 
     P.rollback("pdf", first)                        # snapshot C (third body), live is back on A
-    third = [r["revision"] for r in P.list_revisions("pdf")][0]
+    third = next(r["revision"] for r in P.list_revisions("pdf"))
     assert third not in (first, second)
 
     _promote_body(skill, "fourth body")             # re-displaces A, which is already stored

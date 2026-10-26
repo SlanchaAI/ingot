@@ -14,7 +14,8 @@ class _ScriptedRouter:
         self._script = script
         self._per_harness = per_harness or {}
 
-    def route(self, task, harness="codex", **kwargs):
+    def route(self, task, harness="codex", cwd=".", available_tools=(), available_mcps=(),
+              platform=None, min_score=0.53, related_score=0.37):
         if task in self._per_harness:
             return {"match": self._per_harness[task].get(harness), "alternatives": []}
         return {"match": self._script.get(task), "alternatives": []}
@@ -96,7 +97,7 @@ def test_run_health_aggregates_and_reports(tmp_path, monkeypatch):
     _write_suite(tmp_path, "pdf", [{"task": "merge pdfs", "expected": "pdf"}])
     monkeypatch.setattr(H, "load_skills", lambda: [SimpleNamespace(name="pdf", description="d")])
     monkeypatch.setattr(H, "Router", lambda skills: _ScriptedRouter({"merge pdfs": "pdf"}))
-    lines = []
+    lines: list[str] = []
     assert H.run_health(log=lines.append) == []
     assert any("routing healthy" in line for line in lines)
 

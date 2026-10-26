@@ -20,8 +20,10 @@ the vendored `skillopt_prompts/` directory:
 """
 from __future__ import annotations
 
+import logging
 import os
 from pathlib import Path
+from typing import Literal
 
 # Pure, dependency-light imports from the pinned skillopt package. None of these pull in
 # skillopt.model (which eagerly imports optional backends), so a core-only install is enough.
@@ -45,7 +47,8 @@ def _edits_from_reply(obj) -> list[dict]:
     single bad edit never aborts the step (apply_patch_with_report would skip them anyway)."""
     if not isinstance(obj, dict):
         return []
-    container = obj.get("patch") if isinstance(obj.get("patch"), dict) else obj
+    patch = obj.get("patch")
+    container = patch if isinstance(patch, dict) else obj
     edits = []
     for e in container.get("edits") or []:
         if not isinstance(e, dict):
@@ -128,7 +131,10 @@ def decide_edit_budget(skill: str, edits: list[dict], hard: float, soft: float, 
     try:
         obj = extract_json(reflection_lm([{"role": "system", "content": load_prompt("lr_autonomous")},
                                           {"role": "user", "content": user}])) or {}
-        lr = int(obj.get("learning_rate"))
+        value = obj.get("learning_rate")
+        if value is None:
+            return upper
+        lr = int(value)
     except (TypeError, ValueError):
         return upper
     return max(0, min(upper, lr))
@@ -139,8 +145,15 @@ def apply_edits(skill: str, edits: list[dict]) -> tuple[str, list[dict]]:
     return apply_patch_with_report(skill, {"edits": edits})
 
 
-def gate_metric() -> str:
-    return os.environ.get("SKILLOPT_GATE_METRIC", "mixed")
+def gate_metric() -> Literal["hard", "soft", "mixed"]:
+    metric = os.environ.get("SKILLOPT_GATE_METRIC", "mixed")
+    if metric == "hard":
+        return "hard"
+    if metric == "soft":
+        return "soft"
+    if metric == "mixed":
+        return "mixed"
+    raise ValueError(f"unknown SkillOpt gate metric: {metric}")
 
 
 def gate_mixed_weight() -> float:
@@ -162,5 +175,6 @@ def slow_update(prev_skill: str, cur_skill: str, longitudinal: str, reflection_l
         obj = extract_json(reflection_lm([{"role": "system", "content": load_prompt("slow_update")},
                                           {"role": "user", "content": user}])) or {}
     except Exception:
+        logging.getLogger(__name__).exception("SkillOpt slow update failed")
         return ""
     return str(obj.get("guidance") or obj.get("updated_guidance") or "").strip()

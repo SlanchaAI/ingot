@@ -49,7 +49,7 @@ def _openrouter_prices() -> dict[str, tuple[float, float]]:
             data = json.loads(r.read())["data"]
         return {m["id"]: (float(m["pricing"]["prompt"]), float(m["pricing"]["completion"]))
                 for m in data if m.get("pricing")}
-    except Exception:
+    except (OSError, ValueError, KeyError, TypeError, AttributeError):
         return {}
 
 

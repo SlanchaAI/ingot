@@ -4,7 +4,6 @@ writes train/holdout tasks with judge rubrics, split by *operation* so the holdo
 generalization, not recall. Kept out of the MCP server (no LLM in its hot serving path); the
 optimizer calls it on demand when `optimize/tasks/<skill>.yaml` is missing."""
 import json
-import os
 import re
 
 import yaml
@@ -90,9 +89,9 @@ def draft_routing_cases(name: str, description: str, body: str,
         raise SystemExit(f"draft_routing_cases: teacher returned {len(pos)} positive / {len(neg)} "
                          f"negative cases for '{name}', need at least 2/1. Re-run or hand-write "
                          f"a routing: block in optimize/tasks/{name}.yaml.")
-    cases = []
+    cases: list[dict[str, str | bool | None]] = []
     for i, task in enumerate(pos):
-        case = {"task": task, "expected": name, "harness": "claude" if i == 1 else "codex"}
+        case: dict[str, str | bool | None] = {"task": task, "expected": name, "harness": "claude" if i == 1 else "codex"}
         if i == 0:
             case["parity"] = True
         cases.append(case)

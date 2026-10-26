@@ -9,8 +9,13 @@ import time
 import uuid
 from pathlib import Path
 
-from mcp_server.registry import (SLUG_RE, load_skills, read_components, skill_revision,
-                                 write_components)
+from mcp_server.registry import (
+    SLUG_RE,
+    load_skills,
+    read_components,
+    skill_revision,
+    write_components,
+)
 
 RUNS_DIR = Path(__file__).resolve().parent.parent / "runs"
 PENDING_DIR = RUNS_DIR / "pending"
@@ -253,7 +258,8 @@ def read_audit(limit: int = 50) -> dict:
         text = audit_path().read_text(encoding="utf-8", errors="replace")
     except OSError:
         return {"records": [], "total": 0}
-    records, total = [], 0
+    records: list[dict] = []
+    total = 0
     for line in reversed(text.splitlines()):
         try:
             record = json.loads(line)

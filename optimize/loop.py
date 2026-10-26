@@ -53,7 +53,7 @@ def loop(skills: list[str] | None = None, force: bool = False, budget: int = 60,
         unknown = [p for p in PASSES if p not in _KNOWN_PASSES]
         if unknown:
             raise SystemExit(f"LOOP_PASSES names unknown pass(es) {unknown}; known: {_KNOWN_PASSES}")
-        passes = {}
+        passes: dict[str, dict] = {}
         for pass_name in PASSES:
             if pass_name == "body":
                 r = run_ab(skill, log=log)

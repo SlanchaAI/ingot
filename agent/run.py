@@ -8,11 +8,11 @@ OpenAI-compatible endpoint), STRONG_MODEL (serves novel no-skill tasks; defaults
 MCP_URL, LANGFUSE_PUBLIC_KEY / LANGFUSE_SECRET_KEY / LANGFUSE_BASE_URL
 (optional tracing).
 """
+import asyncio
+import hashlib
+import json
 import os
 import sys
-import asyncio
-import json
-import hashlib
 
 from langchain_mcp_adapters.client import MultiServerMCPClient
 
@@ -20,8 +20,16 @@ MCP_URL = os.environ.get("MCP_URL", "http://mcp:8000/mcp")
 # Endpoint + ZDR handling is shared with the optimizer (single source of truth): OpenRouter
 # endpoints get the hardcoded zero-data-retention provider preference; MODEL_BASE_URL points this
 # serving role at a local vLLM/Ollama server instead (README: Privacy).
-from optimize import (ZDR_PROVIDER, agent_model, api_key, client_kwargs, model_api_key,  # noqa: E402,F401
-                      model_base_url, skillopt_model, teacher_base_url)
+from optimize import (  # noqa: F401
+    ZDR_PROVIDER,
+    agent_model,
+    api_key,
+    client_kwargs,
+    model_api_key,
+    model_base_url,
+    skillopt_model,
+    teacher_base_url,
+)
 
 MODEL = agent_model()
 
@@ -69,8 +77,8 @@ def build_agent(tools, instructions: str | None = None, strong: bool = False):
     """The deep agent, wired to the given tools. Reused by the A/B and by candidate rollouts,
     which must stay on the weak MODEL (skills are optimized for the model that serves them),
     only the serving entrypoint passes strong=True, for novel tasks with no skill to load."""
-    from langchain_openai import ChatOpenAI
     from deepagents import create_deep_agent
+    from langchain_openai import ChatOpenAI
 
     if strong:
         model = ChatOpenAI(model=strong_model(), temperature=0,

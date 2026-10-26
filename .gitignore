@@ -12,6 +12,12 @@ logs/
 memory/
 runs/
 
+# source-check dependencies and output
+node_modules/
+.cache/
+.ruff_cache/
+.mypy_cache/
+
 # python
 __pycache__/
 *.pyc

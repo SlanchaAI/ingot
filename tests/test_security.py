@@ -5,10 +5,13 @@ from pathlib import Path
 import pytest
 
 from mcp_server.registry import (
-    SLUG_RE, parse_skill, read_components, write_components, write_skill_md,
+    SLUG_RE,
+    parse_skill,
+    read_components,
+    write_components,
+    write_skill_md,
 )
 from optimize.promote import check_slug
-
 
 ROOT = Path(__file__).resolve().parents[1]
 

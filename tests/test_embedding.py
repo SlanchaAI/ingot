@@ -57,9 +57,13 @@ def test_baked_qwen_loader_forces_cache_only(monkeypatch):
 
 def test_fastembed_loader_uses_baked_cache_only(monkeypatch):
     calls = []
+    def fake_call_1(**kwargs):
+        calls.append(kwargs)
+        return object()
+
     monkeypatch.setitem(
         sys.modules, "fastembed",
-        SimpleNamespace(TextEmbedding=lambda **kwargs: calls.append(kwargs) or object()))
+        SimpleNamespace(TextEmbedding=fake_call_1))
     monkeypatch.setenv("BAKED_FALLBACK_EMBED_MODEL", "BAAI/bge-small-en-v1.5")
 
     E.FastembedEmbedding("BAAI/bge-small-en-v1.5")

@@ -1,7 +1,11 @@
 import json
 
-from optimize.evidence import build_evidence, first_divergence, render_markdown, write_evidence
-
+from optimize.evidence import (
+    build_evidence,
+    first_divergence,
+    render_markdown,
+    write_evidence,
+)
 
 SUMMARY = {
     "skill": "pdf",
@@ -28,8 +32,8 @@ SUMMARY = {
 
 
 def test_first_divergence_finds_behavioral_fork():
-    left = [{"name": "route"}, {"name": "bash", "args": {"x": 1}}]
-    right = [{"name": "route"}, {"name": "write", "args": {"x": 1}}]
+    left: list[dict] = [{"name": "route"}, {"name": "bash", "args": {"x": 1}}]
+    right: list[dict] = [{"name": "route"}, {"name": "write", "args": {"x": 1}}]
     assert first_divergence(left, right) == {"index": 1, "champion": left[1], "challenger": right[1]}
     assert first_divergence(left, list(left)) is None
 

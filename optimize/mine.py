@@ -18,11 +18,12 @@ import json
 import os
 import urllib.request
 from collections import Counter, defaultdict
+from collections.abc import Callable
 from pathlib import Path
-from typing import Callable, NamedTuple
+from typing import NamedTuple
 from urllib.parse import urlencode, urlparse
 
-from .judge import DIMENSIONS, MODELS, _PROMPT, failed_dimensions, judge
+from .judge import _PROMPT, DIMENSIONS, MODELS, failed_dimensions, judge
 
 LF_URL = os.environ.get("LANGFUSE_BASE_URL", "http://langfuse-web:3000")
 LF_PK = os.environ.get("LANGFUSE_PUBLIC_KEY", "pk-lf-local-demo")
@@ -162,8 +163,9 @@ TRAIN_DUP_THRESHOLD = 0.90  # cosine to an existing train task at/above which a 
 def _train_dupes(vecs, skill: str, norm_embed, log):
     """Boolean mask of candidates that near-duplicate the skill's existing train tasks (the
     holdout must recombine train, not repeat it), or None when there is no train set."""
-    import yaml
     from pathlib import Path
+
+    import yaml
     tasks_file = Path(__file__).resolve().parent / "tasks" / f"{skill}.yaml"
     if not tasks_file.exists():
         return None
@@ -182,6 +184,7 @@ def _normalized_embedder():
     """Return an embedding function that produces row-normalized float vectors. Task-to-task
     similarity (diversity + train-dup checks), so both sides use the document embedding."""
     import numpy as np
+
     from mcp_server.embedding import build_embedding
 
     embedder = build_embedding()
@@ -203,7 +206,7 @@ def _cluster_traces(traces: list[dict], norm_embed, threshold: float = CLUSTER_T
     Each cluster retains every use index, so its frequency can weight health and failure counts.
     The first task in a cluster is the stable representative while Langfuse returns newest first.
     """
-    exact_groups = {}
+    exact_groups: dict[tuple[str, str], list[int]] = {}
     for index, trace in enumerate(traces):
         exact_groups.setdefault((trace.get("rubric", ""), _normalized_task(trace["task"])), []).append(index)
     groups = list(exact_groups.values())
@@ -319,7 +322,7 @@ def _judge_trace_clusters(traces: list[dict], clusters: list[list[int]], log=pri
 
 def _candidate_representatives(traces: list[dict], scores: list[float], log) -> list[int]:
     """Keep the lowest-scoring representative of each formatting-equivalent task."""
-    representatives = {}
+    representatives: dict[str, int] = {}
     for index, trace in enumerate(traces):
         key = _normalized_task(trace["task"])
         previous = representatives.get(key)
@@ -382,8 +385,8 @@ def mine(skill: str, limit: int = 0, log=print) -> dict:
     if not scored:
         raise SystemExit("No trace clusters were judged; increase MINE_MAX_JUDGE_CALLS above zero.")
 
-    dim_failures = Counter()          # dimension -> how many represented uses failed it
-    examples = defaultdict(list)      # dimension -> a few failing tasks
+    dim_failures: Counter[str] = Counter()          # dimension -> how many represented uses failed it
+    examples: dict[str, list[tuple[str, str]]] = defaultdict(list)      # dimension -> a few failing tasks
     weighted_score = 0.0
     covered = 0
     candidate_traces = []

@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import os
 import threading
+from pathlib import Path
 
 from fastmcp import FastMCP
 
@@ -27,7 +28,7 @@ class _State:
     def _signature(roots) -> tuple:
         """Change detector over exactly the directories load_skills reads. Hidden directories are
         excluded there (promotion/rollback staging), so watching them here would only churn."""
-        files = []
+        files: list[Path] = []
         for root in roots:
             for skill_root in root.iterdir() if root.exists() else ():
                 if skill_root.is_dir() and not skill_root.name.startswith("."):

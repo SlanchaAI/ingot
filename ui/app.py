@@ -19,10 +19,25 @@ from pydantic import BaseModel, Field
 
 from mcp_server.registry import SLUG_RE, load_skills, read_components, skill_revision
 from optimize.ab import TASKS_DIR, run_ab
-from ui.auth import (auth_mode, current_actor, require_auth, require_role, using_default_password)
-from optimize.promote import (_audit_best_effort, approve_pending, list_revisions,
-                              list_snapshotted_skills, load_pending, load_snapshot_components,
-                              pending_path, read_audit, rollback, stale_evidence_reason)
+from optimize.promote import (
+    _audit_best_effort,
+    approve_pending,
+    list_revisions,
+    list_snapshotted_skills,
+    load_pending,
+    load_snapshot_components,
+    pending_path,
+    read_audit,
+    rollback,
+    stale_evidence_reason,
+)
+from ui.auth import (
+    auth_mode,
+    current_actor,
+    require_auth,
+    require_role,
+    using_default_password,
+)
 
 logger = logging.getLogger(__name__)
 REPO_ROOT = Path(__file__).resolve().parent.parent
@@ -106,7 +121,7 @@ def _get_skills_cache_key():
     """Fast cache key based on mtime of skill directories and SKILL.md files."""
     from mcp_server.registry import configured_roots, skill_sources
     roots = configured_roots()
-    mtimes = [id(load_skills)]
+    mtimes: list[int | tuple[str, float]] = [id(load_skills)]
     for r in roots:
         if r.exists():
             mtimes.append((str(r), r.stat().st_mtime))
@@ -195,7 +210,7 @@ def skill_version(skill: str, version: str):
     if version == "pending":
         pending = load_pending(skill)
         components = pending.get("challenger_components") if pending else None
-        if not isinstance(components, dict):
+        if pending is None or not isinstance(components, dict):
             raise HTTPException(404, f"no pending version for '{skill}'")
         return _version_payload(skill, "pending", _pending_revision(active, pending),
                                 pending.get("created"), components)
@@ -253,6 +268,7 @@ def _run_optimization(skill: str, state: dict, log) -> None:
         run_ab(skill, log=log)
         state["status"] = "done"
     except BaseException as e:  # surface SystemExit etc. in the UI
+        logger.exception("Optimization failed for %s", skill)
         log(f"ERROR: {e}")
         state["status"] = "error"
 
@@ -266,7 +282,7 @@ _COMPONENT_LABEL = {"description": "SKILL.md (description)", "body": "SKILL.md (
 
 
 def _label(component: str) -> str:
-    return _COMPONENT_LABEL.get(component, component[len("file:"):] if component.startswith("file:") else component)
+    return _COMPONENT_LABEL.get(component, component.removeprefix("file:"))
 
 
 def _inner_loop(record: dict) -> dict | None:

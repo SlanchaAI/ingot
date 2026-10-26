@@ -24,6 +24,7 @@ pytestmark = pytest.mark.skipif(not KEYCLOAK_URL,
 
 
 def _issuer() -> str:
+    assert KEYCLOAK_URL is not None
     return f"{KEYCLOAK_URL.rstrip('/')}/realms/{REALM}"
 
 
@@ -113,7 +114,9 @@ def test_real_keycloak_full_browser_flow_end_to_end(monkeypatch):
     with httpx.Client(follow_redirects=False, timeout=15) as browser:
         page = browser.get(authorize_url)
         cookie_header = "; ".join(f"{k}={v}" for k, v in browser.cookies.items())
-        action = html.unescape(re.search(r'id="kc-form-login"[^>]*action="([^"]+)"', page.text).group(1))
+        match = re.search(r'id="kc-form-login"[^>]*action="([^"]+)"', page.text)
+        assert match is not None, "Keycloak login form missing"
+        action = html.unescape(match.group(1))
         posted = browser.post(action, data={"username": "approver", "password": "approver-pw"},
                               headers={"Cookie": cookie_header})
     # 3. Keycloak redirects to our callback with the code; pull code+state off the Location.

@@ -5,7 +5,6 @@ import json
 from dataclasses import dataclass
 from pathlib import Path
 
-
 SCHEMA = "skill-router/evidence/v1"
 ROUTING_SCHEMA = "skill-router/evidence/routing/v1"
 _REPO_ROOT = Path(__file__).resolve().parent.parent
@@ -165,8 +164,8 @@ def render_routing_markdown(evidence: dict) -> str:
         before, after = champion["routing"][metric], challenger["routing"][metric]
         lines.append(f"| {metric} | {before:.3f} | {after:.3f} | {after - before:+.3f} |")
     if inner:
-        lines += ["", f"Inner-loop score: {inner.get('seed_score', 0):.3f} -> "
-                      f"{inner.get('best_score', 0):.3f} (budget {inner.get('budget', 'n/a')})"]
+        lines += ["", (f"Inner-loop score: {inner.get('seed_score', 0):.3f} -> "
+                      f"{inner.get('best_score', 0):.3f} (budget {inner.get('budget', 'n/a')})")]
     return "\n".join(lines) + "\n"
 
 

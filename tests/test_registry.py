@@ -4,7 +4,11 @@ import os
 import pytest
 
 from mcp_server.registry import (
-    configured_roots, load_skills, optimizable_components, parse_skill, write_skill_md,
+    configured_roots,
+    load_skills,
+    optimizable_components,
+    parse_skill,
+    write_skill_md,
 )
 
 
@@ -30,7 +34,7 @@ def test_parse_skill_no_frontmatter_uses_fallback_name():
 
 
 def test_parse_skill_malformed_yaml_degrades_gracefully():
-    meta, body = parse_skill("---\nname: [unclosed\ndescription: x\n---\nbody", "fb")
+    meta, _body = parse_skill("---\nname: [unclosed\ndescription: x\n---\nbody", "fb")
     assert meta["name"] == "fb" and meta["description"] == ""       # bad YAML -> empty meta -> fallbacks
 
 

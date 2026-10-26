@@ -1,0 +1,9 @@
+[tool.ruff]
+target-version = "py312"
+
+[tool.mypy]
+python_version = "3.12"
+check_untyped_defs = true
+follow_untyped_imports = true
+explicit_package_bases = true
+warn_unused_ignores = true

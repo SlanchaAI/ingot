@@ -81,15 +81,15 @@ def test_exec_sandbox_env_modes():
     base = {k: v for k, v in os.environ.items() if k != "EXEC_SANDBOX"}
     probe = "from optimize.execcheck import EXEC_MODE, EXEC_SANDBOX, check; "
     default = subprocess.run([sys.executable, "-c", probe + "print(EXEC_MODE)"],
-                             capture_output=True, text=True, env=base)
+                             check=False, capture_output=True, text=True, env=base)
     assert default.stdout.strip() == "docker"
     bare = subprocess.run(
         [sys.executable, "-c", probe + "print(EXEC_SANDBOX, check('```python\\nprint(1)\\n```')['detail'])"],
-        capture_output=True, text=True, env={**base, "EXEC_SANDBOX": "1"})
+        check=False, capture_output=True, text=True, env={**base, "EXEC_SANDBOX": "1"})
     assert bare.stdout.startswith("True") and "runs cleanly" in bare.stdout
     off = subprocess.run(
         [sys.executable, "-c", probe + "print(check('```python\\nprint(1)\\n```')['detail'])"],
-        capture_output=True, text=True, env={**base, "EXEC_SANDBOX": "off"})
+        check=False, capture_output=True, text=True, env={**base, "EXEC_SANDBOX": "off"})
     assert "static check" in off.stdout
 
 
@@ -316,12 +316,12 @@ def test_sandbox_driver_end_to_end_without_docker(tmp_path):
     spec = {"fixture": CHECK["fixture"], "code": 'text = open("input.txt").read()\n'
             'open("output.txt", "w").write(text.upper())', "assertion": CHECK["assert"]}
     run = subprocess.run([sys.executable, "-m", "optimize.sandbox_driver"],
-                         input=_json.dumps(spec), capture_output=True, text=True,
+                         check=False, input=_json.dumps(spec), capture_output=True, text=True,
                          cwd=str(tmp_path), env={**os.environ, "PYTHONPATH": os.getcwd()})
     assert _json.loads(run.stdout) == {"ok": True}
     bad = {**spec, "code": spec["code"].replace(".upper()", ".lower()")}
     run = subprocess.run([sys.executable, "-m", "optimize.sandbox_driver"],
-                         input=_json.dumps(bad), capture_output=True, text=True,
+                         check=False, input=_json.dumps(bad), capture_output=True, text=True,
                          cwd=str(tmp_path), env={**os.environ, "PYTHONPATH": os.getcwd()})
     verdict = _json.loads(run.stdout)
     assert verdict["phase"] == "assertion" and "AssertionError" in verdict["stderr"]

@@ -5,7 +5,11 @@ from optimize import loop as L
 def test_loop_skips_healthy_skills(monkeypatch):
     monkeypatch.setattr(L, "mine", lambda skill, log=print: {"mean_score": 0.9, "traces": 5})
     called = []
-    monkeypatch.setattr(L, "run_ab", lambda skill, **k: called.append(skill) or {})
+    def fake_call_1(skill, **k):
+        called.append(skill)
+        return {}
+
+    monkeypatch.setattr(L, "run_ab", fake_call_1)
     res = L.loop(["pdf"])
     assert res["pdf"]["optimized"] is False and called == []   # healthy -> not optimized
 
@@ -14,7 +18,11 @@ def test_loop_defers_decision_while_mining_clusters_remain_unjudged(monkeypatch)
     monkeypatch.setattr(L, "mine", lambda skill, log=print: {
         "mean_score": 0.9, "traces": 100, "coverage": 0.8, "health_complete": False})
     called = []
-    monkeypatch.setattr(L, "run_ab", lambda skill, **kwargs: called.append(skill) or {})
+    def fake_call_2(skill, **kwargs):
+        called.append(skill)
+        return {}
+
+    monkeypatch.setattr(L, "run_ab", fake_call_2)
 
     result = L.loop(["pdf"])
 
@@ -50,13 +58,19 @@ def test_loop_runs_description_pass_when_configured(monkeypatch):
     monkeypatch.setattr(L, "mine", lambda skill, log=print: {"mean_score": 0.3, "traces": 5})
     order = []
     monkeypatch.setattr(L, "PASSES", ["body", "description"])
+    def fake_call_3(skill, **k):
+        order.append('body')
+        return {'improved': False, 'gate': {'promotable': False}}
+
     monkeypatch.setattr(L, "run_ab",
-                        lambda skill, **k: order.append("body") or {"improved": False,
-                                                                    "gate": {"promotable": False}})
+                        fake_call_3)
     import optimize.routing as routing_mod
+    def fake_call_4(skill, **k):
+        order.append('description')
+        return {'improved': True, 'gate': {'promotable': True}}
+
     monkeypatch.setattr(routing_mod, "run_routing",
-                        lambda skill, **k: order.append("description") or {"improved": True,
-                                                                           "gate": {"promotable": True}})
+                        fake_call_4)
     res = L.loop(["pdf"])
     assert order == ["body", "description"]                      # greedy, in order
     assert res["pdf"]["gate"]["promotable"] is True              # the promotable pass surfaces

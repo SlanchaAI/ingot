@@ -3,6 +3,7 @@ lifecycle, and the history/rollback surface."""
 import threading
 from html.parser import HTMLParser
 
+import httpx
 import pytest
 from fastapi.testclient import TestClient
 
@@ -17,8 +18,8 @@ class _Layout(HTMLParser):
     about where an element lives is checked against the parsed tree rather than a substring that
     a reformat would break."""
 
-    VOID = {"area", "base", "br", "col", "embed", "hr", "img", "input", "link", "meta",
-            "param", "source", "track", "wbr"}
+    VOID = frozenset({"area", "base", "br", "col", "embed", "hr", "img", "input", "link", "meta",
+            "param", "source", "track", "wbr"})
 
     def __init__(self, html: str):
         super().__init__(convert_charrefs=True)
@@ -188,8 +189,9 @@ def test_auth_me_surfaces_the_password_user(client, monkeypatch):
 def test_compose_mcp_service_mounts_the_runs_directory():
     """The mcp service records skill usage into runs/skill_usage.json; without the runs mount that
     write stays inside the ephemeral container and the board always reads 0 uses."""
-    import yaml
     from pathlib import Path
+
+    import yaml
     compose = yaml.safe_load((Path(__file__).resolve().parents[1] / "docker-compose.yml").read_text())
     assert "./runs:/app/runs" in compose["services"]["mcp"]["volumes"]
 
@@ -316,7 +318,7 @@ def test_review_panel_ships_risk_side_diff_and_confirmed_rejection(client):
     assert "reject-overlay" in layout.ancestors["reject-confirm"]
     assert "renderRisk(p.risk);" in html
     assert "renderSideDiff(p.comparison);" in html
-    assert 'JSON.stringify({reason: $("#reject-reason").value})' in html
+    assert 'JSON.stringify({reason: element("#reject-reason", HTMLTextAreaElement).value})' in html
 
 
 def test_skill_list_ships_search_filters_version_explorer_and_live_updates(client):
@@ -420,9 +422,9 @@ def test_optimize_surfaces_pin_conflicts_as_400(client, monkeypatch):
 
 def test_skills_api_reports_eval_status_for_all_skills(client, tmp_path, monkeypatch):
     # the UI's evals chip keys off has_tasks, every skill must carry it, task set or not
+    import ui.app as U
     from mcp_server import registry
     from mcp_server.registry import write_skill_md
-    import ui.app as U
     for name in ("with-evals", "without-evals"):
         d = registry.SKILLS_DIR / name   # hermetic per-test root (conftest)
         d.mkdir(parents=True)
@@ -504,7 +506,7 @@ def _promoted_skill(tmp_path, monkeypatch):
 
 
 def test_history_lists_rollback_targets_and_audit_trail(client, tmp_path, monkeypatch):
-    skill, replaced = _promoted_skill(tmp_path, monkeypatch)
+    _skill, replaced = _promoted_skill(tmp_path, monkeypatch)
     history = client.get("/api/history").json()
     assert [r["revision"] for r in history["revisions"]["pdf"]] == [replaced]
     assert history["revisions"]["pdf"][0]["created"] > 0  # labels the option a reviewer picks
@@ -530,8 +532,12 @@ def test_history_does_not_rescan_the_skill_library(client, tmp_path, monkeypatch
     _promoted_skill(tmp_path, monkeypatch)
     real_sources = registry.skill_sources
     scans = []
+    def fake_call_1(root):
+        scans.append(root)
+        return real_sources(root)
+
     monkeypatch.setattr(registry, "skill_sources",
-                        lambda root: scans.append(root) or real_sources(root))
+                        fake_call_1)
 
     history = client.get("/api/history").json()
 
@@ -656,7 +662,8 @@ def test_a_second_promotion_is_refused_while_the_first_is_still_swapping(client,
     import ui.app as U
     _promoted_skill(tmp_path, monkeypatch)
     _promotable_pending()
-    entered, release, first = threading.Event(), threading.Event(), {}
+    entered, release = threading.Event(), threading.Event()
+    first: dict[str, httpx.Response] = {}
 
     def slow_approve(skill, actor="?"):
         entered.set()

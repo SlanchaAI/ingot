@@ -102,7 +102,10 @@ fi
 mkdir -p "$CODEX_LANGFUSE_DIR"
 umask 077
 LANGFUSE_CONFIG="$LANGFUSE_CONFIG" LF_URL="$LF_URL" LF_PK="$LF_PK" LF_SK="$LF_SK" python3 -c '
-import json, os, pathlib
+import json
+import os
+import pathlib
+
 path = pathlib.Path(os.environ["LANGFUSE_CONFIG"])
 path.write_text(json.dumps({
     "enabled": True,

@@ -94,14 +94,16 @@ def test_gate_blocks_training_holdout_leakage():
 
 
 def test_gate_blocks_missing_or_weak_routing_suite_for_description_change():
-    base = dict(skill="pdf", champ_scores=[0.2] * 3, chall_scores=[0.9] * 3,
-                changed=["description"], challenger={"description": "new"})
-    ok, reasons = promotion_gate(**base, routing_metrics=None)
+    ok, reasons = promotion_gate("pdf", [0.2] * 3, [0.9] * 3,
+                                 changed=["description"], challenger={"description": "new"},
+                                 routing_metrics=None)
     assert not ok and any("routing suite" in reason for reason in reasons)
     weak = {"challenger": {"recall_at_3": 0.8, "no_route_precision": 0.9, "top1": 0.7},
             "champion": {"recall_at_3": 1.0, "no_route_precision": 1.0, "top1": 1.0},
             "parity": {"rate": 0.5, "total": 2}}
-    ok, reasons = promotion_gate(**base, routing_metrics=weak)
+    ok, reasons = promotion_gate("pdf", [0.2] * 3, [0.9] * 3,
+                                 changed=["description"], challenger={"description": "new"},
+                                 routing_metrics=weak)
     assert not ok
     assert any("recall@3" in reason for reason in reasons)
     assert any("no-route" in reason for reason in reasons)
@@ -127,6 +129,7 @@ def test_load_tasks_reads_explicit_train_holdout(tmp_path, monkeypatch):
 
 def test_greedy_pick_spreads_across_failure_modes():
     import numpy as np
+
     from optimize.mine import _greedy_pick
     # two orthogonal "failure modes", two near-identical tasks in each; hardest overall is
     # index 0, but the second pick must come from the OTHER mode even though index 1 is harder
@@ -137,6 +140,7 @@ def test_greedy_pick_spreads_across_failure_modes():
 
 def test_greedy_pick_skips_aced_and_excluded_tasks():
     import numpy as np
+
     from optimize.mine import _greedy_pick
     vecs = np.eye(3, dtype=np.float32)
     # one real candidate, one aced task (difficulty 0), one excluded (train near-duplicate)
@@ -167,6 +171,7 @@ def test_length_penalty_is_zero_under_target_and_grows_above():
 def test_reflection_lm_sends_generic_api_key_to_openrouter(monkeypatch):
     import sys
     from types import SimpleNamespace
+
     from optimize import rollout as rollout_mod
 
     captured = {}
@@ -309,7 +314,7 @@ def test_rollouts_serve_the_exact_serving_contract(monkeypatch):
                 usage_metadata = None
             return Msg()
     adapter = R.SkillAdapter(frozen={"description": "trigger words"})
-    adapter._llm = FakeLLM()
+    monkeypatch.setattr(adapter, "_llm", FakeLLM())
     monkeypatch.setattr(R, "judge",
                         lambda t, r, a, reference="", check=None, deliverable=None:
                         {"score": 1.0, "feedback": "f", "dimensions": {}})
@@ -393,7 +398,7 @@ def _script_skill(tmp_path, monkeypatch, scripts=("scripts/helper.py",), holdout
         p.write_text("print('hi')\n")
     tasks = tmp_path / "tasks"
     tasks.mkdir()
-    holdout = [{"task": "t", "rubric": "r"}]
+    holdout: list[dict] = [{"task": "t", "rubric": "r"}]
     if holdout_check:
         holdout[0]["check"] = {"fixture": "x = 1", "assert": "assert x == 1"}
     (tasks / "excel.yaml").write_text(yaml.safe_dump(
@@ -475,7 +480,7 @@ def test_greedy_search_body_pass_matches_the_old_single_run_contract(tmp_path, m
 
 
 def test_champion_cache_key_depends_on_served_components():
-    holdout = [{"task": "t", "rubric": "r"}]
+    holdout: list[dict] = [{"task": "t", "rubric": "r"}]
     body_only = ab_mod._champion_cache_key("rev", holdout, ["description", "body"])
     with_scripts = ab_mod._champion_cache_key("rev", holdout,
                                               ["description", "body", "file:scripts/a.py"])

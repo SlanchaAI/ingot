@@ -1,4 +1,4 @@
-<!doctype html>
+<!DOCTYPE html>
 <html lang="en">
 <head>
 <meta charset="utf-8">
@@ -83,7 +83,7 @@
   .topnav { display: flex; align-items: center; gap: 1rem; }
   .topnav .lnk { font-family: var(--mono); font-size: .68rem; letter-spacing: .09em;
     text-transform: uppercase; color: var(--ink-2); text-decoration: none; transition: color .15s; }
-  .topnav .lnk:hover { color: var(--rust); }
+
   .topnav .lnk.ext::after { content: " ↗"; color: var(--ink-3); }
   @media (max-width: 760px) { .topnav .lnk { display: none; } .topnav .pill { display: inline-block; } }
   .pill { font-family: var(--mono); font-size: .64rem; letter-spacing: .07em; text-transform: uppercase;
@@ -98,13 +98,13 @@
   .board-head { padding: 2rem 0 .3rem; }
   .board-head .eyebrow { display: flex; align-items: baseline; justify-content: space-between; gap: 1rem;
     font-family: var(--mono); font-size: .72rem; letter-spacing: .12em; text-transform: uppercase; }
-  .board-head .eyebrow .n { color: var(--rust); }
-  .board-head .eyebrow .side { color: var(--ink-3); }
+
+
   .board-title { font-family: var(--serif); font-weight: 700; letter-spacing: -.02em;
     font-size: clamp(1.9rem, 4vw, 2.7rem); margin: .5rem 0 0; text-wrap: balance; }
   .board-sub { color: var(--ink-2); font-size: .96rem; margin: .6rem 0 0; max-width: 48rem; text-wrap: pretty; }
   .board-sub a { color: var(--rust); text-decoration: none; white-space: nowrap; }
-  .board-sub a:hover { text-decoration: underline; }
+
 
   /* ---- KPI strip ---- */
   .kpis { display: grid; grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
@@ -118,6 +118,7 @@
   .kpi .n { font-family: var(--mono); font-weight: 600; font-size: 1.85rem; line-height: 1.05;
     font-variant-numeric: tabular-nums; letter-spacing: -.01em; }
   .kpi .d { font-family: var(--mono); font-size: .66rem; color: var(--ink-2); margin-top: .1rem; }
+  .band-head .n { color: var(--rust); }
   .kpi.act .n { color: var(--rust); }
   .kpi.act { background: var(--rust-bg); }
   @media (min-width: 1090px) { .kpi { border-top: 0; } }
@@ -144,8 +145,9 @@
   .band-head { display: flex; align-items: baseline; justify-content: space-between; gap: 1rem;
     border-top: 1px solid var(--ink); padding-top: .55rem;
     font-family: var(--mono); font-size: .72rem; letter-spacing: .12em; text-transform: uppercase; }
-  .band-head .n { color: var(--rust); }
+  .board-head .eyebrow .n { color: var(--rust); }
   .band-head .side { color: var(--ink-3); }
+  .board-head .eyebrow .side { color: var(--ink-3); }
   h2.head { font-family: var(--serif); font-weight: 700; letter-spacing: -.015em; line-height: 1.05;
     font-size: clamp(1.5rem, 3.5vw, 2.1rem); margin: .8rem 0 0; text-wrap: balance; }
   .sub { font-size: .9rem; color: var(--ink-2); margin: .5rem 0 0; max-width: 48rem; text-wrap: pretty; }
@@ -162,12 +164,12 @@
   .btn { cursor: pointer; font: 600 .7rem/1 var(--mono); letter-spacing: .05em; text-transform: uppercase;
     padding: .48rem .9rem; border-radius: 9px; border: 1px solid var(--line-2); background: transparent;
     color: var(--ink-2); transition: background .15s, color .15s, border-color .15s; white-space: nowrap; }
-  .btn:hover:not(:disabled) { border-color: var(--rust); color: var(--rust); }
+
   .btn.primary { border-color: var(--rust); background: var(--rust); color: var(--paper); }
-  .btn.primary:hover:not(:disabled) { background: var(--rust-2); border-color: var(--rust-2); color: var(--paper); }
+
   .btn:disabled { opacity: .45; cursor: default; }
   .btn.danger { border-color: var(--fail); background: var(--fail); color: var(--paper); }
-  .btn.danger:hover:not(:disabled) { filter: brightness(.92); }
+
 
   /* Promotion comparison modal */
   .cmp-overlay { position: fixed; inset: 0; background: rgba(15,20,32,.6); z-index: 50;
@@ -189,9 +191,10 @@
   .cmp-kv code { font-family: var(--mono); color: var(--ink); }
   .cmp-tbl { width: 100%; border-collapse: collapse; font-size: .82rem; }
   .cmp-tbl th, .cmp-tbl td { text-align: right; padding: .32rem .5rem; border-bottom: 1px solid var(--line); }
-  .cmp-tbl th:first-child, .cmp-tbl td:first-child { text-align: left; color: var(--ink-2); }
+
   .cmp-tbl th { font: 600 .66rem/1 var(--mono); text-transform: uppercase; letter-spacing: .05em;
     color: var(--ink-2); }
+  .cmp-tbl th:first-child, .cmp-tbl td:first-child { text-align: left; color: var(--ink-2); }
   .cmp-tbl .win { color: var(--pass); font-weight: 700; }
   .cmp-tbl .lose { color: var(--fail); font-weight: 700; }
   .cmp-actions { display: flex; align-items: center; gap: .7rem; margin-top: 1.1rem; flex-wrap: wrap; }
@@ -224,11 +227,11 @@
   .srow { display: flex; flex-wrap: wrap; align-items: baseline; gap: .5rem 1rem;
     padding: .9rem .45rem; border-bottom: 1px solid var(--line); transition: background .15s ease-out; }
   .srow.pend { background: var(--rust-bg); }
-  .srow:hover { background: var(--paper-2); }
-  .srow.pend:hover { background: var(--rust-bg); }
+
+
   .srow .main { flex: 1 1 26rem; min-width: 0; }
   .skill-open { all: unset; display: block; width: 100%; cursor: pointer; border-radius: 8px; }
-  .skill-open:hover .sname { color: var(--rust); }
+
   .srow .nameline { display: flex; align-items: baseline; gap: .6rem; flex-wrap: wrap; }
   .srow .sname { font-family: var(--mono); font-size: .86rem; font-weight: 600; color: var(--ink); }
   .srow .sdesc { font-size: .82rem; color: var(--ink-2); margin: .28rem 0 0; text-wrap: pretty;
@@ -291,7 +294,6 @@
   .metaline { font-family: var(--mono); font-size: .74rem; color: var(--ink-3); margin-top: .9rem; line-height: 1.75;
     font-variant-numeric: tabular-nums; }
   .metaline b { color: var(--ink-2); }
-  .metaline a { color: var(--rust); text-decoration: none; } .metaline a:hover { text-decoration: underline; }
   .tokline { font-family: var(--mono); font-size: .78rem; color: var(--ink-2); margin-top: .5rem;
     font-variant-numeric: tabular-nums; }
   .tokline b { color: var(--ink); } .tokline .reg { color: var(--fail); font-weight: 600; }
@@ -342,13 +344,12 @@
     .side-column + .side-column { border-left: 0; border-top: 1px solid var(--line); } }
 
   .sr-only { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px;
-    overflow: hidden; clip: rect(0, 0, 0, 0); white-space: nowrap; border: 0; }
+    overflow: hidden; clip-path: inset(50%); white-space: nowrap; border: 0; }
 
   .footer { display: flex; align-items: baseline; justify-content: space-between; gap: 1rem; margin-top: 3rem;
     padding-top: .6rem; border-top: 1px solid var(--ink); font-family: var(--mono); font-size: .68rem;
     letter-spacing: .12em; text-transform: uppercase; color: var(--ink-3); flex-wrap: wrap; }
   .footer .k { color: var(--rust); }
-  .footer a { color: var(--ink-3); text-decoration: none; } .footer a:hover { color: var(--rust); }
 
   .js .reveal { opacity: 0; transform: translateY(12px); }
   .js .reveal.in { opacity: 1; transform: none; transition: opacity .6s ease-out, transform .6s cubic-bezier(.16,1,.3,1); }
@@ -375,10 +376,22 @@
     .beam { display: block; }
   }
 
+  .metaline a { color: var(--rust); text-decoration: none; }
+  .footer a { color: var(--ink-3); text-decoration: none; }
   button:focus-visible, .btn:focus-visible, input:focus-visible, select:focus-visible,
   textarea:focus-visible, summary:focus-visible,
   .skill-open:focus-visible, a:focus-visible {
     outline: 2px solid var(--rust); outline-offset: 2px; border-radius: 2px; }
+  .topnav .lnk:hover { color: var(--rust); }
+  .board-sub a:hover { text-decoration: underline; }
+  .btn:hover:not(:disabled) { border-color: var(--rust); color: var(--rust); }
+  .btn.primary:hover:not(:disabled) { background: var(--rust-2); border-color: var(--rust-2); color: var(--paper); }
+  .btn.danger:hover:not(:disabled) { filter: brightness(.92); }
+  .srow:hover { background: var(--paper-2); }
+  .srow.pend:hover { background: var(--rust-bg); }
+  .skill-open:hover .sname { color: var(--rust); }
+  .footer a:hover { color: var(--rust); }
+  .metaline a:hover { text-decoration: underline; }
   @media (prefers-reduced-motion: reduce) {
     html { scroll-behavior: auto; } * { transition: none !important; animation: none !important; }
     .js .reveal { opacity: 1; transform: none; }
@@ -413,10 +426,14 @@
   // Password and OIDC modes surface the current reviewer. Open mode has no signed-in identity.
   fetch("/auth/me").then(r => r.ok ? r.json() : null).then(u => {
     if (!u || !u.authenticated) return;
-    document.getElementById("who-email").textContent =
+    const email = document.getElementById("who-email");
+    const logout = document.getElementById("logout-link");
+    const who = document.getElementById("who");
+    if (!email || !logout || !who) return;
+    email.textContent =
       (u.email || u.name || "signed in") + (u.role ? " (" + u.role + ")" : "");
-    document.getElementById("logout-link").hidden = !u.email;
-    document.getElementById("who").hidden = false;
+    logout.hidden = !u.email;
+    who.hidden = false;
   }).catch(() => {});
 </script>
 
@@ -442,7 +459,7 @@
     <div class="review-card" id="pending-card" hidden>
       <div class="beam" aria-hidden="true"></div>
       <div id="pending-detail"></div>
-      <div class="risk-summary" id="risk-summary" aria-label="Change risk summary"></div>
+      <section class="risk-summary" id="risk-summary" aria-label="Change risk summary"></section>
       <div class="difflabel">SKILL.md diff · champion → challenger</div>
       <pre class="diff" id="diff"></pre>
       <details class="side-diff" id="side-diff">
@@ -452,8 +469,8 @@
       <div class="difflabel" id="evidence-label">Evidence bundle · recorded at generation time</div>
       <pre class="diff" id="evidence"></pre>
       <div class="review-actions">
-        <button class="btn primary" id="approve">Approve</button>
-        <button class="btn" id="reject">Reject</button>
+        <button type="button" class="btn primary" id="approve">Approve</button>
+        <button type="button" class="btn" id="reject">Reject</button>
       </div>
     </div>
     <div class="empty" id="review-empty">
@@ -469,11 +486,11 @@
   <div class="cmp-overlay" id="cmp-overlay" hidden>
     <div class="cmp-modal" role="dialog" aria-modal="true" aria-labelledby="cmp-title">
       <div class="cmp-head"><span id="cmp-title">Confirm promotion, <b id="cmp-skill"></b></span>
-        <button class="cmp-x" id="cmp-cancel" aria-label="Close">×</button></div>
+        <button type="button" class="cmp-x" id="cmp-cancel" aria-label="Close">×</button></div>
       <div class="cmp-body" id="cmp-body"></div>
       <div class="cmp-actions">
-        <button class="btn" id="cmp-cancel2">Cancel</button>
-        <button class="btn primary" id="cmp-approve">Approve &amp; promote</button>
+        <button type="button" class="btn" id="cmp-cancel2">Cancel</button>
+        <button type="button" class="btn primary" id="cmp-approve">Approve &amp; promote</button>
       </div>
       <span class="msg" id="cmp-msg"></span>
     </div>
@@ -482,7 +499,7 @@
   <div class="cmp-overlay" id="skill-overlay" hidden>
     <div class="cmp-modal skill-modal" role="dialog" aria-modal="true" aria-labelledby="skill-title">
       <div class="cmp-head"><span id="skill-title">Skill, <b id="skill-detail-name"></b></span>
-        <button class="cmp-x" id="skill-close" aria-label="Close">×</button></div>
+        <button type="button" class="cmp-x" id="skill-close" aria-label="Close">×</button></div>
       <div class="version-toolbar">
         <div class="version-field"><label for="skill-version">Version</label>
           <select id="skill-version"></select></div>
@@ -499,15 +516,15 @@
   <div class="cmp-overlay" id="reject-overlay" hidden>
     <div class="cmp-modal" role="dialog" aria-modal="true" aria-labelledby="reject-title">
       <div class="cmp-head"><span id="reject-title">Reject change, <b id="reject-skill"></b></span>
-        <button class="cmp-x" id="reject-close" aria-label="Close">×</button></div>
+        <button type="button" class="cmp-x" id="reject-close" aria-label="Close">×</button></div>
       <p class="reject-help">This permanently removes the quarantined challenger. Add an optional
         reason to the audit trail so future reviewers know why it was rejected.</p>
       <div class="version-field"><label for="reject-reason">Optional reason</label>
         <textarea class="reject-reason" id="reject-reason" maxlength="500"
           placeholder="For example: removes required safety checks"></textarea></div>
       <div class="cmp-actions">
-        <button class="btn" id="reject-cancel">Cancel</button>
-        <button class="btn danger" id="reject-confirm">Confirm rejection</button>
+        <button type="button" class="btn" id="reject-cancel">Cancel</button>
+        <button type="button" class="btn danger" id="reject-confirm">Confirm rejection</button>
       </div>
       <span class="msg" id="reject-msg"></span>
     </div>
@@ -555,18 +572,60 @@
 </div>
 
 <script>
-const $ = s => document.querySelector(s);
-let langfuseUrl = "#", currentPending = null, currentPendingData = null;
+/** API contracts match ui/app.py; JSON is decoded at j(); return contracts are checked statically at callers.
+ * @typedef {{name:string, description:string, pending:boolean, has_tasks:boolean, status:string|null, revision:string, uses:number}} Skill
+ * @typedef {{revision:unknown, created:number|null}} Revision
+ * @typedef {{action?:string, skill?:string, revision?:unknown, ts?:number, actor?:string, reason?:string}} AuditRecord
+ * @typedef {{revisions:Record<string,Revision[]>, audit:{records:AuditRecord[],total:number}}} History
+ * @typedef {Record<string,{status:string,log:string[]}>} Runs
+ * @typedef {{key:string,kind:string,revision:string,created:number|null}} Version
+ * @typedef {{path:string,content:string}} SkillFile
+ * @typedef {{mean_input:number,mean_output:number}} Tokens
+ * @typedef {{mean:number,scores:number[],tokens?:Tokens}} Scores
+ * @typedef {{top1:number,recall_at_3:number,no_route_precision:number}} RoutingScores
+ * @typedef {{added_lines:number,removed_lines:number,changed_pct:number,size_delta_pct:number,high_risk?:boolean}} Risk
+ * @typedef {{component:string,before:string,after:string}} Comparison
+ * @typedef {{skill:string,ab:{champion:Scores,challenger:Scores}|null,routing:{champion:RoutingScores,challenger:RoutingScores}|null,inner_loop:{seed_score:number,best_score:number}|null,dataset:string|null,evidence:{markdown:string}|null,model:string|null,judge:string|null,gate:{promotable:boolean,blocked:string[],warnings?:string[]},stale:string|null,risk:Risk,comparison:Comparison[],changed:string[],diff:string}} Pending
+ * @typedef {{'/api/skills':Skill[], '/api/runs':Runs, '/api/history':History, '/api/config':{langfuse_url:string}} & Record<`/api/skills/${string}/versions`,{versions:Version[]}> & Record<`/api/skills/${string}/versions/${string}`,{skill:string,kind:string,revision:string,created:number|null,description:string,body:string,files:SkillFile[]}> & Record<`/api/pending/${string}`,Pending> & Record<`/api/evidence/${string}`,{path:string,markdown:string}> & Record<`/api/optimize/${string}`,{started:string}> & Record<`/api/rollback/${string}`,{result:string}> & Record<`/api/promote/${string}`,{result:string}> & Record<`/api/reject/${string}`,{result:string}>} Api
+ */
+/** @template {HTMLElement} T
+ * @param {string} selector
+ * @param {{new():T}} kind
+ * @returns {T}
+ */
+function element(selector, kind) {
+  const el = document.querySelector(selector);
+  if (!(el instanceof kind)) throw new Error(`Missing or invalid element: ${selector}`);
+  return el;
+}
+/** @param {string} selector */
+const $ = selector => element(selector, HTMLElement);
+
+let langfuseUrl = "#";
+/** @type {string|null} */
+let currentPending = null;
+/** @type {Pending|null} */
+let currentPendingData = null;
 let booted = false;  // entrance animations run on first paint only; 3s refreshes stay still
-let boardSignature = null, skillInventory = [], runInventory = {}, revisionInventory = {};
+/** @type {string|null} */
+let boardSignature = null;
+/** @type {Skill[]} */
+let skillInventory = [];
+/** @type {Runs} */
+let runInventory = {};
+/** @type {Record<string,Revision[]>} */
+let revisionInventory = {};
 let revisionInventoryReady = false;
 const REDUCED = matchMedia("(prefers-reduced-motion: reduce)").matches;
 
 // count-up on KPI values (structure: Magic UI number-ticker, vanilla rAF instead of a spring)
+/** @type {Record<string,number>} */
 const kpiPrev = {};
 function tickKpis() {
   document.querySelectorAll("#kpis .kpi").forEach(el => {
-    const n = el.querySelector(".n"), key = el.querySelector(".l").textContent;
+    const n = el.querySelector(".n"), label = el.querySelector(".l");
+    if (!n || !label) return;
+    const key = label.textContent || "";
     const target = Number(n.textContent);
     if (!Number.isFinite(target)) return;
     const from = key in kpiPrev ? kpiPrev[key] : 0;
@@ -575,59 +634,74 @@ function tickKpis() {
     const t0 = performance.now(), dur = 700;
     requestAnimationFrame(function step(t) {
       const p = Math.min(1, (t - t0) / dur), e = 1 - Math.pow(1 - p, 3);
-      n.textContent = Math.round(from + (target - from) * e);
+      n.textContent = String(Math.round(from + (target - from) * e));
       if (p < 1) requestAnimationFrame(step);
     });
   });
 }
 
+/** @param {string} sel */
 const staggerIn = sel => document.querySelectorAll(sel).forEach((el, i) => {
-  el.classList.add("list-in"); el.style.setProperty("--i", Math.min(i, 12));  // long lists land together past the fold
+  if (!(el instanceof HTMLElement)) return;
+  el.classList.add("list-in"); el.style.setProperty("--i", String(Math.min(i, 12)));  // long lists land together past the fold
 });
 // skill descriptions come from third-party skill packs, escape before innerHTML
-const esc = t => { const d = document.createElement("div"); d.textContent = t; return d.innerHTML; };
+/** @param {unknown} t */
+const esc = t => { const d = document.createElement("div"); d.textContent = t == null ? "" : String(t); return d.innerHTML; };
 
 // Surface the API's own explanation (FastAPI puts it in `detail`) rather than a raw response body:
 // a refused promotion, a stale-evidence 409, or an unknown revision has to be readable in the UI.
+/** @template {keyof Api} T
+ * @param {T} url
+ * @param {RequestInit} [opts]
+ * @returns {Promise<Api[T]>}
+ */
 async function j(url, opts) {
   const r = await fetch(url, opts);
   const text = await r.text();
   let data = null;
-  try { data = text ? JSON.parse(text) : null; } catch (_) { /* not JSON: fall back to the text */ }
+  try { data = text ? JSON.parse(text) : null; } catch { /* not JSON: fall back to the text */ }
   if (!r.ok) throw new Error((data && data.detail) || text || `request failed (${r.status})`);
   return data;
 }
 
 // `source` separates "this poll could not load" from "your click did this": a recovered poll
 // clears its own banner and leaves the result of the last action on screen.
+/** @param {string} sel @param {string} text @param {boolean} isError @param {string} [source] */
 function say(sel, text, isError, source) {
   const el = $(sel);
   el.textContent = text;
   el.classList.toggle("err", Boolean(isError));
   el.dataset.source = text ? (source || "action") : "";
 }
+/** @param {string} sel */
 function clearLoadError(sel) {
   if ($(sel).dataset.source === "load") say(sel, "", false);
 }
 
 // Every state-changing click reports its own failure. Without this an approval refused by the
 // evidence gate looked identical to one that worked: the button did nothing and said nothing.
+/** @param {string} sel @param {() => Promise<string>} run */
 async function act(sel, run) {
   try {
     say(sel, await run(), false);
   } catch (e) {
-    say(sel, `⛔ ${e.message}`, true);
+    say(sel, `⛔ ${e instanceof Error ? e.message : String(e)}`, true);
   }
   refresh();
 }
 
+/** @param {string} cls @param {number|string} n @param {string} l @param {string} d */
 const kpi = (cls, n, l, d) =>
   `<div class="kpi ${cls}"><span class="n">${n}</span><span class="l">${l}</span>${d ? `<span class="d">${d}</span>` : ""}</div>`;
-const alert = (cls, tag, txt) =>
+/** @param {string} cls @param {string} tag @param {string} txt */
+const renderAlert = (cls, tag, txt) =>
   `<div class="alert ${cls}"><span class="atag">${tag}</span><span class="atxt">${txt}</span></div>`;
 // String(): the audit trail is a plain JSONL file an operator can edit, so a non-string
 // revision must shorten to nonsense rather than throw and blank the history section
+/** @param {unknown} r */
 const shortRev = r => String(r || "").slice(0, 12);
+/** @param {Skill} s */
 const statusChip = s => s.pending ? `<span class="chip rust">change awaiting review</span>`
   : s.status === "running" ? `<span class="chip warn">SkillOpt running</span>`
   : !s.has_tasks ? `<span class="chip mute">no evals</span>`
@@ -636,6 +710,7 @@ const statusChip = s => s.pending ? `<span class="chip rust">change awaiting rev
 // History is a separate endpoint, and it can fail on its own. The two numbers it feeds report
 // that instead of reading as zero, and the rest of the board still renders from the skills
 // payload: a failed history poll used to leave the KPI strip on its "…" placeholder forever.
+/** @param {History|null} history */
 function historyKpis(history) {
   if (!history) {
     return kpi("", "–", "rollback points", "history unavailable") +
@@ -649,6 +724,7 @@ function historyKpis(history) {
         decisions > shown ? `approve + rollback · newest ${shown} listed` : "approve + rollback");
 }
 
+/** @param {Skill[]} skills @param {Skill[]} withTasks @param {History|null} history */
 function renderBoard(skills, withTasks, history) {
   const pending = skills.filter(s => s.pending).length;
   const running = skills.filter(s => s.status === "running").length;
@@ -662,13 +738,13 @@ function renderBoard(skills, withTasks, history) {
   $("#head-side").textContent = pending ? `${pending} to review` : "ingot";
 
   const alerts = [];
-  if (pending) alerts.push(alert("act", "REVIEW",
+  if (pending) alerts.push(renderAlert("act", "REVIEW",
     `${pending} change${pending > 1 ? "s" : ""} quarantined and awaiting your decision.`));
-  if (running) alerts.push(alert("info", "OPTIMIZING",
+  if (running) alerts.push(renderAlert("info", "OPTIMIZING",
     "a SkillOpt run is in progress; follow it under the skill."));
-  if (!pending && !running) alerts.push(alert("ok", "CLEAR",
+  if (!pending && !running) alerts.push(renderAlert("ok", "CLEAR",
     "nothing quarantined; every skill is serving its approved revision."));
-  if (!withTasks.length) alerts.push(alert("info", "NO EVALS",
+  if (!withTasks.length) alerts.push(renderAlert("info", "NO EVALS",
     `${skills.length} skill${skills.length === 1 ? "" : "s"} tracked, none with an eval task set, which SkillOpt optimization needs.`));
   $("#attention").innerHTML = alerts.join("");
 
@@ -694,14 +770,18 @@ function renderBoard(skills, withTasks, history) {
 // picker to its first option, so a reviewer who chose an older snapshot lost that choice roughly
 // as fast as they could reach the button. Skip the rebuild when nothing changed, and carry any
 // selection across the rebuilds that do happen.
+/** @type {string|null} */
 let historySignature = null;
+/** @param {number|null|undefined} seconds */
 const stamp = seconds => seconds ? new Date(seconds * 1000).toLocaleString() : "time unrecorded";
 
+/** @param {History} h */
 function renderHistory(h) {
   const signature = JSON.stringify(h);
   if (signature === historySignature) return;
+  /** @type {Record<string,string>} */
   const chosen = {};
-  document.querySelectorAll("#history select").forEach(el => { chosen[el.id] = el.value; });
+  document.querySelectorAll("#history select").forEach(el => { if (el instanceof HTMLSelectElement) chosen[el.id] = el.value; });
 
   const names = Object.keys(h.revisions).sort();
   const rows = names.map(name => `
@@ -712,7 +792,7 @@ function renderHistory(h) {
         <select id="rev-${esc(name)}" aria-label="revision to restore for ${esc(name)}">
           ${h.revisions[name].map(r => `<option value="${esc(r.revision)}">${esc(shortRev(r.revision))} · snapshotted ${esc(stamp(r.created))}</option>`).join("")}
         </select>
-        <button class="btn" onclick="rollback('${esc(name)}')">Roll back</button>
+        <button type="button" class="btn" onclick="rollback('${esc(name)}')">Roll back</button>
       </div>
     </div>`).join("");
   const trail = h.audit.records.map(r =>
@@ -728,21 +808,24 @@ function renderHistory(h) {
 
   Object.entries(chosen).forEach(([id, value]) => {
     const el = document.getElementById(id);
-    if (el && [...el.options].some(o => o.value === value)) el.value = value;
+    if (el instanceof HTMLSelectElement && [...el.options].some(o => o.value === value)) el.value = value;
   });
   historySignature = signature;
 }
 
+/** @param {string} skill */
 async function rollback(skill) {
   const picker = document.getElementById(`rev-${skill}`);
-  if (!picker) return;
+  if (!(picker instanceof HTMLSelectElement)) return;
   const revision = picker.value;
   await act("#history-msg", async () =>
     (await j(`/api/rollback/${skill}/${revision}`, {method: "POST"})).result);
 }
 
+/** @type {string|null} */
 let skillsSignature = null;
 
+/** @param {Skill[]} skills @param {Runs} runs @param {History|null} history */
 function renderSkills(skills, runs = {}, history = null) {
   if (history) {
     revisionInventory = history.revisions || {};
@@ -765,8 +848,8 @@ function renderSkillRows() {
     $("#skill-filter-count").textContent = "0 skills";
     return;
   }
-  const query = $("#skill-search").value.trim().toLowerCase();
-  const filter = $("#skill-filter").value;
+  const query = element("#skill-search", HTMLInputElement).value.trim().toLowerCase();
+  const filter = element("#skill-filter", HTMLSelectElement).value;
   const visible = skillInventory.filter(s => {
     const matchesText = !query || `${s.name} ${s.description}`.toLowerCase().includes(query);
     const matchesFilter = filter === "all" || (filter === "pending" && s.pending) ||
@@ -780,7 +863,7 @@ function renderSkillRows() {
        <div class="ed">Change the search text or filter to see more skills.</div></div>`;
     return;
   }
-  const ordered = [...visible].sort((a, b) => (b.pending - a.pending) || (b.has_tasks - a.has_tasks));
+  const ordered = [...visible].sort((a, b) => (Number(b.pending) - Number(a.pending)) || (Number(b.has_tasks) - Number(a.has_tasks)));
   $("#skills-list").innerHTML = ordered.map(s => {
     const run = runInventory[s.name];
     const lines = run?.log || [];
@@ -799,7 +882,7 @@ function renderSkillRows() {
       </div>` : "";
     return `
     <div class="srow${s.pending ? " pend" : ""}${s.has_tasks ? "" : " noev"}" data-skill="${esc(s.name)}">
-      <button class="main skill-open" onclick="openSkillVersions('${esc(s.name)}')"
+      <button type="button" class="main skill-open" onclick="openSkillVersions('${esc(s.name)}')"
         aria-label="View ${esc(s.name)} versions and contents">
         <div class="nameline"><span class="sname">${esc(s.name)}</span>${statusChip(s)}
           ${s.revision ? `<span class="chip mute">rev ${esc(shortRev(s.revision))}</span>` : ""}
@@ -808,8 +891,8 @@ function renderSkillRows() {
         <p class="sdesc">${esc(s.description)}</p>
       </button>
       <div class="sactions">
-        ${s.pending ? `<button class="btn primary" onclick="showPending('${esc(s.name)}', {scroll: true})">Review change</button>` : ""}
-        <button class="btn" onclick="generateCandidate('${esc(s.name)}')"
+        ${s.pending ? `<button type="button" class="btn primary" onclick="showPending('${esc(s.name)}', {scroll: true})">Review change</button>` : ""}
+        <button type="button" class="btn" onclick="generateCandidate('${esc(s.name)}')"
           ${s.status === "running" || !s.has_tasks ? "disabled" : ""}
           ${s.has_tasks ? "" : `title="no eval task set; docker compose run --rm optimize ${esc(s.name)} auto-drafts one"`}>
           ${s.status === "running" ? "optimizing…" : "Optimize with SkillOpt"}</button>
@@ -820,18 +903,21 @@ function renderSkillRows() {
   document.querySelectorAll(".skill-run-log").forEach(log => { log.scrollTop = log.scrollHeight; });
 }
 
-$("#skill-search").oninput = renderSkillRows;
-$("#skill-filter").onchange = renderSkillRows;
+element("#skill-search", HTMLInputElement).oninput = renderSkillRows;
+element("#skill-filter", HTMLSelectElement).onchange = renderSkillRows;
 
+/** @type {SkillFile[]} */
 let skillVersionFiles = [];
+/** @param {Version} v */
 const versionLabel = v => v.kind === "active" ? `Active · ${shortRev(v.revision)}`
   : v.kind === "pending" ? `Pending challenger · ${shortRev(v.revision) || "unversioned"}`
   : `Snapshot · ${shortRev(v.revision)} · ${stamp(v.created)}`;
 
+/** @param {string} skill */
 async function openSkillVersions(skill) {
   $("#skill-detail-name").textContent = skill;
-  $("#skill-version").innerHTML = "";
-  $("#skill-file").innerHTML = "";
+  element("#skill-version", HTMLSelectElement).innerHTML = "";
+  element("#skill-file", HTMLSelectElement).innerHTML = "";
   $("#skill-version-content").textContent = "";
   $("#skill-version-desc").textContent = "";
   $("#skill-version-meta").innerHTML = "";
@@ -839,24 +925,24 @@ async function openSkillVersions(skill) {
   $("#skill-overlay").hidden = false;
   try {
     const summary = await j(`/api/skills/${encodeURIComponent(skill)}/versions`);
-    $("#skill-version").innerHTML = summary.versions.map(v =>
+    element("#skill-version", HTMLSelectElement).innerHTML = summary.versions.map(v =>
       `<option value="${esc(v.key)}">${esc(versionLabel(v))}</option>`).join("");
     await loadSkillVersion();
   } catch (e) {
-    say("#skill-version-msg", `⛔ ${e.message}`, true);
+    say("#skill-version-msg", `⛔ ${e instanceof Error ? e.message : String(e)}`, true);
   }
 }
 
 async function loadSkillVersion() {
   const skill = $("#skill-detail-name").textContent;
-  const version = $("#skill-version").value;
+  const version = element("#skill-version", HTMLSelectElement).value;
   if (!skill || !version) return;
   say("#skill-version-msg", "Loading version…", false);
   try {
     const detail = await j(`/api/skills/${encodeURIComponent(skill)}/versions/${encodeURIComponent(version)}`);
     const skillMd = `---\nname: ${detail.skill}\ndescription: ${JSON.stringify(detail.description)}\n---\n\n${detail.body}`;
     skillVersionFiles = [{path: "SKILL.md", content: skillMd}, ...(detail.files || [])];
-    $("#skill-file").innerHTML = skillVersionFiles.map((file, i) =>
+    element("#skill-file", HTMLSelectElement).innerHTML = skillVersionFiles.map((file, i) =>
       `<option value="${i}">${esc(file.path)}</option>`).join("");
     $("#skill-version-meta").innerHTML =
       `<span class="chip ${detail.kind === "active" ? "pass" : (detail.kind === "pending" ? "rust" : "mute")}">${esc(detail.kind)}</span>` +
@@ -866,20 +952,20 @@ async function loadSkillVersion() {
     renderSkillVersionFile();
     say("#skill-version-msg", "", false);
   } catch (e) {
-    say("#skill-version-msg", `⛔ ${e.message}`, true);
+    say("#skill-version-msg", `⛔ ${e instanceof Error ? e.message : String(e)}`, true);
   }
 }
 
 function renderSkillVersionFile() {
-  const file = skillVersionFiles[Number($("#skill-file").value) || 0];
+  const file = skillVersionFiles[Number(element("#skill-file", HTMLSelectElement).value) || 0];
   $("#skill-version-content").textContent = file ? file.content : "";
 }
 
 function closeSkillVersions() { $("#skill-overlay").hidden = true; }
 $("#skill-close").onclick = closeSkillVersions;
 $("#skill-overlay").onclick = e => { if (e.target === $("#skill-overlay")) closeSkillVersions(); };
-$("#skill-version").onchange = loadSkillVersion;
-$("#skill-file").onchange = renderSkillVersionFile;
+element("#skill-version", HTMLSelectElement).onchange = loadSkillVersion;
+element("#skill-file", HTMLSelectElement).onchange = renderSkillVersionFile;
 
 // One failing endpoint must not blank the board: each section renders from what it got, and says
 // so when its own data is missing, instead of the whole poll rejecting and leaving stale or empty
@@ -889,9 +975,11 @@ async function refresh() {
   if (document.hidden || refreshing) return;
   refreshing = true;
   try {
-    const [skills, runs, hist] = (await Promise.allSettled(
-      [j("/api/skills"), j("/api/runs"), j("/api/history")]))
-      .map(r => r.status === "fulfilled" ? r.value : null);
+    const [skillResult, runResult, historyResult] = await Promise.allSettled(
+      [j("/api/skills"), j("/api/runs"), j("/api/history")]);
+    const skills = skillResult.status === "fulfilled" ? skillResult.value : null;
+    const runs = runResult.status === "fulfilled" ? runResult.value : null;
+    const hist = historyResult.status === "fulfilled" ? historyResult.value : null;
 
     if (skills) {
       renderSkills(skills, runs || runInventory, hist);
@@ -914,6 +1002,7 @@ async function refresh() {
 // or rejected it, or another process consumed the slot. Leaving it up with a live Approve button
 // offers a decision that 404s, so follow the queue: show the next quarantined change instead, and
 // carry the last action's result across (the poll did not produce it, so the poll must not eat it).
+/** @param {Skill[]} skills */
 function syncReviewCard(skills) {
   const quarantined = skills.filter(s => s.pending).map(s => s.name);
   if (!quarantined.length) { showNoPending(); return; }
@@ -923,11 +1012,13 @@ function syncReviewCard(skills) {
 }
 
 // SkillOpt only ever writes a quarantined candidate.
+/** @param {string} skill */
 async function generateCandidate(skill) {
   await act("#skills-msg", async () =>
     `started SkillOpt for '${(await j(`/api/optimize/${skill}`, {method: "POST"})).started}'; optimization can take a few minutes`);
 }
 
+/** @param {string} diff */
 function colorizeDiff(diff) {
   if (!diff) return "(no textual diff)";
   return diff.split("\n").map(l => {
@@ -952,6 +1043,7 @@ function showNoPending() {
 
 // The recorded bundle, read back through the API's own containment check. It is advisory
 // rendering: a missing or unreadable bundle must not hide the diff and the decision.
+/** @param {string} skill */
 async function showEvidence(skill) {
   const pre = $("#evidence");
   pre.textContent = "loading…";
@@ -959,12 +1051,14 @@ async function showEvidence(skill) {
     const e = await j(`/api/evidence/${skill}`);
     pre.textContent = `runs/evidence/${e.path}\n\n${e.markdown}`;
   } catch (err) {
-    pre.textContent = `(no readable evidence bundle: ${err.message})`;
+    pre.textContent = `(no readable evidence bundle: ${err instanceof Error ? err.message : String(err)})`;
   }
 }
 
+/** @param {Risk|null} risk */
 function renderRisk(risk) {
   const r = risk || {added_lines: 0, removed_lines: 0, changed_pct: 0, size_delta_pct: 0};
+  /** @param {number} n */
   const signed = n => `${Number(n) >= 0 ? "+" : ""}${Number(n).toFixed(1)}%`;
   const warning = r.high_risk
     ? `<div class="risk-warning">⚠ High-risk rewrite: inspect the full body before deciding.</div>` : "";
@@ -977,6 +1071,7 @@ function renderRisk(risk) {
     `<div class="risk-stat"><b>${signed(r.size_delta_pct)}</b><span>body size</span></div>` + warning;
 }
 
+/** @param {Comparison[]|null} comparison */
 function renderSideDiff(comparison) {
   const rows = (comparison || []).map(part =>
     `<section class="side-component"><h4>${esc(part.component)}</h4><div class="side-columns">` +
@@ -985,17 +1080,18 @@ function renderSideDiff(comparison) {
     `</div></section>`).join("");
   $("#side-diff-body").innerHTML = rows ||
     `<div class="empty"><div class="ed">No component comparison is available.</div></div>`;
-  $("#side-diff").open = false;
+  element("#side-diff", HTMLDetailsElement).open = false;
 }
 
 // `keepMessage` is set when the poll switched cards by itself: a reviewer who just approved a
 // change has to keep reading "Promoted ...", while opening a card by hand clears the previous one.
+/** @param {string} skill @param {{keepMessage?:boolean,scroll?:boolean}} options */
 async function showPending(skill, {keepMessage = false, scroll = false} = {}) {
   let p;
   try {
     p = await j(`/api/pending/${skill}`);
   } catch (e) {
-    say("#pending-msg", `⛔ ${e.message}`, true);
+    say("#pending-msg", `⛔ ${e instanceof Error ? e.message : String(e)}`, true);
     return;
   }
   currentPending = skill;
@@ -1005,16 +1101,17 @@ async function showPending(skill, {keepMessage = false, scroll = false} = {}) {
   $("#pending-heading").textContent = "Pending change: " + skill;
   $("#pending-copy").textContent =
     "Held-out evidence for this change is below. Approval snapshots the current revision and swaps atomically, so promote only a clear, gate-passing win.";
-  $("#approve").textContent = "Approve & promote";
+  element("#approve", HTMLButtonElement).textContent = "Approve & promote";
   // stale evidence describes a champion that has since moved on disk: promotion would refuse it,
   // so the review card refuses it first rather than after the click
-  $("#approve").disabled = Boolean((p.gate && !p.gate.promotable) || p.stale);
+  element("#approve", HTMLButtonElement).disabled = Boolean((p.gate && !p.gate.promotable) || p.stale);
   // A record without candidate-search scores simply renders without the line.
   const search = p.inner_loop;
   let detail;
   if (p.ab) {  // quality pass: judge scores + token shift through the full agent
     const c = p.ab.champion, ch = p.ab.challenger, chalWins = ch.mean > c.mean;
 
+    /** @param {string} role @param {Scores} o @param {boolean} win */
     const cand = (role, o, win) =>
       `<div class="cand ${win ? "win" : "lose"}"><span class="role">${role}</span>
        <span class="score">${o.mean.toFixed(3)}</span>
@@ -1041,7 +1138,9 @@ async function showPending(skill, {keepMessage = false, scroll = false} = {}) {
     }
     detail = duel + meta + tok;
   } else {     // routing pass: embedding-router metrics, no LLM involved
+    if (!p.routing) throw new Error("Pending change has neither quality nor routing evidence");
     const c = p.routing.champion, ch = p.routing.challenger;
+    /** @param {number} a @param {number} b */
     const cell = (a, b) => `${a.toFixed(3)} → <b class="${b > a ? "win" : (b < a ? "lose" : "")}">${b.toFixed(3)}</b>`;
     detail = `<div class="metaline">routing pass (description), top-1 ${cell(c.top1, ch.top1)} · ` +
       `recall@3 ${cell(c.recall_at_3, ch.recall_at_3)} · ` +
@@ -1082,18 +1181,22 @@ async function showPending(skill, {keepMessage = false, scroll = false} = {}) {
 
 // Approve opens a comparison panel with model, token, and per-task evidence. Its primary action is
 // the final promotion decision, so the user does not have to click a third confirmation button.
+/** @param {number|null|undefined} x */
 const num = x => (x == null ? "," : Number(x).toFixed(0));
+/** @param {number|null|undefined} x */
 const sc = x => (x == null ? "," : Number(x).toFixed(3));
+/** @param {number|null|undefined} before @param {number|null|undefined} after @param {boolean} lowerBetter */
 function delta(before, after, lowerBetter) {
   if (before == null || after == null) return "";
   const d = after - before, cls = d === 0 ? "" : ((lowerBetter ? d < 0 : d > 0) ? "win" : "lose");
   const v = Math.abs(d) < 1 ? d.toFixed(3) : Math.round(d).toString();  // scores keep decimals, tokens whole
   return `<span class="${cls}">${d >= 0 ? "+" : ""}${v}</span>`;
 }
+/** @param {Pending} p */
 function buildCompare(p) {
-  const ab = p.ab || {}, c = ab.champion || {}, ch = ab.challenger || {};
-  const ct = c.tokens || {}, cht = ch.tokens || {};
-  const beforeScores = c.scores || [], afterScores = ch.scores || [];
+  const c = p.ab?.champion, ch = p.ab?.challenger;
+  const ct = c?.tokens, cht = ch?.tokens;
+  const beforeScores = c?.scores || [], afterScores = ch?.scores || [];
   const scoreRows = Array.from({length: Math.max(beforeScores.length, afterScores.length)}, (_, i) =>
     `<tr><td>Task ${i + 1}</td><td>${sc(beforeScores[i])}</td><td>${sc(afterScores[i])}</td>` +
     `<td>${delta(beforeScores[i], afterScores[i], false)}</td></tr>`).join("");
@@ -1102,13 +1205,13 @@ function buildCompare(p) {
     <div class="cmp-kv"><span>Judge (LLM-as-a-judge)</span><code>${esc(p.judge || ",")}</code></div></div>`;
   const scores = `<div class="cmp-sec"><h4>LLM-as-a-judge score · ${beforeScores.length} held-out tasks</h4>
     <table class="cmp-tbl"><tr><th></th><th>before</th><th>after</th><th>Δ</th></tr>
-      <tr><td>mean</td><td>${sc(c.mean)}</td><td>${sc(ch.mean)}</td><td>${delta(c.mean, ch.mean, false)}</td></tr>
+      <tr><td>mean</td><td>${sc(c?.mean)}</td><td>${sc(ch?.mean)}</td><td>${delta(c?.mean, ch?.mean, false)}</td></tr>
       ${scoreRows}
     </table></div>`;
   const tokens = `<div class="cmp-sec"><h4>Token usage / task, before → after</h4>
     <table class="cmp-tbl"><tr><th></th><th>before</th><th>after</th><th>Δ</th></tr>
-      <tr><td>input</td><td>${num(ct.mean_input)}</td><td>${num(cht.mean_input)}</td><td>${delta(ct.mean_input, cht.mean_input, true)}</td></tr>
-      <tr><td>output</td><td>${num(ct.mean_output)}</td><td>${num(cht.mean_output)}</td><td>${delta(ct.mean_output, cht.mean_output, true)}</td></tr>
+      <tr><td>input</td><td>${num(ct?.mean_input)}</td><td>${num(cht?.mean_input)}</td><td>${delta(ct?.mean_input, cht?.mean_input, true)}</td></tr>
+      <tr><td>output</td><td>${num(ct?.mean_output)}</td><td>${num(cht?.mean_output)}</td><td>${delta(ct?.mean_output, cht?.mean_output, true)}</td></tr>
     </table></div>`;
   return models + scores + tokens;
 }
@@ -1121,7 +1224,7 @@ function openCompare() {
   $("#cmp-overlay").hidden = false;
 }
 function closeCompare() { $("#cmp-overlay").hidden = true; }
-$("#approve").onclick = openCompare;
+element("#approve", HTMLButtonElement).onclick = openCompare;
 $("#cmp-cancel").onclick = closeCompare;
 $("#cmp-cancel2").onclick = closeCompare;
 $("#cmp-approve").onclick = () => act("#cmp-msg", async () => {
@@ -1134,10 +1237,10 @@ $("#cmp-approve").onclick = () => act("#cmp-msg", async () => {
 function openReject() {
   if (!currentPending) return;
   $("#reject-skill").textContent = currentPending;
-  $("#reject-reason").value = "";
+  element("#reject-reason", HTMLTextAreaElement).value = "";
   say("#reject-msg", "", false);
   $("#reject-overlay").hidden = false;
-  $("#reject-reason").focus();
+  element("#reject-reason", HTMLTextAreaElement).focus();
 }
 function closeReject() { $("#reject-overlay").hidden = true; }
 $("#reject").onclick = openReject;
@@ -1148,7 +1251,7 @@ $("#reject-confirm").onclick = () => act("#reject-msg", async () => {
   const skill = currentPending;
   const result = (await j(`/api/reject/${skill}`, {
     method: "POST", headers: {"Content-Type": "application/json"},
-    body: JSON.stringify({reason: $("#reject-reason").value})
+    body: JSON.stringify({reason: element("#reject-reason", HTMLTextAreaElement).value})
   })).result;
   closeReject();
   say("#pending-msg", result, false);
@@ -1164,8 +1267,10 @@ document.addEventListener("keydown", e => {
 
 j("/api/config").then(c => {
   langfuseUrl = c.langfuse_url;
-  $("#lf").href = c.langfuse_url; $("#lf2").href = c.langfuse_url;
+  element("#lf", HTMLAnchorElement).href = c.langfuse_url; element("#lf2", HTMLAnchorElement).href = c.langfuse_url;
 });
+// Inline onclick handlers resolve these entry points on the browser global.
+Object.assign(window, {rollback, openSkillVersions, generateCandidate, showPending});
 refresh(); setInterval(refresh, 3000);
 document.addEventListener("visibilitychange", () => {
   if (!document.hidden) refresh();

@@ -22,14 +22,21 @@ import yaml
 from langchain_core.tools import tool
 
 from agent.run import build_agent, langfuse_config, run_task
-from mcp_server.registry import SKILLS_DIR, load_skills, optimizable_components, skill_revision
+from mcp_server.registry import (
+    SKILLS_DIR,
+    load_skills,
+    optimizable_components,
+    skill_revision,
+)
 
 from . import agent_model, langfuse_available
 from . import usage as usage_ledger
-from .acceptance import classify as acceptance_classify, load_criteria as load_acceptance
-from .judge import MODELS as JUDGE_MODELS, judge
-from .promote import save_pending
+from .acceptance import classify as acceptance_classify
+from .acceptance import load_criteria as load_acceptance
 from .evidence import build_evidence, recorded_path, write_evidence
+from .judge import MODELS as JUDGE_MODELS
+from .judge import judge
+from .promote import save_pending
 
 TASKS_DIR = Path(__file__).resolve().parent / "tasks"
 
@@ -106,8 +113,8 @@ def retention_warnings(champion: dict, challenger: dict, changed: list[str], sam
     kept = body_retention(champion["body"], challenger.get("body", ""))
     if kept >= RETENTION_WARN:
         return []
-    return [f"challenger drops {1 - kept:.0%} of the champion body, gated on only {samples} "
-            f"held-out task(s), review the deletions carefully"]
+    return [(f"challenger drops {1 - kept:.0%} of the champion body, gated on only {samples} "
+            f"held-out task(s), review the deletions carefully")]
 
 
 def _description_shadows(skill: str, new_description: str) -> tuple[str, float]:
@@ -181,7 +188,7 @@ see your workspace."""
 # variants' input tokens identical to the digit). Routing fidelity is the description pass's job.
 # The template itself is shared with the candidate search's rollouts (optimize.SERVE_TEMPLATE) so
 # the search optimizes against the exact contract this A/B serves.
-from . import SERVE_TEMPLATE as EVAL_SERVE_TEMPLATE  # noqa: E402
+from . import SERVE_TEMPLATE as EVAL_SERVE_TEMPLATE
 
 
 def load_tasks(skill: str, log=print) -> tuple[list[dict], list[dict], dict]:
@@ -191,7 +198,8 @@ def load_tasks(skill: str, log=print) -> tuple[list[dict], list[dict], dict]:
     the teacher drafts one; that draft must include a real holdout before promotion."""
     p = TASKS_DIR / f"{skill}.yaml"
     if not p.exists():
-        from mcp_server.registry import SKILLS_DIR as _SD, read_components
+        from mcp_server.registry import SKILLS_DIR as _SD
+        from mcp_server.registry import read_components
         comps = read_components(_SD / skill)
         from .draft import draft_and_save
         draft_and_save(skill, comps["description"], comps["body"], TASKS_DIR, log=log)
@@ -212,10 +220,10 @@ def _variant_tools(skill: str, body: str, description: str):
     variant_router = Router(variants)
 
     @tool
-    async def route_and_load(task: str, harness: str, cwd: str, available_tools: list[str] = [],
-                             available_mcps: list[str] = []) -> dict:
+    async def route_and_load(task: str, harness: str, cwd: str, available_tools: list[str] | None = None,
+                             available_mcps: list[str] | None = None) -> dict:
         """Select and load one compatible skill, or return no match."""
-        return variant_router.route(task, harness, cwd, available_tools, available_mcps)
+        return variant_router.route(task, harness, cwd, available_tools or [], available_mcps or [])
 
     return [route_and_load]
 

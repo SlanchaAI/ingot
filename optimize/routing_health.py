@@ -12,6 +12,7 @@ unattended from cron or CI: docker compose run --rm optimize python -m optimize.
 """
 import argparse
 from pathlib import Path
+from typing import Protocol
 
 import yaml
 
@@ -29,7 +30,13 @@ def load_routing_cases(skill: str, tasks_dir: Path | None = None) -> list[dict]:
     return (yaml.safe_load(path.read_text()) or {}).get("routing") or []
 
 
-def check_suites(router: Router, skills: list[str], log=print) -> list[str]:
+class SuiteRouter(Protocol):
+    def route(self, task: str, harness: str, cwd: str, available_tools=(), available_mcps=(),
+              platform: str | None = None, min_score: float = 0.53,
+              related_score: float = 0.37) -> dict: ...
+
+
+def check_suites(router: SuiteRouter, skills: list[str], log=print) -> list[str]:
     """Replay each skill's routing suite against the live router; one problem line per failure."""
     problems = []
     for skill in skills:
