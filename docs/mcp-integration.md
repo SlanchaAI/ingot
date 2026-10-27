@@ -222,9 +222,12 @@ three options:
    [Using your own Langfuse project](configuration.md#using-your-own-langfuse-project).
 3. **A different platform** (Arize Phoenix, etc.): **not wired yet.** The write side already works
    for any platform: it's OpenTelemetry, and so is Langfuse, so your harness can export spans
-   anywhere. The *read* side is the gap: mining pulls traces from Langfuse's public trace API
-   (`GET /api/public/traces`), and that HTTP call lives in exactly one place, `fetch_traces()` in
-   `optimize/mine.py`. Supporting another platform means adding an adapter there that returns the
+   anywhere. The *read* side is the gap: mining pulls traces from Langfuse's Observations API v2
+   (`GET /api/public/v2/observations?isRootObservation=true`) through `fetch_traces()` in
+   `optimize/mine.py`, following `meta.cursor` and requesting `core,basic,io,trace_context`.
+   Mining requires Cloud or self-hosted v4; the bundled v3 server does not support this read API.
+   The connector smoke scripts still use legacy trace reads and need a separate migration.
+   Supporting another platform means adding an adapter there that returns the
    same `{task, rubric, answer, tags}` shape from that platform's API and support paginated reads;
    everything downstream (local clustering, cached representative judging, dimension aggregation,
    mined candidates) is backend-agnostic. First-class adapters for

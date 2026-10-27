@@ -56,6 +56,10 @@ def test_fetch_traces_parses_langgraph_agent_traces(monkeypatch):
 
 @pytest.mark.parametrize(("trace_input", "trace_output", "task", "answer"), [
     ("Codex task", "Codex answer", "Codex task", "Codex answer"),
+    ("123", "true", "123", "true"),
+    (json.dumps({"role": "user", "content": "Claude task"}),
+     json.dumps({"role": "assistant", "content": "Claude answer"}),
+     "Claude task", "Claude answer"),
     ({"role": "user", "content": "Claude task"},
      {"role": "assistant", "content": "Claude answer"}, "Claude task", "Claude answer"),
 ])
@@ -101,69 +105,63 @@ def test_fetch_traces_rejects_non_http_backend_urls_before_opening(monkeypatch, 
     assert opened == []
 
 
-def test_fetch_traces_zero_limit_paginates_all_uses(monkeypatch):
-    pages = {
-        1: [{"id": "one", "input": "task one", "output": "answer one"}],
-        2: [{"id": "two", "input": "task two", "output": "answer two"}],
-    }
+def test_fetch_traces_zero_limit_follows_cursors_and_preserves_shape(monkeypatch):
+    first = {"id": "root-one", "traceId": "trace-one",
+             "input": json.dumps({"task": "task one", "rubric": "r"}),
+             "output": json.dumps("answer one"), "tags": ["pdf"]}
+    pages = [
+        {"data": [first], "meta": {"cursor": "next+/="}},
+        # Duplicate-only short pages must not terminate cursor traversal.
+        {"data": [first], "meta": {"cursor": "last"}},
+        {"data": [{"id": "root-two", "traceId": "trace-one",
+                   "input": "task two", "output": "answer two"}],
+         "meta": {"cursor": None}},
+    ]
     requested = []
 
-    class Resp:
-        def __init__(self, page):
-            self.page = page
-
-        def __enter__(self):
-            return self
-
-        def __exit__(self, *args):
-            pass
-
-        def read(self):
-            return json.dumps({"data": pages[self.page],
-                               "meta": {"page": self.page, "totalPages": 2}}).encode()
-
     def urlopen(request, timeout=60):
-        page = int(parse_qs(urlparse(request.full_url).query)["page"][0])
-        requested.append(page)
-        return Resp(page)
+        url = urlparse(request.full_url)
+        query = parse_qs(url.query)
+        assert url.path == "/api/public/v2/observations"
+        assert query["isRootObservation"] == ["true"]
+        assert query["fields"] == ["core,basic,io,trace_context"]
+        assert query["limit"] == ["100"]
+        assert "page" not in query
+        requested.append(query.get("cursor"))
+        response = _Resp([])
+        response._d = json.dumps(pages[len(requested) - 1]).encode()
+        return response
 
     monkeypatch.setattr(mine.urllib.request, "urlopen", urlopen)
 
-    traces = mine.fetch_traces(0)
+    assert mine.fetch_traces(0) == [
+        {"task": "task one", "rubric": "r", "answer": "answer one", "tags": ["pdf"]},
+        {"task": "task two", "rubric": "", "answer": "answer two", "tags": []},
+    ]
+    assert requested == [None, ["next+/="], ["last"]]
 
-    assert requested == [1, 2]
-    assert [trace["task"] for trace in traces] == ["task one", "task two"]
+
+def test_fetch_traces_empty_result(monkeypatch):
+    monkeypatch.setattr(mine.urllib.request, "urlopen", lambda req, timeout=60: _Resp([]))
+    assert mine.fetch_traces() == []
 
 
 def test_fetch_traces_keeps_page_size_fixed_when_output_limit_stops_mid_page(monkeypatch):
     requested = []
 
-    class Resp:
-        def __init__(self, page):
-            self.page = page
-
-        def __enter__(self):
-            return self
-
-        def __exit__(self, *args):
-            pass
-
-        def read(self):
-            start = (self.page - 1) * mine.TRACE_PAGE_SIZE
-            data = [{"id": str(i), "input": f"task {i}", "output": f"answer {i}"}
-                    for i in range(start, start + mine.TRACE_PAGE_SIZE)]
-            return json.dumps({"data": data, "meta": {"totalPages": 3}}).encode()
-
     def urlopen(request, timeout=60):
         query = parse_qs(urlparse(request.full_url).query)
-        requested.append((int(query["page"][0]), int(query["limit"][0])))
-        return Resp(requested[-1][0])
+        requested.append((query.get("cursor"), int(query["limit"][0])))
+        start = (len(requested) - 1) * 100
+        data = [{"id": str(i), "input": f"task {i}", "output": f"answer {i}"}
+                for i in range(start, start + 100)]
+        response = _Resp([])
+        response._d = json.dumps({"data": data, "meta": {"cursor": "next"}}).encode()
+        return response
 
     monkeypatch.setattr(mine.urllib.request, "urlopen", urlopen)
-
     traces = mine.fetch_traces(150)
-
-    assert requested == [(1, mine.TRACE_PAGE_SIZE), (2, mine.TRACE_PAGE_SIZE)]
+    assert requested == [(None, 100), (["next"], 100)]
     assert len(traces) == 150
 
 
@@ -208,6 +206,8 @@ def test_mine_aggregates_failure_dimensions_and_mines_weakest(monkeypatch, tmp_p
         {"score": 0.9, "feedback": "f", "dimensions": {d: "pass" for d in DIMENSIONS}},
     ])
     monkeypatch.setattr(mine, "judge", lambda task, rubric, answer: next(verdicts))
+    monkeypatch.setattr(mine, "_normalized_embedder", lambda: None)
+    monkeypatch.setattr(mine, "_select_candidates", lambda *args, **kwargs: [0, 1])
     r = mine.mine("pdf", log=lambda *a, **k: None)
     assert r["traces"] == 3
     assert r["failure_dimensions"].get("correctness") == 2          # two traces failed correctness
@@ -346,6 +346,7 @@ def test_mine_weights_every_use_by_cluster_frequency(monkeypatch, tmp_path):
                        "correctness": "wrong" if task == "frequent failure" else "pass"},
     })
 
+    monkeypatch.setattr(mine, "_normalized_embedder", lambda: None)
     result = mine.mine("pdf", log=lambda *_: None)
 
     assert result["traces"] == 3 and result["clusters"] == 2

@@ -45,7 +45,7 @@ def _trace_key(trace: dict) -> str:
 
 def fetch_traces(limit: int = 0) -> list[dict]:
     """Traces with a recognizable task input and a non-empty answer output, read from the
-    configured evals backend's Langfuse-compatible trace API. Fails loudly when the backend is
+    configured evals backend's Langfuse Observations API v2. Fails loudly when the backend is
     unreachable: mining has no other source of real traffic, so a silent empty result would read
     as 'nothing failing' when it means 'no traces'. A zero limit paginates through all available
     traces; a positive limit is an explicit newest-N operational cap."""
@@ -57,17 +57,20 @@ def fetch_traces(limit: int = 0) -> list[dict]:
     auth = base64.b64encode(f"{LF_PK}:{LF_SK}".encode()).decode()
     out = []
     seen = set()
-    page = 1
+    cursor = None
     while True:
-        query = urlencode({"limit": TRACE_PAGE_SIZE, "page": page})
-        req = urllib.request.Request(f"{LF_URL.rstrip('/')}/api/public/traces?{query}",
+        params = {"limit": TRACE_PAGE_SIZE, "isRootObservation": "true",
+                  "fields": "core,basic,io,trace_context"}
+        if cursor:
+            params["cursor"] = cursor
+        query = urlencode(params)
+        req = urllib.request.Request(f"{LF_URL.rstrip('/')}/api/public/v2/observations?{query}",
                                      headers={"Authorization": f"Basic {auth}"})
         try:
             with urllib.request.urlopen(req, timeout=60) as response:
                 payload = json.loads(response.read())
             data = payload["data"]
             meta = payload.get("meta") or {}
-            total_pages = int(meta.get("totalPages") or 0)
         except (OSError, ValueError, KeyError) as e:
             raise SystemExit(
                 f"evals backend unreachable at {LF_URL} ({e}). Mining reads traces from Langfuse "
@@ -75,26 +78,34 @@ def fetch_traces(limit: int = 0) -> list[dict]:
                 f"(`docker compose up`) or point LANGFUSE_BASE_URL / _PUBLIC_KEY / _SECRET_KEY "
                 f"at your own provider. See docs/mcp-integration.md (Using your own evals "
                 f"platform).") from e
-        new_keys = 0
         for trace in data:
             key = _trace_key(trace)
             if key in seen:
                 continue
             seen.add(key)
-            new_keys += 1
-            parsed = _task_answer(trace.get("input"), trace.get("output"))
+            parsed = _task_answer(_decode_io(trace.get("input")),
+                                  _decode_io(trace.get("output")))
             if parsed:
                 task, rubric, answer = parsed
                 out.append({"task": task, "rubric": rubric, "answer": answer,
                             "tags": trace.get("tags", [])})
                 if limit and len(out) >= limit:
                     return out
-        if not data or not new_keys or (total_pages and page >= total_pages):
+        cursor = meta.get("cursor")
+        if not cursor:
             break
-        if not total_pages and len(data) < TRACE_PAGE_SIZE:
-            break
-        page += 1
     return out
+
+
+def _decode_io(value):
+    """V2 serializes structured input/output as JSON strings; retain plain text."""
+    if isinstance(value, str):
+        try:
+            decoded = json.loads(value)
+            return decoded if isinstance(decoded, (dict, list, str)) else value
+        except ValueError:
+            pass
+    return value
 
 
 def _task_answer(inp, ans):
