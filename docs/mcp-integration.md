@@ -224,7 +224,9 @@ three options:
    for any platform: it's OpenTelemetry, and so is Langfuse, so your harness can export spans
    anywhere. The *read* side is the gap: mining pulls traces from Langfuse's Observations API v2
    (`GET /api/public/v2/observations?isRootObservation=true`) through `fetch_traces()` in
-   `optimize/mine.py`, following `meta.cursor` and requesting `core,basic,io,trace_context`.
+   `optimize/mine.py`, following `meta.cursor` within bounded `fromStartTime`/`toStartTime`
+   windows and requesting `core,basic,io,trace_context`. Trace-level `id`/`input`/`output`/`tags`
+   are rebuilt from each root observation (`traceId`, decoded `io`, and `trace_context.tags`).
    Mining requires Cloud or self-hosted v4; the bundled v3 server does not support this read API.
    The connector smoke scripts still use legacy trace reads and need a separate migration.
    Supporting another platform means adding an adapter there that returns the

@@ -1,11 +1,26 @@
 """Unit tests for success/failure mining (optimize.mine), Langfuse HTTP and the judge are mocked."""
 import json
+from datetime import datetime, timedelta, timezone
 from urllib.parse import parse_qs, urlparse
 
 import pytest
 
 from optimize import mine
 from optimize.judge import DIMENSIONS
+
+# Freeze the clock and align the floor with [now+1s-7d, now+1s) so tests that do
+# not care about window walking issue exactly one time range.
+_NOW = datetime(2026, 11, 13, 17, 0, 0, tzinfo=timezone.utc)
+_WINDOW = timedelta(days=7)
+_WINDOW_TO = _NOW + timedelta(seconds=1)
+_WINDOW_FROM = _WINDOW_TO - _WINDOW
+
+
+@pytest.fixture(autouse=True)
+def _single_fetch_window(monkeypatch):
+    monkeypatch.setattr(mine, "_utcnow", lambda: _NOW)
+    monkeypatch.setattr(mine, "TRACE_TIME_WINDOW", _WINDOW)
+    monkeypatch.setattr(mine, "TRACE_TIME_FLOOR", _WINDOW_FROM)
 
 
 class _Resp:
@@ -105,6 +120,21 @@ def test_fetch_traces_rejects_non_http_backend_urls_before_opening(monkeypatch, 
     assert opened == []
 
 
+def _assert_observation_query(query, *, from_start, to_start, cursor=None):
+    assert query["isRootObservation"] == ["true"]
+    assert query["fields"] == ["core,basic,io,trace_context"]
+    assert query["limit"] == ["100"]
+    assert "page" not in query
+    assert query["fromStartTime"] == [from_start]
+    assert query["toStartTime"] == [to_start]
+    # fromStartTime is inclusive, toStartTime is exclusive.
+    assert from_start < to_start
+    if cursor is None:
+        assert "cursor" not in query
+    else:
+        assert query["cursor"] == [cursor]
+
+
 def test_fetch_traces_zero_limit_follows_cursors_and_preserves_shape(monkeypatch):
     first = {"id": "root-one", "traceId": "trace-one",
              "input": json.dumps({"task": "task one", "rubric": "r"}),
@@ -113,20 +143,21 @@ def test_fetch_traces_zero_limit_follows_cursors_and_preserves_shape(monkeypatch
         {"data": [first], "meta": {"cursor": "next+/="}},
         # Duplicate-only short pages must not terminate cursor traversal.
         {"data": [first], "meta": {"cursor": "last"}},
-        {"data": [{"id": "root-two", "traceId": "trace-one",
+        {"data": [{"id": "root-two", "traceId": "trace-two",
                    "input": "task two", "output": "answer two"}],
          "meta": {"cursor": None}},
     ]
     requested = []
+    from_start = mine._iso8601(_WINDOW_FROM)
+    to_start = mine._iso8601(_WINDOW_TO)
 
     def urlopen(request, timeout=60):
         url = urlparse(request.full_url)
         query = parse_qs(url.query)
         assert url.path == "/api/public/v2/observations"
-        assert query["isRootObservation"] == ["true"]
-        assert query["fields"] == ["core,basic,io,trace_context"]
-        assert query["limit"] == ["100"]
-        assert "page" not in query
+        cursor = query.get("cursor", [None])[0]
+        _assert_observation_query(query, from_start=from_start, to_start=to_start,
+                                  cursor=cursor)
         requested.append(query.get("cursor"))
         response = _Resp([])
         response._d = json.dumps(pages[len(requested) - 1]).encode()
@@ -139,6 +170,73 @@ def test_fetch_traces_zero_limit_follows_cursors_and_preserves_shape(monkeypatch
         {"task": "task two", "rubric": "", "answer": "answer two", "tags": []},
     ]
     assert requested == [None, ["next+/="], ["last"]]
+
+
+def test_fetch_traces_walks_adjacent_time_windows(monkeypatch):
+    """Newest-first 7-day windows share an exclusive boundary and page independently."""
+    now = datetime(2026, 11, 13, 17, 0, 0, tzinfo=timezone.utc)
+    window = timedelta(days=7)
+    newer_to = now + timedelta(seconds=1)
+    newer_from = newer_to - window
+    older_to = newer_from
+    older_from = newer_to - timedelta(days=14)
+    monkeypatch.setattr(mine, "_utcnow", lambda: now)
+    monkeypatch.setattr(mine, "TRACE_TIME_WINDOW", window)
+    monkeypatch.setattr(mine, "TRACE_TIME_FLOOR", older_from)
+    # Boundary is exclusive on the newer window's lower side? from is inclusive,
+    # to is exclusive, and the next window's to equals the previous from: no overlap.
+    assert older_to == newer_from
+
+    pages = {
+        (mine._iso8601(newer_from), mine._iso8601(newer_to), None): {
+            "data": [{"id": "r1", "traceId": "t-new",
+                      "input": "new task", "output": "new answer", "tags": ["new"]}],
+            "meta": {"cursor": "newer-next"},
+        },
+        (mine._iso8601(newer_from), mine._iso8601(newer_to), "newer-next"): {
+            "data": [{"id": "r2", "traceId": "t-new-2",
+                      "input": "new task 2", "output": "new answer 2", "tags": []}],
+            "meta": {},
+        },
+        (mine._iso8601(older_from), mine._iso8601(older_to), None): {
+            "data": [{"id": "r3", "traceId": "t-old",
+                      "input": json.dumps({"task": "old task", "rubric": "old-r"}),
+                      "output": "old answer", "tags": ["old"]}],
+            "meta": {},
+        },
+    }
+    requested = []
+
+    def urlopen(request, timeout=60):
+        url = urlparse(request.full_url)
+        query = parse_qs(url.query)
+        assert url.path == "/api/public/v2/observations"
+        from_start = query["fromStartTime"][0]
+        to_start = query["toStartTime"][0]
+        cursor = query.get("cursor", [None])[0]
+        _assert_observation_query(query, from_start=from_start, to_start=to_start,
+                                  cursor=cursor)
+        key = (from_start, to_start, cursor)
+        requested.append(key)
+        response = _Resp([])
+        response._d = json.dumps(pages[key]).encode()
+        return response
+
+    monkeypatch.setattr(mine.urllib.request, "urlopen", urlopen)
+
+    assert mine.fetch_traces(0) == [
+        {"task": "new task", "rubric": "", "answer": "new answer", "tags": ["new"]},
+        {"task": "new task 2", "rubric": "", "answer": "new answer 2", "tags": []},
+        {"task": "old task", "rubric": "old-r", "answer": "old answer", "tags": ["old"]},
+    ]
+    assert requested == [
+        (mine._iso8601(newer_from), mine._iso8601(newer_to), None),
+        (mine._iso8601(newer_from), mine._iso8601(newer_to), "newer-next"),
+        (mine._iso8601(older_from), mine._iso8601(older_to), None),
+    ]
+    # Windows are adjacent: older.to == newer.from, so an observation at the
+    # boundary is only eligible for the older window (toStartTime is exclusive).
+    assert requested[0][0] == requested[2][1]
 
 
 def test_fetch_traces_empty_result(monkeypatch):
