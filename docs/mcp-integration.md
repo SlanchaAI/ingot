@@ -146,6 +146,9 @@ For an authenticated live check, configure a Cloud or self-hosted v4 Langfuse pr
 real model request, requires a completed `route_and_load` call, waits for the matching Langfuse
 trace, and passes that trace through the mining parser. These are opt-in checks because they use an
 external agent account and are not suitable for ordinary unit CI.
+Set `LANGFUSE_BASE_URL`, `LANGFUSE_PUBLIC_KEY`, and `LANGFUSE_SECRET_KEY` for that project.
+Also set `SMOKE_LANGFUSE_DOCKER_URL` to its Docker-reachable URL (the same HTTPS URL for Cloud),
+so the final mining-parser container reads the same project as the host-side poller.
 
 
 ## Tracing from your own harness (MCP only)
