@@ -244,6 +244,21 @@ def test_fetch_traces_empty_result(monkeypatch):
     assert mine.fetch_traces() == []
 
 
+def test_fetch_traces_unusable_app_root_does_not_hide_usable_trace_root(monkeypatch):
+    # V2 logical roots can retain a parent and share a traceId with another root.
+    data = [
+        {"id": "app-root", "traceId": "same-trace", "input": "tool state", "output": None},
+        {"id": "trace-root", "traceId": "same-trace",
+         "input": json.dumps({"task": "real task"}), "output": json.dumps("real answer")},
+        {"id": "duplicate", "traceId": "same-trace",
+         "input": "duplicate task", "output": "duplicate answer"},
+    ]
+    monkeypatch.setattr(mine.urllib.request, "urlopen", lambda req, timeout=60: _Resp(data))
+
+    assert mine.fetch_traces() == [
+        {"task": "real task", "rubric": "", "answer": "real answer", "tags": []}]
+
+
 def test_fetch_traces_keeps_page_size_fixed_when_output_limit_stops_mid_page(monkeypatch):
     requested = []
 

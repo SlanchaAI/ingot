@@ -121,9 +121,9 @@ def fetch_traces(limit: int = 0) -> list[dict]:
                 key = _trace_key(trace)
                 if key in seen:
                     continue
-                seen.add(key)
                 parsed = _task_answer(trace["input"], trace["output"])
                 if parsed:
+                    seen.add(key)
                     task, rubric, answer = parsed
                     out.append({"task": task, "rubric": rubric, "answer": answer,
                                 "tags": trace["tags"]})
