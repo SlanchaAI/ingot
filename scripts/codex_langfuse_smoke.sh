@@ -6,6 +6,7 @@ LF_DOCKER_URL=${SMOKE_LANGFUSE_DOCKER_URL:-http://host.docker.internal:3100}
 LF_PK=${LANGFUSE_PUBLIC_KEY:-pk-lf-local-demo}
 LF_SK=${LANGFUSE_SECRET_KEY:-sk-lf-local-demo}
 MARKER="ingot-codex-smoke-$(date +%s)"
+export SMOKE_STARTED_AT=$(date -u +%Y-%m-%dT%H:%M:%SZ)
 WORKDIR=$(mktemp -d "${TMPDIR:-/tmp}/ingot-codex-smoke.XXXXXX")
 CODEX_LOG="$WORKDIR/codex.log"
 trap 'rm -rf "$WORKDIR"' EXIT INT TERM
@@ -31,21 +32,39 @@ grep -F "ingot/route_and_load (completed)" "$CODEX_LOG" >/dev/null || {
 
 LF_URL="$LF_URL" LF_PK="$LF_PK" LF_SK="$LF_SK" MARKER="$MARKER" python3 -c '
 import base64, json, os, time, urllib.request
+from datetime import datetime, timedelta, timezone
+from urllib.parse import urlencode
 
 auth = base64.b64encode((os.environ["LF_PK"] + ":" + os.environ["LF_SK"]).encode()).decode()
-url = os.environ["LF_URL"].rstrip("/") + "/api/public/traces?limit=50"
+url = os.environ["LF_URL"].rstrip("/") + "/api/public/v2/observations"
 marker = os.environ["MARKER"]
 for _ in range(30):
-    request = urllib.request.Request(url, headers={"Authorization": f"Basic {auth}"})
-    with urllib.request.urlopen(request, timeout=10) as response:
-        traces = json.load(response).get("data", [])
-    for trace in traces:
-        if marker in json.dumps([trace.get("input"), trace.get("output")]):
-            inp, out = trace.get("input"), trace.get("output")
-            if not isinstance(inp, str) or not isinstance(out, str):
-                raise SystemExit(f"unexpected Codex trace root shape: {type(inp)}, {type(out)}")
-            print(f"Codex trace round trip passed: {marker}")
-            raise SystemExit(0)
+    params = {"limit": 50, "isRootObservation": "true", "fields": "core,io",
+              "fromStartTime": os.environ["SMOKE_STARTED_AT"],
+              "toStartTime": (datetime.now(timezone.utc) + timedelta(seconds=1)).isoformat()}
+    while True:
+        request = urllib.request.Request(url + "?" + urlencode(params),
+                                         headers={"Authorization": f"Basic {auth}"})
+        with urllib.request.urlopen(request, timeout=10) as response:
+            payload = json.load(response)
+        for obs in payload["data"]:
+            if marker in json.dumps([obs.get("input"), obs.get("output")]):
+                values = []
+                for value in (obs.get("input"), obs.get("output")):
+                    try:
+                        value = json.loads(value) if isinstance(value, str) else value
+                    except ValueError:
+                        pass
+                    values.append(value)
+                inp, out = values
+                if not isinstance(inp, str) or not isinstance(out, str):
+                    raise SystemExit(f"unexpected Codex trace root shape: {type(inp)}, {type(out)}")
+                print(f"Codex trace round trip passed: {marker}")
+                raise SystemExit(0)
+        cursor = (payload.get("meta") or {}).get("cursor")
+        if not cursor:
+            break
+        params["cursor"] = cursor
     time.sleep(2)
 raise SystemExit(f"Codex trace containing {marker} was not found")
 '

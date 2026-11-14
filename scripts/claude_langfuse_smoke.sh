@@ -6,6 +6,7 @@ LF_DOCKER_URL=${SMOKE_LANGFUSE_DOCKER_URL:-http://host.docker.internal:3100}
 LF_PK=${LANGFUSE_PUBLIC_KEY:-pk-lf-local-demo}
 LF_SK=${LANGFUSE_SECRET_KEY:-sk-lf-local-demo}
 MARKER="ingot-claude-smoke-$(date +%s)"
+export SMOKE_STARTED_AT=$(date -u +%Y-%m-%dT%H:%M:%SZ)
 WORKDIR=$(mktemp -d "${TMPDIR:-/tmp}/ingot-claude-smoke.XXXXXX")
 CLAUDE_LOG="$WORKDIR/claude.jsonl"
 trap 'rm -rf "$WORKDIR"' EXIT INT TERM
@@ -44,17 +45,29 @@ print(f"Claude MCP call passed: {marker}")
 
 LF_URL="$LF_URL" LF_PK="$LF_PK" LF_SK="$LF_SK" MARKER="$MARKER" python3 -c '
 import base64, json, os, time, urllib.request
+from datetime import datetime, timedelta, timezone
+from urllib.parse import urlencode
 
 auth = base64.b64encode((os.environ["LF_PK"] + ":" + os.environ["LF_SK"]).encode()).decode()
-url = os.environ["LF_URL"].rstrip("/") + "/api/public/traces?limit=50"
+url = os.environ["LF_URL"].rstrip("/") + "/api/public/v2/observations"
 marker = os.environ["MARKER"]
 for _ in range(30):
-    request = urllib.request.Request(url, headers={"Authorization": f"Basic {auth}"})
-    with urllib.request.urlopen(request, timeout=10) as response:
-        traces = json.load(response).get("data", [])
-    if any(marker in json.dumps([trace.get("input"), trace.get("output")]) for trace in traces):
-        print(f"Claude trace round trip passed: {marker}")
-        raise SystemExit(0)
+    params = {"limit": 50, "isRootObservation": "true", "fields": "core,io",
+              "fromStartTime": os.environ["SMOKE_STARTED_AT"],
+              "toStartTime": (datetime.now(timezone.utc) + timedelta(seconds=1)).isoformat()}
+    while True:
+        request = urllib.request.Request(url + "?" + urlencode(params),
+                                         headers={"Authorization": f"Basic {auth}"})
+        with urllib.request.urlopen(request, timeout=10) as response:
+            payload = json.load(response)
+        if any(marker in json.dumps([obs.get("input"), obs.get("output")])
+               for obs in payload["data"]):
+            print(f"Claude trace round trip passed: {marker}")
+            raise SystemExit(0)
+        cursor = (payload.get("meta") or {}).get("cursor")
+        if not cursor:
+            break
+        params["cursor"] = cursor
     time.sleep(2)
 raise SystemExit(f"Claude trace containing {marker} was not found")
 '

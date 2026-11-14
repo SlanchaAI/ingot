@@ -141,7 +141,7 @@ agent files. After enrollment, verify behavior with a harmless request and confi
 `route_and_load` tool call and final answer appear in Langfuse. A successful `--doctor` result proves
 the connector is installed and reachable, but it does not prove the model followed this instruction.
 
-For an authenticated live check, start the bundled stack and run
+For an authenticated live check, configure a Cloud or self-hosted v4 Langfuse project and run
 `./scripts/claude_langfuse_smoke.sh` or `./scripts/codex_langfuse_smoke.sh`. Each script makes one
 real model request, requires a completed `route_and_load` call, waits for the matching Langfuse
 trace, and passes that trace through the mining parser. These are opt-in checks because they use an
@@ -228,7 +228,8 @@ three options:
    windows and requesting `core,basic,io,trace_context`. Trace-level `id`/`input`/`output`/`tags`
    are rebuilt from each root observation (`traceId`, decoded `io`, and `trace_context.tags`).
    Mining requires Cloud or self-hosted v4; the bundled v3 server does not support this read API.
-   The connector smoke scripts still use legacy trace reads and need a separate migration.
+   The connector smoke scripts use the same v2 root-observation API, polling with bounded
+   time ranges and following cursors until the connector marker appears.
    Supporting another platform means adding an adapter there that returns the
    same `{task, rubric, answer, tags}` shape from that platform's API and support paginated reads;
    everything downstream (local clustering, cached representative judging, dimension aggregation,
