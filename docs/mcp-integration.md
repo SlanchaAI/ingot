@@ -141,11 +141,14 @@ agent files. After enrollment, verify behavior with a harmless request and confi
 `route_and_load` tool call and final answer appear in Langfuse. A successful `--doctor` result proves
 the connector is installed and reachable, but it does not prove the model followed this instruction.
 
-For an authenticated live check, start the bundled stack and run
+For an authenticated live check, configure a Cloud or self-hosted v4 Langfuse project and run
 `./scripts/claude_langfuse_smoke.sh` or `./scripts/codex_langfuse_smoke.sh`. Each script makes one
 real model request, requires a completed `route_and_load` call, waits for the matching Langfuse
 trace, and passes that trace through the mining parser. These are opt-in checks because they use an
 external agent account and are not suitable for ordinary unit CI.
+Set `LANGFUSE_BASE_URL`, `LANGFUSE_PUBLIC_KEY`, and `LANGFUSE_SECRET_KEY` for that project.
+Also set `SMOKE_LANGFUSE_DOCKER_URL` to its Docker-reachable URL (the same HTTPS URL for Cloud),
+so the final mining-parser container reads the same project as the host-side poller.
 
 
 ## Tracing from your own harness (MCP only)
@@ -222,9 +225,15 @@ three options:
    [Using your own Langfuse project](configuration.md#using-your-own-langfuse-project).
 3. **A different platform** (Arize Phoenix, etc.): **not wired yet.** The write side already works
    for any platform: it's OpenTelemetry, and so is Langfuse, so your harness can export spans
-   anywhere. The *read* side is the gap: mining pulls traces from Langfuse's public trace API
-   (`GET /api/public/traces`), and that HTTP call lives in exactly one place, `fetch_traces()` in
-   `optimize/mine.py`. Supporting another platform means adding an adapter there that returns the
+   anywhere. The *read* side is the gap: mining pulls traces from Langfuse's Observations API v2
+   (`GET /api/public/v2/observations?isRootObservation=true`) through `fetch_traces()` in
+   `optimize/mine.py`, following `meta.cursor` within bounded `fromStartTime`/`toStartTime`
+   windows and requesting `core,basic,io,trace_context`. Trace-level `id`/`input`/`output`/`tags`
+   are rebuilt from each root observation (`traceId`, decoded `io`, and `trace_context.tags`).
+   Mining requires Cloud or self-hosted v4; the bundled v3 server does not support this read API.
+   The connector smoke scripts use the same v2 root-observation API, polling with bounded
+   time ranges and following cursors until the connector marker appears.
+   Supporting another platform means adding an adapter there that returns the
    same `{task, rubric, answer, tags}` shape from that platform's API and support paginated reads;
    everything downstream (local clustering, cached representative judging, dimension aggregation,
    mined candidates) is backend-agnostic. First-class adapters for

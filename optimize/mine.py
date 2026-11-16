@@ -18,6 +18,7 @@ import json
 import os
 import urllib.request
 from collections import Counter, defaultdict
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Callable, NamedTuple
 from urllib.parse import urlencode, urlparse
@@ -30,6 +31,12 @@ LF_SK = os.environ.get("LANGFUSE_SECRET_KEY", "sk-lf-local-demo")
 RUNS_DIR = Path(__file__).resolve().parent.parent / "runs"
 JUDGE_CACHE_FILE = RUNS_DIR / "mine-cache" / "judgments.json"
 TRACE_PAGE_SIZE = 100
+# Observations API v2 searches only from 2020-01-01 unless a lower bound is set; walk
+# inclusive/exclusive [fromStartTime, toStartTime) windows newest-first so each request stays
+# bounded and cursor pagination stays within one window.
+TRACE_TIME_WINDOW = timedelta(days=30)
+TRACE_TIME_FLOOR = datetime(2020, 1, 1, tzinfo=timezone.utc)
+OBS_FIELDS = "core,basic,io,trace_context"
 CLUSTER_THRESHOLD = float(os.environ.get("MINE_CLUSTER_THRESHOLD", "0.90"))
 MAX_JUDGE_CALLS = int(os.environ.get("MINE_MAX_JUDGE_CALLS", "24"))
 CACHE_VERSION = 1
@@ -43,9 +50,33 @@ def _trace_key(trace: dict) -> str:
     return hashlib.sha256(material.encode()).hexdigest()
 
 
+def _utcnow() -> datetime:
+    return datetime.now(timezone.utc)
+
+
+def _iso8601(dt: datetime) -> str:
+    """UTC ISO-8601 with a Z suffix, as Langfuse's fromStartTime/toStartTime expect."""
+    return dt.astimezone(timezone.utc).isoformat().replace("+00:00", "Z")
+
+
+def _observation_as_trace(obs: dict) -> dict:
+    """Rebuild the legacy trace fields mining uses from a v2 root observation.
+
+    v4 has no trace-level input/output; those come from the root observation (the
+    isRootObservation=true row). The legacy trace id is the row's traceId. tags,
+    release, and traceName are in the trace_context field group.
+    """
+    return {
+        "id": obs.get("traceId") or obs.get("id"),
+        "input": _decode_io(obs.get("input")),
+        "output": _decode_io(obs.get("output")),
+        "tags": obs.get("tags") or [],
+    }
+
+
 def fetch_traces(limit: int = 0) -> list[dict]:
     """Traces with a recognizable task input and a non-empty answer output, read from the
-    configured evals backend's Langfuse-compatible trace API. Fails loudly when the backend is
+    configured evals backend's Langfuse Observations API v2. Fails loudly when the backend is
     unreachable: mining has no other source of real traffic, so a silent empty result would read
     as 'nothing failing' when it means 'no traces'. A zero limit paginates through all available
     traces; a positive limit is an explicit newest-N operational cap."""
@@ -57,44 +88,65 @@ def fetch_traces(limit: int = 0) -> list[dict]:
     auth = base64.b64encode(f"{LF_PK}:{LF_SK}".encode()).decode()
     out = []
     seen = set()
-    page = 1
-    while True:
-        query = urlencode({"limit": TRACE_PAGE_SIZE, "page": page})
-        req = urllib.request.Request(f"{LF_URL.rstrip('/')}/api/public/traces?{query}",
-                                     headers={"Authorization": f"Basic {auth}"})
-        try:
-            with urllib.request.urlopen(req, timeout=60) as response:
-                payload = json.loads(response.read())
-            data = payload["data"]
-            meta = payload.get("meta") or {}
-            total_pages = int(meta.get("totalPages") or 0)
-        except (OSError, ValueError, KeyError) as e:
-            raise SystemExit(
-                f"evals backend unreachable at {LF_URL} ({e}). Mining reads traces from Langfuse "
-                f"(the default) or a Langfuse-compatible endpoint; bring up the stack "
-                f"(`docker compose up`) or point LANGFUSE_BASE_URL / _PUBLIC_KEY / _SECRET_KEY "
-                f"at your own provider. See docs/mcp-integration.md (Using your own evals "
-                f"platform).") from e
-        new_keys = 0
-        for trace in data:
-            key = _trace_key(trace)
-            if key in seen:
-                continue
-            seen.add(key)
-            new_keys += 1
-            parsed = _task_answer(trace.get("input"), trace.get("output"))
-            if parsed:
-                task, rubric, answer = parsed
-                out.append({"task": task, "rubric": rubric, "answer": answer,
-                            "tags": trace.get("tags", [])})
-                if limit and len(out) >= limit:
-                    return out
-        if not data or not new_keys or (total_pages and page >= total_pages):
+    # toStartTime is exclusive; nudge past now so in-flight observations are included.
+    window_to = _utcnow() + timedelta(seconds=1)
+    while window_to > TRACE_TIME_FLOOR:
+        window_from = max(window_to - TRACE_TIME_WINDOW, TRACE_TIME_FLOOR)
+        cursor = None
+        while True:
+            params = {"limit": TRACE_PAGE_SIZE, "isRootObservation": "true",
+                      "fields": OBS_FIELDS,
+                      "fromStartTime": _iso8601(window_from),
+                      "toStartTime": _iso8601(window_to)}
+            if cursor:
+                params["cursor"] = cursor
+            query = urlencode(params)
+            req = urllib.request.Request(
+                f"{LF_URL.rstrip('/')}/api/public/v2/observations?{query}",
+                headers={"Authorization": f"Basic {auth}"})
+            try:
+                with urllib.request.urlopen(req, timeout=60) as response:
+                    payload = json.loads(response.read())
+                data = payload["data"]
+                meta = payload.get("meta") or {}
+            except (OSError, ValueError, KeyError) as e:
+                raise SystemExit(
+                    f"evals backend unreachable at {LF_URL} ({e}). Mining reads traces from "
+                    f"Langfuse (the default) or a Langfuse-compatible endpoint; bring up the "
+                    f"stack (`docker compose up`) or point LANGFUSE_BASE_URL / _PUBLIC_KEY / "
+                    f"_SECRET_KEY at your own provider. See docs/mcp-integration.md (Using "
+                    f"your own evals platform).") from e
+            for obs in data:
+                trace = _observation_as_trace(obs)
+                key = _trace_key(trace)
+                if key in seen:
+                    continue
+                parsed = _task_answer(trace["input"], trace["output"])
+                if parsed:
+                    seen.add(key)
+                    task, rubric, answer = parsed
+                    out.append({"task": task, "rubric": rubric, "answer": answer,
+                                "tags": trace["tags"]})
+                    if limit and len(out) >= limit:
+                        return out
+            cursor = meta.get("cursor")
+            if not cursor:
+                break
+        if window_from <= TRACE_TIME_FLOOR:
             break
-        if not total_pages and len(data) < TRACE_PAGE_SIZE:
-            break
-        page += 1
+        window_to = window_from
     return out
+
+
+def _decode_io(value):
+    """V2 serializes structured input/output as JSON strings; retain plain text."""
+    if isinstance(value, str):
+        try:
+            decoded = json.loads(value)
+            return decoded if isinstance(decoded, (dict, list, str)) else value
+        except ValueError:
+            pass
+    return value
 
 
 def _task_answer(inp, ans):
